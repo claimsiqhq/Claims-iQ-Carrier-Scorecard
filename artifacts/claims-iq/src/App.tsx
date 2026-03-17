@@ -5,6 +5,8 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { Sidebar } from "@/components/Sidebar";
 import ClaimsListPage from "@/pages/claims-list";
 import ClaimDetailPage from "@/pages/claim-detail";
+import UploadPage from "@/pages/upload";
+import AuditResultsPage from "@/pages/audit-results";
 import SettingsPage from "@/pages/settings";
 import { useListClaims } from "@workspace/api-client-react";
 import { useLocation } from "wouter";
@@ -77,6 +79,8 @@ function AppLayout() {
         <Route path="/" component={DashboardHome} />
         <Route path="/claims" component={ClaimsListPage} />
         <Route path="/claims/:id">{(params) => <ClaimDetailWrapper params={params} />}</Route>
+        <Route path="/upload" component={UploadPage} />
+        <Route path="/audit-results" component={AuditResultsPage} />
         <Route path="/settings" component={SettingsPage} />
         <Route>
           <main className="flex-1 flex items-center justify-center" style={{ backgroundColor: BRAND.offWhite }}>
