@@ -5,11 +5,14 @@
  * Claims iQ Audit API
  * OpenAPI spec version: 0.1.0
  */
+import type { DocumentMetadata } from "./documentMetadata";
 
 export interface Document {
   id: string;
   claimId: string;
   type: string;
   fileUrl?: string;
+  extractedText?: string;
+  metadata?: DocumentMetadata;
   createdAt?: string;
 }

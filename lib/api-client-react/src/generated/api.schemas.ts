@@ -58,11 +58,15 @@ export interface Claim {
   createdAt?: string;
 }
 
+export type DocumentMetadata = { [key: string]: unknown };
+
 export interface Document {
   id: string;
   claimId: string;
   type: string;
   fileUrl?: string;
+  extractedText?: string;
+  metadata?: DocumentMetadata;
   createdAt?: string;
 }
 

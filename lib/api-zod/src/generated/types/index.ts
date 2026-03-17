@@ -13,6 +13,7 @@ export * from "./claim";
 export * from "./claimDetail";
 export * from "./createDocumentRequest";
 export * from "./document";
+export * from "./documentMetadata";
 export * from "./errorEnvelope";
 export * from "./extractTextResponse";
 export * from "./healthStatus";

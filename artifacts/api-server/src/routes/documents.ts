@@ -23,14 +23,16 @@ router.post("/claims/:id/documents", async (req, res) => {
     }
 
     const { type, objectPath, fileName, contentType } = req.body;
-    if (!type || !objectPath || !fileName) {
-      res.status(400).json({ error: "type, objectPath, and fileName are required" });
+    if (!objectPath || !fileName) {
+      res.status(400).json({ error: "objectPath and fileName are required" });
       return;
     }
 
+    await db.delete(documents).where(eq(documents.claimId, id));
+
     const [doc] = await db.insert(documents).values({
       claimId: id,
-      type,
+      type: type || "claim_file",
       fileUrl: objectPath,
       metadata: { fileName, contentType: contentType || "application/octet-stream", objectPath },
     }).returning();

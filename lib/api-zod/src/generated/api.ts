@@ -51,6 +51,8 @@ export const GetClaimDetailResponse = zod.object({
       claimId: zod.string(),
       type: zod.string(),
       fileUrl: zod.string().optional(),
+      extractedText: zod.string().optional(),
+      metadata: zod.object({}).passthrough().optional(),
       createdAt: zod.string().optional(),
     }),
   ),

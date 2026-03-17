@@ -340,6 +340,10 @@ components:
           type: string
         fileUrl:
           type: string
+        extractedText:
+          type: string
+        metadata:
+          type: object
         createdAt:
           type: string
 

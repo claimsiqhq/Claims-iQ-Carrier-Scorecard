@@ -8,6 +8,37 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 const router: IRouter = Router();
 
+router.post("/claims", async (req, res) => {
+  try {
+    const { claimNumber, insuredName, carrier, dateOfLoss } = req.body;
+    if (!claimNumber || !insuredName) {
+      res.status(400).json({ error: "claimNumber and insuredName are required" });
+      return;
+    }
+
+    const [newClaim] = await db.insert(claims).values({
+      claimNumber,
+      insuredName,
+      carrier: carrier || null,
+      dateOfLoss: dateOfLoss || null,
+      status: "pending",
+    }).returning();
+
+    res.status(201).json({
+      id: newClaim.id,
+      claimNumber: newClaim.claimNumber ?? "",
+      insuredName: newClaim.insuredName ?? "",
+      carrier: newClaim.carrier ?? undefined,
+      dateOfLoss: newClaim.dateOfLoss ?? undefined,
+      status: newClaim.status ?? "pending",
+      createdAt: newClaim.createdAt?.toISOString() ?? undefined,
+    });
+  } catch (err) {
+    console.error("Error creating claim:", err);
+    res.status(500).json({ error: "Failed to create claim" });
+  }
+});
+
 router.get("/claims", async (_req, res) => {
   try {
     const allClaims = await db.select().from(claims);
@@ -97,6 +128,8 @@ router.get("/claims/:id", async (req, res) => {
         claimId: d.claimId ?? "",
         type: d.type ?? "",
         fileUrl: d.fileUrl ?? undefined,
+        extractedText: d.extractedText ?? undefined,
+        metadata: d.metadata ?? undefined,
         createdAt: d.createdAt?.toISOString() ?? undefined,
       })),
       audit: auditResult,

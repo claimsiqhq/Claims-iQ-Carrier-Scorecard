@@ -10,7 +10,6 @@ import {
   Download,
   Mail,
   Sparks,
-  PageEdit,
   ClipboardCheck,
   Folder,
   CreditCard,
@@ -68,7 +67,6 @@ function getScoreColor(score: number, max: number): { text: string; bg: string; 
 
 export default function ClaimDetailPage({ claimId }: { claimId: string }) {
   const [activeTab, setActiveTab] = useState("defects")
-  const [activeDoc, setActiveDoc] = useState("desk")
   const [, setLocation] = useLocation()
   const [auditing, setAuditing] = useState(false)
   const [auditError, setAuditError] = useState<string | null>(null)
@@ -184,20 +182,8 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
   const risks = findings.filter((f) => f.type === "risk")
   const deferred = findings.filter((f) => f.type === "deferred")
 
-  const docTypeLabels: Record<string, string> = {
-    FNOL: "FNOL Report",
-    policy: "Policy Declaration",
-    estimate: "Xactimate Estimate",
-    photos: "Field Photos",
-    desk_report: "Desk Adjuster Report",
-  }
-  const docTypeFormats: Record<string, "pdf" | "doc" | "esx" | "img"> = {
-    FNOL: "pdf",
-    policy: "pdf",
-    estimate: "esx",
-    photos: "img",
-    desk_report: "doc",
-  }
+  const claimFile = docs.length > 0 ? docs[0] : null
+  const claimFileName = claimFile ? ((claimFile as any).metadata?.fileName || claimFile.type || "Claim File") : null
 
   return (
     <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
@@ -263,18 +249,20 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
 
             <div>
               <h3 className="text-xs font-bold uppercase tracking-wider mb-3" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
-                Documents
+                Claim File
               </h3>
-              <div className="space-y-1">
-                {docs.map((d) => (
-                  <DocumentItem
-                    key={d.id}
-                    name={docTypeLabels[d.type] || d.type}
-                    type={docTypeFormats[d.type] || "doc"}
-                    active={false}
-                  />
-                ))}
-              </div>
+              {claimFile ? (
+                <div className="flex items-center gap-2 p-2 rounded-md" style={{ backgroundColor: BRAND.lightPurpleGrey, border: `1px solid ${BRAND.purpleLight}` }}>
+                  <Page width={16} height={16} style={{ color: BRAND.purple }} />
+                  <span className="text-sm truncate" style={{ color: BRAND.purple, fontWeight: 600, fontFamily: FONTS.body }}>
+                    {claimFileName}
+                  </span>
+                </div>
+              ) : (
+                <p className="text-xs" style={{ color: BRAND.purpleSecondary }}>
+                  No file uploaded yet. Go to Upload / Ingest to add a claim file.
+                </p>
+              )}
             </div>
 
             <div className="pt-4 space-y-2">
@@ -491,64 +479,32 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
 
         <div className="w-80 flex flex-col shrink-0 hidden xl:flex" style={{ backgroundColor: BRAND.white, borderLeft: `1px solid ${BRAND.greyLavender}` }}>
           <div className="p-4" style={{ borderBottom: `1px solid ${BRAND.greyLavender}` }}>
-            <h2 className="text-sm font-semibold mb-3" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>Document Viewer</h2>
-            <div className="flex rounded-md p-0.5 w-full" style={{ backgroundColor: BRAND.lightPurpleGrey }}>
-              {(["desk", "est", "photos"] as const).map((doc) => (
-                <button
-                  key={doc}
-                  className="flex-1 text-xs py-1.5 px-2 rounded-sm font-medium transition-colors"
-                  style={{
-                    backgroundColor: activeDoc === doc ? BRAND.white : "transparent",
-                    color: activeDoc === doc ? BRAND.deepPurple : BRAND.purpleSecondary,
-                    boxShadow: activeDoc === doc ? "0 1px 2px rgba(0,0,0,0.05)" : "none",
-                    fontFamily: FONTS.heading,
-                  }}
-                  onClick={() => setActiveDoc(doc)}
-                >
-                  {doc === "desk" ? "Desk Rpt" : doc === "est" ? "Estimate" : "Photos"}
-                </button>
-              ))}
-            </div>
+            <h2 className="text-sm font-semibold" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>Document Viewer</h2>
+            {claimFileName && (
+              <p className="text-xs mt-1 truncate" style={{ color: BRAND.purpleSecondary }}>{claimFileName}</p>
+            )}
           </div>
 
           <ScrollArea className="flex-1 p-4" style={{ backgroundColor: BRAND.offWhite }}>
-            <div className="rounded shadow-sm w-full min-h-[600px] p-6 text-xs leading-relaxed" style={{ backgroundColor: BRAND.white, border: `1px solid ${BRAND.greyLavender}`, color: BRAND.deepPurple, fontFamily: FONTS.body }}>
-              <div className="text-center font-bold text-sm mb-6 pb-4 uppercase tracking-widest" style={{ borderBottom: `1px solid ${BRAND.greyLavender}`, fontFamily: FONTS.heading }}>
-                {activeDoc === "desk" ? "Desk Adjuster Report" : activeDoc === "est" ? "Xactimate Estimate" : "Field Photos"}
+            {claimFile ? (
+              <div className="rounded shadow-sm w-full min-h-[600px] p-6 text-xs leading-relaxed whitespace-pre-wrap" style={{ backgroundColor: BRAND.white, border: `1px solid ${BRAND.greyLavender}`, color: BRAND.deepPurple, fontFamily: FONTS.mono, fontSize: "11px" }}>
+                {(claimFile as any).extractedText
+                  ? (claimFile as any).extractedText
+                  : (
+                    <p className="text-center mt-12" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.body, fontSize: "13px" }}>
+                      Text not yet extracted. Run a carrier audit or re-upload the file.
+                    </p>
+                  )}
               </div>
-
-              {activeDoc === "desk" && (
-                <>
-                  <p className="mb-4" style={{ fontFamily: FONTS.mono, fontSize: "11px" }}>
-                    <strong>Claim #:</strong> {claim.claimNumber}<br />
-                    <strong>Insured:</strong> {claim.insuredName}<br />
-                    <strong>Date:</strong> {claim.dateOfLoss}
-                  </p>
-                  <h4 className="font-bold mt-6 mb-2 uppercase text-[10px] tracking-wider" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>Summary of Findings</h4>
-                  <p className="mb-4 text-justify">
-                    Inspection of the property revealed significant wind and hail damage consistent with the reported date of loss. The primary dwelling sustained damage to the architectural shingle roof, particularly on the west and south facing slopes.
-                  </p>
-                  <h4 className="font-bold mt-6 mb-2 uppercase text-[10px] tracking-wider" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>Scope Notes</h4>
-                  <p className="mb-4 text-justify">
-                    Full roof replacement is recommended.{" "}
-                    <span className="px-1 py-0.5 rounded" style={{ backgroundColor: "#fef9ec", color: BRAND.gold, outline: `1px solid ${BRAND.goldLight}` }}>
-                      Overhead and profit (10/10) has been applied to the estimate due to the coordination required between the roofing contractor and the siding repair team.
-                    </span>{" "}
-                    The north elevation siding also shows signs of minor wind damage.
-                  </p>
-                </>
-              )}
-              {activeDoc === "est" && (
-                <p className="text-center mt-12" style={{ color: BRAND.purpleSecondary }}>
-                  Xactimate estimate data will be displayed here once uploaded.
+            ) : (
+              <div className="flex flex-col items-center justify-center h-full py-20">
+                <Page width={40} height={40} className="mb-3" style={{ color: BRAND.purpleSecondary }} />
+                <p className="text-sm font-semibold mb-1" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>No File Uploaded</p>
+                <p className="text-xs text-center" style={{ color: BRAND.purpleSecondary }}>
+                  Upload a claim PDF via Upload / Ingest to view it here.
                 </p>
-              )}
-              {activeDoc === "photos" && (
-                <p className="text-center mt-12" style={{ color: BRAND.purpleSecondary }}>
-                  Field photos will be displayed here once uploaded.
-                </p>
-              )}
-            </div>
+              </div>
+            )}
           </ScrollArea>
         </div>
       </div>
@@ -689,26 +645,6 @@ function DetailItem({ label, value, mono = false }: { label: string; value: stri
     <div className="flex flex-col gap-1">
       <span className="text-xs font-medium uppercase tracking-wider" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.body }}>{label}</span>
       <span className="text-sm font-semibold" style={{ color: BRAND.deepPurple, fontFamily: mono ? FONTS.mono : FONTS.body }}>{value}</span>
-    </div>
-  )
-}
-
-function DocumentItem({ name, type, active = false }: { name: string; type: "pdf" | "doc" | "esx" | "img"; active?: boolean }) {
-  const iconColor = type === "esx" || type === "img" ? BRAND.gold : BRAND.purple
-  return (
-    <div
-      className="flex items-center justify-between p-2 rounded-md cursor-pointer transition-colors"
-      style={{
-        backgroundColor: active ? BRAND.lightPurpleGrey : "transparent",
-        border: active ? `1px solid ${BRAND.purpleLight}` : "1px solid transparent",
-      }}
-    >
-      <div className="flex items-center gap-2 overflow-hidden">
-        <PageEdit width={16} height={16} style={{ color: iconColor }} />
-        <span className="text-sm truncate" style={{ color: active ? BRAND.purple : BRAND.deepPurple, fontWeight: active ? 600 : 400, fontFamily: FONTS.body }}>
-          {name}
-        </span>
-      </div>
     </div>
   )
 }
