@@ -1,4 +1,4 @@
-import React, { useState } from "react"
+import React, { useState, useCallback } from "react"
 import {
   Shield,
   CheckCircle,
@@ -23,7 +23,22 @@ import { BRAND, FONTS } from "@/lib/brand"
 import { useGetClaimDetail } from "@workspace/api-client-react"
 import { useLocation } from "wouter"
 
+const SECTION_LABELS: Record<string, string> = {
+  coverage_clarity: "Coverage Clarity",
+  scope_completeness: "Scope Completeness",
+  estimate_accuracy: "Estimate Accuracy",
+  documentation_support: "Doc Support",
+  financial_accuracy: "Financial Accuracy",
+  carrier_risk: "Carrier Risk",
+}
+
 const SECTION_ICONS: Record<string, React.ReactNode> = {
+  coverage_clarity: <Shield width={16} height={16} />,
+  scope_completeness: <CheckCircle width={16} height={16} />,
+  estimate_accuracy: <Calculator width={16} height={16} />,
+  documentation_support: <PageSearch width={16} height={16} />,
+  financial_accuracy: <DollarCircle width={16} height={16} />,
+  carrier_risk: <WarningTriangle width={16} height={16} />,
   "Coverage Clarity": <Shield width={16} height={16} />,
   "Scope Completeness": <CheckCircle width={16} height={16} />,
   "Estimate Accuracy": <Calculator width={16} height={16} />,
@@ -42,8 +57,28 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
   const [activeTab, setActiveTab] = useState("defects")
   const [activeDoc, setActiveDoc] = useState("desk")
   const [, setLocation] = useLocation()
+  const [auditing, setAuditing] = useState(false)
+  const [auditError, setAuditError] = useState<string | null>(null)
 
-  const { data, isLoading, error } = useGetClaimDetail(claimId)
+  const { data, isLoading, error, refetch } = useGetClaimDetail(claimId)
+
+  const handleRunAudit = useCallback(async () => {
+    setAuditing(true)
+    setAuditError(null)
+    try {
+      const baseUrl = import.meta.env.VITE_API_URL || "/api"
+      const res = await fetch(`${baseUrl}/claims/${claimId}/audit`, { method: "POST" })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body.error || "Audit failed")
+      }
+      await refetch()
+    } catch (err: any) {
+      setAuditError(err.message || "Failed to run audit")
+    } finally {
+      setAuditing(false)
+    }
+  }, [claimId, refetch])
 
   if (isLoading) {
     return (
@@ -70,7 +105,7 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
   const findings = audit?.findings ?? []
 
   const defects = findings.filter((f) => f.type === "defect")
-  const questions = findings.filter((f) => f.type === "question")
+  const questions = findings.filter((f) => f.type === "question" || f.type === "carrier_question")
   const risks = findings.filter((f) => f.type === "risk")
   const deferred = findings.filter((f) => f.type === "deferred")
 
@@ -153,10 +188,25 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
               </div>
             </div>
 
-            <div className="pt-4">
-              <Button className="w-full text-white font-semibold" style={{ backgroundColor: BRAND.purple, fontFamily: FONTS.heading }}>
-                Run Final Audit
+            <div className="pt-4 space-y-2">
+              <Button
+                className="w-full text-white font-semibold"
+                style={{ backgroundColor: auditing ? BRAND.purpleSecondary : BRAND.purple, fontFamily: FONTS.heading }}
+                onClick={handleRunAudit}
+                disabled={auditing}
+              >
+                {auditing ? (
+                  <span className="flex items-center gap-2">
+                    <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    Running Audit...
+                  </span>
+                ) : (
+                  "Run Final Audit"
+                )}
               </Button>
+              {auditError && (
+                <p className="text-xs text-center" style={{ color: "#dc2626" }}>{auditError}</p>
+              )}
             </div>
           </div>
         </div>
@@ -187,7 +237,11 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
                               {audit.riskLevel === "LOW" ? "Low Risk" : audit.riskLevel === "MEDIUM" ? "Medium Risk" : "High Risk"}
                             </Badge>
                             <Badge className="shadow-none border" style={{ backgroundColor: "#fef9ec", color: BRAND.gold, borderColor: BRAND.goldLight }}>
-                              {audit.approvalStatus === "APPROVE" ? "Recommend Approval" : audit.approvalStatus === "REVIEW" ? "Needs Review" : "Recommend Denial"}
+                              {audit.approvalStatus === "APPROVE" ? "Recommend Approval"
+                                : audit.approvalStatus === "APPROVE WITH MINOR CHANGES" ? "Approve w/ Changes"
+                                : audit.approvalStatus === "REQUIRES REVIEW" ? "Needs Review"
+                                : audit.approvalStatus === "REJECT" ? "Recommend Denial"
+                                : audit.approvalStatus}
                             </Badge>
                           </div>
                         </div>
@@ -205,7 +259,7 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
                     {sections.map((s) => (
                       <ScoreCard
                         key={s.id}
-                        label={s.section}
+                        label={SECTION_LABELS[s.section] || s.section}
                         score={s.score}
                         icon={SECTION_ICONS[s.section] || <Shield width={16} height={16} />}
                         level={getScoreLevel(s.score)}
@@ -298,9 +352,24 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
                   <p className="text-sm mb-6" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.body }}>
                     This claim hasn't been audited yet. Run an audit to get AI-powered analysis.
                   </p>
-                  <Button className="text-white font-semibold" style={{ backgroundColor: BRAND.purple, fontFamily: FONTS.heading }}>
-                    Run Audit Now
+                  <Button
+                    className="text-white font-semibold"
+                    style={{ backgroundColor: auditing ? BRAND.purpleSecondary : BRAND.purple, fontFamily: FONTS.heading }}
+                    onClick={handleRunAudit}
+                    disabled={auditing}
+                  >
+                    {auditing ? (
+                      <span className="flex items-center gap-2">
+                        <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        Running Audit...
+                      </span>
+                    ) : (
+                      "Run Audit Now"
+                    )}
                   </Button>
+                  {auditError && (
+                    <p className="text-xs mt-2" style={{ color: "#dc2626" }}>{auditError}</p>
+                  )}
                 </CardContent>
               </Card>
             )}
