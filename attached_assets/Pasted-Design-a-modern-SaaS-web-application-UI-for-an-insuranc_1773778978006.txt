@@ -1,0 +1,116 @@
+Design a modern SaaS web application UI for an insurance claim auditing tool called "Claims iQ Audit".
+
+The purpose of the app is to evaluate a finalized claim file (desk adjuster report package) and produce a carrier-grade scorecard, risk analysis, and approval recommendation.
+
+STYLE:
+- Clean, enterprise SaaS (similar to Stripe, Linear, or Vercel)
+- Light theme with subtle gray backgrounds
+- Use cards, panels, and structured layouts
+- Minimal clutter, highly readable
+- Emphasis on data, scoring, and insights
+
+PRIMARY LAYOUT:
+
+1. LEFT SIDEBAR NAVIGATION
+- Dashboard
+- Claims
+- Upload / Ingest
+- Audit Results
+- Settings
+
+2. MAIN CLAIM VIEW (3-COLUMN LAYOUT)
+
+COLUMN 1 (LEFT PANEL – CLAIM SUMMARY)
+- Claim Number
+- Insured Name
+- Date of Loss
+- Peril
+- Status (Analyzed / Pending)
+- Documents list (FNOL, Policy, Estimate, Photos, etc.)
+- Button: "Run Final Audit"
+
+COLUMN 2 (CENTER – SCORECARD + OUTPUT)
+Top Section:
+- Overall Score (large numeric, e.g. 82/100)
+- Risk Level (Low / Medium / High)
+- Approval Status (Approve / Review / Reject)
+
+Score Breakdown (cards or horizontal bars):
+- Coverage Clarity
+- Scope Completeness
+- Estimate Accuracy
+- Documentation Support
+- Financial Accuracy
+- Carrier Risk
+
+Each shows:
+- score
+- color-coded indicator (green/yellow/red)
+
+Below:
+- Executive Summary (AI-generated paragraph)
+
+Below:
+- Tabs:
+   - Defects
+   - Carrier Questions
+   - Risks
+   - Deferred Items
+
+Each tab shows structured bullet lists
+
+COLUMN 3 (RIGHT PANEL – DOCUMENT + EVIDENCE VIEWER)
+- Scrollable document viewer (PDF-style)
+- Highlight referenced sections
+- Toggle between:
+   - Desk Report
+   - Estimate
+   - Photos
+   - Field Report
+
+3. DEFECT DETAIL MODAL
+
+When clicking a defect:
+- Show:
+   - Issue description
+   - Why it matters (carrier risk)
+   - Source document reference
+   - Suggested resolution
+
+4. ACTION PANEL (TOP RIGHT)
+
+Buttons:
+- "Generate Carrier Email"
+- "Export Report (PDF)"
+- "Mark Ready for Submission"
+
+5. VISUAL ELEMENTS
+
+- Use color coding:
+   Green = Good
+   Yellow = Warning
+   Red = Critical
+
+- Use icons for:
+   - Risk
+   - Coverage
+   - Financial
+   - Documentation
+
+- Include progress bars for scoring
+
+6. EMPTY STATE
+
+If no audit run:
+- Show centered CTA:
+   "Run Final Carrier Audit"
+   Subtext: "Analyze this claim for carrier approval readiness"
+
+7. MICRO INTERACTIONS
+
+- Loading state: "Analyzing claim..."
+- Animate score counting up
+- Expand/collapse sections smoothly
+
+GOAL:
+The UI should feel like a professional audit tool used by insurance carriers to approve or reject claims.
