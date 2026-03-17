@@ -12,16 +12,16 @@ if (!connectionString) {
   );
 }
 
-let connStr = connectionString;
-if (connStr.includes("supabase") && !connStr.includes("sslmode")) {
-  connStr += connStr.includes("?") ? "&sslmode=require" : "?sslmode=require";
-}
+const isSupabase = connectionString.includes("supabase");
 
 const poolConfig: pg.PoolConfig = {
-  connectionString: connStr,
-  ssl: connStr.includes("supabase") ? { rejectUnauthorized: false } : undefined,
+  connectionString,
   connectionTimeoutMillis: 10000,
 };
+
+if (isSupabase) {
+  poolConfig.ssl = { rejectUnauthorized: false };
+}
 
 export const pool = new Pool(poolConfig);
 export const db = drizzle(pool, { schema });

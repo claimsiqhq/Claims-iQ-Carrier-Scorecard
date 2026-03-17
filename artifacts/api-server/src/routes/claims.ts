@@ -4,6 +4,8 @@ import { claims, documents, audits, auditSections, auditFindings } from "@worksp
 import { eq } from "drizzle-orm";
 import { ListClaimsResponse, GetClaimDetailResponse } from "@workspace/api-zod";
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 const router: IRouter = Router();
 
 router.get("/claims", async (_req, res) => {
@@ -29,6 +31,11 @@ router.get("/claims", async (_req, res) => {
 router.get("/claims/:id", async (req, res) => {
   try {
     const { id } = req.params;
+
+    if (!UUID_RE.test(id)) {
+      res.status(400).json({ error: "Invalid claim ID format" });
+      return;
+    }
 
     const [claim] = await db.select().from(claims).where(eq(claims.id, id));
     if (!claim) {
@@ -58,15 +65,18 @@ router.get("/claims/:id", async (req, res) => {
           section: s.section ?? "",
           score: s.score ? Number(s.score) : 0,
         })),
-        findings: findings.map((f) => ({
-          id: f.id,
-          auditId: f.auditId ?? "",
-          type: f.type ?? "",
-          severity: f.severity ?? "",
-          title: f.title ?? "",
-          description: f.description ?? "",
-          category: f.type ?? "",
-        })),
+        findings: findings.map((f) => {
+          const meta = f.metadata as Record<string, unknown> | null;
+          return {
+            id: f.id,
+            auditId: f.auditId ?? "",
+            type: f.type ?? "",
+            severity: f.severity ?? "",
+            title: f.title ?? "",
+            description: f.description ?? "",
+            category: (meta?.category as string) ?? f.type ?? "",
+          };
+        }),
       };
     }
 

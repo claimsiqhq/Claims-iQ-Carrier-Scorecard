@@ -205,6 +205,10 @@ importers:
         version: 4.21.0
 
   artifacts/claims-iq:
+    dependencies:
+      iconoir-react:
+        specifier: ^7.11.0
+        version: 7.11.0(react@19.1.0)
     devDependencies:
       '@hookform/resolvers':
         specifier: ^3.10.0
