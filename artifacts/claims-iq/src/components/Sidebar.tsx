@@ -43,7 +43,12 @@ export function Sidebar({ claims, selectedClaimId, onSelectClaim }: SidebarProps
         />
         <SidebarItem icon={<UploadIcon width={20} height={20} />} label="Upload / Ingest" />
         <SidebarItem icon={<ClipboardCheck width={20} height={20} />} label="Audit Results" />
-        <SidebarItem icon={<SettingsIcon width={20} height={20} />} label="Settings" />
+        <SidebarItem
+          icon={<SettingsIcon width={20} height={20} />}
+          label="Settings"
+          active={location === "/settings"}
+          onClick={() => setLocation("/settings")}
+        />
 
         {claims && claims.length > 0 && (
           <div className="pt-4">

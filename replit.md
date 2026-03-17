@@ -57,16 +57,18 @@ Uses Supabase PostgreSQL via `SUPABASE_DATABASE_URL` secret. SSL configured with
 - `audit_findings` — id (uuid), audit_id (FK), type, severity, title, description, source_document_id (FK), metadata (jsonb)
 - `audit_structured` — id (uuid), audit_id (FK), deferred_items, invoice_adjustments, scope_deviations, unknowns, carrier_questions (all jsonb)
 - `audit_versions` — id (uuid), claim_id (FK), audit_id (FK), version_number
+- `prompt_settings` — id (uuid), key (text, unique), value (text), updated_at (timestamp)
 
-### Drizzle Schema: `lib/db/src/schema/claims.ts`
+### Drizzle Schema: `lib/db/src/schema/claims.ts`, `lib/db/src/schema/prompt-settings.ts`
 
 ## AI Integration
 
 Uses Replit AI Integrations for OpenAI access (no API key needed, billed to Replit credits).
 - **OpenAI client**: `@workspace/integrations-openai-ai-server` (lib/integrations-openai-ai-server/)
 - **Model**: gpt-5 for audit analysis
-- **Prompt constants**: `artifacts/api-server/src/services/prompts.ts` — `SYSTEM_PROMPT` and `USER_PROMPT_TEMPLATE`
-- **Audit service**: `artifacts/api-server/src/services/audit.ts` — `runFinalAudit()` function
+- **Default prompt constants**: `artifacts/api-server/src/services/prompts.ts` — `SYSTEM_PROMPT` and `USER_PROMPT_TEMPLATE`
+- **Prompt storage**: `prompt_settings` table in Supabase — editable via Settings page, falls back to defaults
+- **Audit service**: `artifacts/api-server/src/services/audit.ts` — `runFinalAudit()` reads prompts from DB (with fallback)
 - **Audit route**: `artifacts/api-server/src/routes/audit.ts` — POST endpoint with transactional DB persistence
 - **Prompt structure**: System prompt as senior insurance carrier audit reviewer + user prompt with carrier scorecard rubric
 - **Scoring categories**: Coverage Clarity (20), Scope Completeness (20), Estimate Accuracy (20), Documentation Support (15), Financial Accuracy (10), Carrier Risk (15)
@@ -80,12 +82,16 @@ All routes prefixed with `/api`:
 - `GET /api/claims` — List all claims
 - `GET /api/claims/:id` — Get claim detail with documents, audit, sections, findings
 - `POST /api/claims/:id/audit` — Run AI-powered audit on a claim (calls OpenAI, saves results to DB)
+- `GET /api/settings/prompts` — Get current prompt settings (DB values or defaults)
+- `PUT /api/settings/prompts` — Save prompt settings (validates {{REPORT}} placeholder, atomic upsert)
+- `POST /api/settings/prompts/reset` — Reset prompts to hardcoded defaults
 
 ## Frontend Pages
 
 - `/` — Dashboard with claim stats and quick links
 - `/claims` — Claims list with status badges
 - `/claims/:id` — 3-column audit dashboard (claim details | scorecard + findings | document viewer)
+- `/settings` — AI prompt editor (system prompt + user prompt template, saved to Supabase)
 
 ## Secrets
 

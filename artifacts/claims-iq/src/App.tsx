@@ -5,6 +5,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { Sidebar } from "@/components/Sidebar";
 import ClaimsListPage from "@/pages/claims-list";
 import ClaimDetailPage from "@/pages/claim-detail";
+import SettingsPage from "@/pages/settings";
 import { useListClaims } from "@workspace/api-client-react";
 import { useLocation } from "wouter";
 import { BRAND, FONTS } from "@/lib/brand";
@@ -76,6 +77,7 @@ function AppLayout() {
         <Route path="/" component={DashboardHome} />
         <Route path="/claims" component={ClaimsListPage} />
         <Route path="/claims/:id">{(params) => <ClaimDetailWrapper params={params} />}</Route>
+        <Route path="/settings" component={SettingsPage} />
         <Route>
           <main className="flex-1 flex items-center justify-center" style={{ backgroundColor: BRAND.offWhite }}>
             <p style={{ color: BRAND.purpleSecondary }}>Page not found</p>
