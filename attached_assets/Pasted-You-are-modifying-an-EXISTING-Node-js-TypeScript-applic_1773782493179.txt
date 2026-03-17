@@ -1,0 +1,227 @@
+You are modifying an EXISTING Node.js + TypeScript application.
+
+The app currently:
+- Accepts uploaded files or text input
+- Has a UI and/or endpoint
+- Returns a DEMO or placeholder response
+- DOES NOT call OpenAI yet
+
+Your job is to convert it into a FULLY FUNCTIONAL AI-powered audit tool.
+
+IMPORTANT:
+- DO NOT rebuild the app
+- DO NOT change existing architecture
+- ONLY replace the demo logic with real OpenAI integration
+
+---
+
+GOAL:
+
+Take the final report input (text or parsed PDF) and:
+
+1. Send it to OpenAI
+2. Run a structured audit prompt
+3. Parse the JSON response
+4. Return real results to the UI or API
+
+---
+
+IMPLEMENT THE FOLLOWING:
+
+========================
+1. INSTALL OPENAI SDK
+========================
+
+Install:
+npm install openai
+
+Import and initialize:
+
+import OpenAI from "openai";
+
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
+
+Ensure environment variable is used:
+OPENAI_API_KEY
+
+---
+
+========================
+2. LOCATE DEMO LOGIC
+========================
+
+Find where the app currently:
+- returns fake score
+- returns mock JSON
+- returns placeholder audit
+
+Example patterns:
+- "demo"
+- "mock"
+- "fakeScore"
+- hardcoded JSON
+
+REPLACE ONLY THAT SECTION.
+
+---
+
+========================
+3. ADD AUDIT FUNCTION
+========================
+
+Create function:
+
+async function runFinalAudit(reportText: string)
+
+Inside:
+
+const response = await openai.chat.completions.create({
+  model: "gpt-5",
+  temperature: 0,
+  messages: [
+    {
+      role: "system",
+      content: `You are a senior insurance carrier audit reviewer.
+
+You are reviewing a finalized claim submission.
+
+You only have this document.
+
+Be strict. If something is missing or unclear, treat it as a defect.
+
+Return structured JSON only.`
+    },
+    {
+      role: "user",
+      content: `Evaluate this finalized claim report using a carrier scorecard.
+
+Score:
+1. Coverage & Liability Clarity (20)
+2. Scope Completeness (20)
+3. Estimate Accuracy (20)
+4. Documentation Support (15)
+5. Financial Accuracy (10)
+6. Carrier Risk (15)
+
+Return JSON:
+
+{
+  "overall_score": number,
+  "section_scores": {
+    "coverage_clarity": number,
+    "scope_completeness": number,
+    "estimate_accuracy": number,
+    "documentation_support": number,
+    "financial_accuracy": number,
+    "carrier_risk": number
+  },
+  "risk_level": "LOW | MEDIUM | HIGH",
+  "approval_status": "APPROVE | APPROVE WITH MINOR CHANGES | REQUIRES REVIEW | REJECT",
+  "critical_failures": [],
+  "key_defects": [],
+  "carrier_questions": [],
+  "deferred_items": [],
+  "invoice_adjustments": [],
+  "scope_deviations": [],
+  "unknowns": [],
+  "executive_summary": ""
+}
+
+REPORT:
+${reportText}`
+    }
+  ]
+});
+
+const content = response.choices[0].message.content;
+
+Safely parse:
+
+try {
+  return JSON.parse(content);
+} catch (e) {
+  console.error("JSON parse failed", content);
+  throw new Error("Invalid AI response");
+}
+
+---
+
+========================
+4. CONNECT TO EXISTING FLOW
+========================
+
+Where the app currently does:
+
+return demoResult;
+
+REPLACE WITH:
+
+const audit = await runFinalAudit(reportText);
+
+return audit;
+
+---
+
+========================
+5. INPUT HANDLING
+========================
+
+Ensure:
+
+- If input is PDF → already converted to text
+- If input is text → pass directly
+
+DO NOT add OCR unless already present
+
+---
+
+========================
+6. ERROR HANDLING
+========================
+
+If OpenAI fails:
+
+- Return fallback:
+
+{
+  "overall_score": 0,
+  "risk_level": "HIGH",
+  "approval_status": "REQUIRES REVIEW",
+  "executive_summary": "Audit failed to process. Please retry."
+}
+
+---
+
+========================
+7. LOGGING
+========================
+
+Add logs:
+
+console.log("Running audit...");
+console.log("Audit complete");
+
+---
+
+========================
+8. DO NOT TOUCH
+========================
+
+- UI components
+- Routing structure
+- File upload logic
+- Database (if exists)
+
+ONLY replace:
+→ demo logic with real AI call
+
+---
+
+FINAL RESULT:
+
+- User uploads or inputs report
+- App calls OpenAI
+- Returns real structured scorecard
+- No mock data remains
