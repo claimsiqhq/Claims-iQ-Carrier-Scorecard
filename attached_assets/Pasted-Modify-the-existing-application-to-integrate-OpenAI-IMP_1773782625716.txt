@@ -1,0 +1,159 @@
+Modify the existing application to integrate OpenAI.
+
+IMPORTANT:
+- Do NOT rebuild the app
+- Only replace demo logic
+- Extract prompts into constants (do NOT inline them)
+
+---
+
+1. CREATE PROMPT CONSTANTS
+
+Create a new file:
+services/prompts.ts
+
+Add:
+
+export const SYSTEM_PROMPT = `
+You are a senior insurance carrier audit reviewer.
+
+You are reviewing a finalized claim submission prepared by an independent adjusting firm.
+
+You only have this document.
+
+Be strict and critical.
+
+You must evaluate:
+- Coverage clarity
+- Scope completeness
+- Estimate accuracy
+- Documentation support
+- Financial accuracy
+- Carrier risk
+
+If something is unclear or missing, treat it as a defect.
+
+Return structured JSON only.
+`;
+
+export const USER_PROMPT_TEMPLATE = `
+Evaluate the following finalized claim report.
+
+Use this scorecard:
+
+1. Coverage & Liability Clarity (20 pts)
+2. Scope Completeness (20 pts)
+3. Estimate Technical Accuracy (20 pts)
+4. Documentation & Evidence Support (15 pts)
+5. Financial Accuracy & Reconciliation (10 pts)
+6. Carrier Risk & Completeness (15 pts)
+
+Return ONLY valid JSON in this structure:
+
+{
+  "overall_score": number,
+  "section_scores": {
+    "coverage_clarity": number,
+    "scope_completeness": number,
+    "estimate_accuracy": number,
+    "documentation_support": number,
+    "financial_accuracy": number,
+    "carrier_risk": number
+  },
+  "risk_level": "LOW | MEDIUM | HIGH",
+  "approval_status": "APPROVE | APPROVE WITH MINOR CHANGES | REQUIRES REVIEW | REJECT",
+  "critical_failures": [],
+  "key_defects": [],
+  "carrier_questions": [],
+  "deferred_items": [],
+  "invoice_adjustments": [],
+  "scope_deviations": [],
+  "unknowns": [],
+  "executive_summary": ""
+}
+
+REPORT:
+{{REPORT}}
+`;
+
+---
+
+2. CREATE AUDIT SERVICE
+
+Create:
+services/audit.ts
+
+Add:
+
+import OpenAI from "openai";
+import { SYSTEM_PROMPT, USER_PROMPT_TEMPLATE } from "./prompts";
+
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
+
+export async function runFinalAudit(reportText: string) {
+  const userPrompt = USER_PROMPT_TEMPLATE.replace("{{REPORT}}", reportText);
+
+  const response = await openai.chat.completions.create({
+    model: "gpt-5",
+    temperature: 0,
+    messages: [
+      { role: "system", content: SYSTEM_PROMPT },
+      { role: "user", content: userPrompt }
+    ]
+  });
+
+  const content = response.choices[0].message.content;
+
+  try {
+    return JSON.parse(content);
+  } catch (err) {
+    console.error("Invalid JSON from OpenAI:", content);
+    throw new Error("Failed to parse AI response");
+  }
+}
+
+---
+
+3. REPLACE DEMO LOGIC
+
+Find where the app currently returns mock data:
+
+Example:
+return demoResult;
+
+Replace with:
+
+import { runFinalAudit } from "../services/audit";
+
+const audit = await runFinalAudit(reportText);
+
+return audit;
+
+---
+
+4. ERROR FALLBACK
+
+Wrap call:
+
+try {
+  const audit = await runFinalAudit(reportText);
+  return audit;
+} catch (e) {
+  return {
+    overall_score: 0,
+    risk_level: "HIGH",
+    approval_status: "REQUIRES REVIEW",
+    executive_summary: "Audit failed. Please retry."
+  };
+}
+
+---
+
+RESULT:
+
+- Prompts are clean and reusable
+- OpenAI is properly integrated
+- Demo logic is removed
+- App remains intact
