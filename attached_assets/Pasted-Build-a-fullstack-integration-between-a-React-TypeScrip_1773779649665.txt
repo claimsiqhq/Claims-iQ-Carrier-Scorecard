@@ -1,0 +1,141 @@
+Build a fullstack integration between a React (TypeScript) frontend and Supabase backend for a claim audit application.
+
+STACK:
+- React + TypeScript
+- Tailwind CSS
+- Supabase (Postgres + JS client)
+
+GOAL:
+Connect the UI to Supabase so users can:
+1. Load a claim
+2. View documents
+3. Run an audit
+4. Display audit results
+
+---
+
+FEATURES TO IMPLEMENT:
+
+1. SUPABASE CLIENT SETUP
+- Initialize Supabase client using environment variables:
+  - SUPABASE_URL
+  - SUPABASE_ANON_KEY
+
+---
+
+2. LOAD CLAIMS
+
+Create function:
+- fetchClaims()
+
+Query:
+- select * from claims order by created_at desc
+
+---
+
+3. LOAD CLAIM DETAILS
+
+Create function:
+- fetchClaimById(claimId)
+
+Query:
+- claims
+- documents (where claim_id = claimId)
+- audits (latest)
+
+---
+
+4. RUN AUDIT
+
+Create function:
+- runAudit(claimId)
+
+Steps:
+1. Fetch all documents for claim
+2. Combine extracted_text into one payload
+3. Send to API endpoint /api/audit (LLM call)
+4. Receive structured JSON response
+
+5. Store in Supabase:
+   - insert into audits
+   - insert into audit_sections
+   - insert into audit_findings
+   - insert into audit_structured
+
+---
+
+5. DISPLAY AUDIT RESULTS
+
+UI should display:
+
+- overall_score
+- risk_level
+- approval_status
+- executive_summary
+
+- section scores (audit_sections)
+
+- findings grouped by type:
+   - defects
+   - risks
+   - questions
+   - deferred
+
+---
+
+6. DATA HOOKS
+
+Create hooks:
+
+- useClaims()
+- useClaim(claimId)
+- useAudit(claimId)
+
+---
+
+7. REALTIME UPDATES (OPTIONAL)
+
+Subscribe to:
+- audits table
+- update UI when new audit inserted
+
+---
+
+8. ERROR HANDLING
+
+- Handle null audits
+- Handle missing documents
+- Show loading states
+
+---
+
+9. TYPES
+
+Define TypeScript types:
+
+- Claim
+- Document
+- Audit
+- AuditSection
+- AuditFinding
+- AuditStructured
+
+---
+
+10. UI INTEGRATION
+
+Map backend data into:
+
+- Scorecard component
+- Findings list
+- Risk indicators
+- Tabs (defects, risks, questions)
+
+---
+
+OUTPUT:
+- Fully working frontend connected to Supabase
+- Clean separation of data fetching and UI components
+- Modular hooks for reuse
+
+DO NOT mock data. Use real Supabase queries.

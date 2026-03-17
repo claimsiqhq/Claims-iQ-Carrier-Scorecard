@@ -1,0 +1,189 @@
+Extend my existing Node.js + TypeScript application to support inbound and outbound email processing using SendGrid.
+
+DO NOT rebuild the app. Integrate into the existing structure.
+
+GOAL:
+Enable a workflow where:
+1. A user emails documents to the system
+2. The system processes the email + attachments
+3. The system returns a response email with results
+
+---
+
+IMPLEMENT THE FOLLOWING:
+
+========================
+1. SENDGRID SETUP
+========================
+
+- Install:
+  npm install @sendgrid/mail multer
+
+- Add environment variables:
+  SENDGRID_API_KEY
+
+- Initialize SendGrid mail client
+
+---
+
+========================
+2. INBOUND EMAIL ENDPOINT
+========================
+
+Create a new Express route:
+
+POST /api/email/inbound
+
+Requirements:
+
+- Use multer to parse multipart/form-data
+- Extract:
+  - sender email (req.body.from)
+  - subject (req.body.subject)
+  - text/body (req.body.text)
+  - attachments (req.files)
+
+- Normalize sender email (strip name, keep pure email)
+
+---
+
+========================
+3. HOOK INTO EXISTING LOGIC
+========================
+
+Inside this endpoint:
+
+- Call my existing ingestion / processing pipeline
+
+Example:
+
+const result = await processClaimFromDocuments({
+  senderEmail,
+  subject,
+  attachments,
+  bodyText
+});
+
+DO NOT reimplement processing logic.
+Just pass data into existing functions.
+
+---
+
+========================
+4. EMAIL RESPONSE FUNCTION
+========================
+
+Create utility:
+
+sendEmailResponse(to: string, subject: string, html: string)
+
+- Use SendGrid
+- Send email back to original sender
+
+---
+
+========================
+5. RESPONSE FORMAT
+========================
+
+Create function:
+
+buildResponseEmail(result)
+
+Return clean HTML:
+
+- Title: Claims iQ Audit Result
+- Score
+- Risk Level
+- Status
+- Summary
+
+Sections:
+- Key Defects
+- Risks
+- Questions
+
+Use simple HTML (no external CSS)
+
+---
+
+========================
+6. COMPLETE FLOW
+========================
+
+Inside /api/email/inbound:
+
+1. Parse email
+2. Pass attachments into existing processing function
+3. Receive result
+4. Generate HTML email
+5. Send email back to sender
+
+Return HTTP 200 immediately after processing
+
+---
+
+========================
+7. ATTACHMENT HANDLING
+========================
+
+- Convert file buffers into format expected by existing system
+- If existing system expects file paths, temporarily store files
+- If expects text, convert buffer to string
+
+---
+
+========================
+8. ERROR HANDLING
+========================
+
+Wrap everything in try/catch
+
+On error:
+- Send fallback email:
+
+"Your claim could not be processed. Please try again."
+
+---
+
+========================
+9. LOGGING
+========================
+
+Log:
+- inbound email received
+- sender email
+- number of attachments
+- processing success/failure
+
+---
+
+========================
+10. KEEP CODE CLEAN
+========================
+
+- Add email logic in a new module:
+  /services/email.ts
+
+- Keep route thin
+- Reuse existing processing pipeline
+
+---
+
+IMPORTANT:
+
+- DO NOT duplicate business logic
+- DO NOT change existing database schema
+- DO NOT rebuild the app
+
+Only extend it to support:
+→ inbound email
+→ outbound email response
+
+---
+
+END RESULT:
+
+User emails documents →
+System processes using existing logic →
+System replies with results automatically

@@ -1,0 +1,136 @@
+-- Enable extensions
+create extension if not exists "pgcrypto";
+
+-- =========================
+-- CLAIMS TABLE
+-- =========================
+create table if not exists claims (
+  id uuid primary key default gen_random_uuid(),
+  claim_number text,
+  insured_name text,
+  carrier text,
+  date_of_loss date,
+  status text default 'pending',
+  created_at timestamp default now()
+);
+
+-- =========================
+-- DOCUMENTS TABLE
+-- =========================
+create table if not exists documents (
+  id uuid primary key default gen_random_uuid(),
+  claim_id uuid references claims(id) on delete cascade,
+  type text, -- FNOL, policy, estimate, desk_report, photos, etc.
+  file_url text,
+  extracted_text text,
+  metadata jsonb,
+  created_at timestamp default now()
+);
+
+-- =========================
+-- AUDITS TABLE (MAIN RESULT)
+-- =========================
+create table if not exists audits (
+  id uuid primary key default gen_random_uuid(),
+  claim_id uuid references claims(id) on delete cascade,
+
+  overall_score numeric,
+  risk_level text, -- LOW, MEDIUM, HIGH
+  approval_status text, -- APPROVE, REVIEW, REJECT
+
+  executive_summary text,
+
+  raw_response jsonb, -- full LLM output
+
+  created_at timestamp default now()
+);
+
+-- =========================
+-- AUDIT SECTION SCORES
+-- =========================
+create table if not exists audit_sections (
+  id uuid primary key default gen_random_uuid(),
+  audit_id uuid references audits(id) on delete cascade,
+
+  section text, -- coverage, scope, estimate, etc.
+  score numeric,
+
+  created_at timestamp default now()
+);
+
+-- =========================
+-- AUDIT FINDINGS
+-- =========================
+create table if not exists audit_findings (
+  id uuid primary key default gen_random_uuid(),
+  audit_id uuid references audits(id) on delete cascade,
+
+  type text, 
+  -- defect | risk | question | deferred | adjustment | deviation | unknown
+
+  severity text, 
+  -- low | medium | high | critical
+
+  title text,
+  description text,
+
+  source_document_id uuid references documents(id),
+
+  metadata jsonb,
+
+  created_at timestamp default now()
+);
+
+-- =========================
+-- STRUCTURED AUDIT OUTPUT
+-- =========================
+create table if not exists audit_structured (
+  id uuid primary key default gen_random_uuid(),
+  audit_id uuid references audits(id) on delete cascade,
+
+  deferred_items jsonb,
+  invoice_adjustments jsonb,
+  scope_deviations jsonb,
+  unknowns jsonb,
+  carrier_questions jsonb,
+
+  created_at timestamp default now()
+);
+
+-- =========================
+-- AUDIT VERSIONING (OPTIONAL)
+-- =========================
+create table if not exists audit_versions (
+  id uuid primary key default gen_random_uuid(),
+  claim_id uuid references claims(id),
+  audit_id uuid references audits(id),
+
+  version_number int,
+  created_at timestamp default now()
+);
+
+-- =========================
+-- INDEXES (PERFORMANCE)
+-- =========================
+create index if not exists idx_claims_claim_number on claims(claim_number);
+create index if not exists idx_documents_claim_id on documents(claim_id);
+create index if not exists idx_audits_claim_id on audits(claim_id);
+create index if not exists idx_findings_audit_id on audit_findings(audit_id);
+
+-- =========================
+-- BASIC RLS (OPTIONAL STARTER)
+-- =========================
+alter table claims enable row level security;
+alter table documents enable row level security;
+alter table audits enable row level security;
+alter table audit_sections enable row level security;
+alter table audit_findings enable row level security;
+alter table audit_structured enable row level security;
+
+-- Example permissive policy (adjust later for multi-tenant)
+create policy "Allow all" on claims for all using (true);
+create policy "Allow all" on documents for all using (true);
+create policy "Allow all" on audits for all using (true);
+create policy "Allow all" on audit_sections for all using (true);
+create policy "Allow all" on audit_findings for all using (true);
+create policy "Allow all" on audit_structured for all using (true);

@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "Claims iQ Audit"
+version = "1.0.0"
+id = "artifacts/claims-iq"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+localPort = 20727
+name = "web"
+paths = ["/"]
+
+[services.development]
+run = "pnpm --filter @workspace/claims-iq run dev"
+
+[services.env]
+PORT = "20727"
+BASE_PATH = "/"
+
+[services.production]
+build = ["pnpm", "--filter", "@workspace/claims-iq", "run", "build"]
+publicDir = "artifacts/claims-iq/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"

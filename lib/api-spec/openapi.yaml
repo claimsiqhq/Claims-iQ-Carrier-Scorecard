@@ -1,22 +1,22 @@
 openapi: 3.1.0
 info:
-  # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Claims iQ Audit API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: claims
+    description: Claims operations
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,6 +24,44 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /claims:
+    get:
+      operationId: listClaims
+      tags: [claims]
+      summary: List all claims
+      responses:
+        "200":
+          description: List of claims
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Claim"
+
+  /claims/{id}:
+    get:
+      operationId: getClaimDetail
+      tags: [claims]
+      summary: Get a single claim with documents and audit
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Claim with documents, audit, scores, and findings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClaimDetail"
+        "404":
+          description: Claim not found
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +72,106 @@ components:
       required:
         - status
 
+    Claim:
+      type: object
+      required: [id, claimNumber, insuredName, status]
+      properties:
+        id:
+          type: string
+        claimNumber:
+          type: string
+        insuredName:
+          type: string
+        carrier:
+          type: string
+        dateOfLoss:
+          type: string
+        status:
+          type: string
+        createdAt:
+          type: string
+
+    Document:
+      type: object
+      required: [id, claimId, type]
+      properties:
+        id:
+          type: string
+        claimId:
+          type: string
+        type:
+          type: string
+        fileUrl:
+          type: string
+        createdAt:
+          type: string
+
+    AuditSection:
+      type: object
+      required: [id, auditId, section, score]
+      properties:
+        id:
+          type: string
+        auditId:
+          type: string
+        section:
+          type: string
+        score:
+          type: number
+
+    AuditFinding:
+      type: object
+      required: [id, auditId, type, severity, title, description]
+      properties:
+        id:
+          type: string
+        auditId:
+          type: string
+        type:
+          type: string
+        severity:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        category:
+          type: string
+
+    AuditResult:
+      type: object
+      required: [id, claimId, overallScore, riskLevel, approvalStatus, executiveSummary, sections, findings]
+      properties:
+        id:
+          type: string
+        claimId:
+          type: string
+        overallScore:
+          type: number
+        riskLevel:
+          type: string
+        approvalStatus:
+          type: string
+        executiveSummary:
+          type: string
+        sections:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuditSection"
+        findings:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuditFinding"
+
+    ClaimDetail:
+      type: object
+      required: [claim, documents]
+      properties:
+        claim:
+          $ref: "#/components/schemas/Claim"
+        documents:
+          type: array
+          items:
+            $ref: "#/components/schemas/Document"
+        audit:
+          $ref: "#/components/schemas/AuditResult"
