@@ -60,12 +60,26 @@ Uses Supabase PostgreSQL via `SUPABASE_DATABASE_URL` secret. SSL configured with
 
 ### Drizzle Schema: `lib/db/src/schema/claims.ts`
 
+## AI Integration
+
+Uses Replit AI Integrations for OpenAI access (no API key needed, billed to Replit credits).
+- **OpenAI client**: `@workspace/integrations-openai-ai-server` (lib/integrations-openai-ai-server/)
+- **Model**: gpt-5 for audit analysis
+- **Prompt constants**: `artifacts/api-server/src/services/prompts.ts` — `SYSTEM_PROMPT` and `USER_PROMPT_TEMPLATE`
+- **Audit service**: `artifacts/api-server/src/services/audit.ts` — `runFinalAudit()` function
+- **Audit route**: `artifacts/api-server/src/routes/audit.ts` — POST endpoint with transactional DB persistence
+- **Prompt structure**: System prompt as senior insurance carrier audit reviewer + user prompt with carrier scorecard rubric
+- **Scoring categories**: Coverage Clarity (20), Scope Completeness (20), Estimate Accuracy (20), Documentation Support (15), Financial Accuracy (10), Carrier Risk (15)
+- **Response format**: Structured JSON with scores, findings, risk level, approval status, executive summary
+- **Env vars**: `AI_INTEGRATIONS_OPENAI_BASE_URL`, `AI_INTEGRATIONS_OPENAI_API_KEY` (auto-provisioned)
+
 ## API Routes
 
 All routes prefixed with `/api`:
 - `GET /api/healthz` — Health check
 - `GET /api/claims` — List all claims
 - `GET /api/claims/:id` — Get claim detail with documents, audit, sections, findings
+- `POST /api/claims/:id/audit` — Run AI-powered audit on a claim (calls OpenAI, saves results to DB)
 
 ## Frontend Pages
 
