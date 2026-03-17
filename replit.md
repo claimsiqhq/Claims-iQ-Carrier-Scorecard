@@ -17,6 +17,9 @@ Claims iQ Audit — a full-stack insurance claim auditing SaaS application. pnpm
 - **Frontend**: React + Vite + Tailwind CSS v4
 - **Icons**: iconoir-react
 - **Build**: esbuild (CJS bundle for API server)
+- **File storage**: Replit Object Storage (GCS-backed, presigned URL uploads)
+- **Email**: SendGrid (@sendgrid/mail) — from john@claimsiq.ai
+- **PDF extraction**: pdf-parse
 
 ## Brand System
 
@@ -37,7 +40,8 @@ artifacts-monorepo/
 │   ├── api-spec/           # OpenAPI spec + Orval codegen config
 │   ├── api-client-react/   # Generated React Query hooks
 │   ├── api-zod/            # Generated Zod schemas from OpenAPI
-│   └── db/                 # Drizzle ORM schema + DB connection
+│   ├── db/                 # Drizzle ORM schema + DB connection
+│   └── object-storage-web/ # Uppy v5 upload components (useUpload hook, ObjectUploader)
 ├── scripts/                # Utility scripts (seed, etc.)
 ├── pnpm-workspace.yaml
 ├── tsconfig.base.json
@@ -61,6 +65,26 @@ Uses Supabase PostgreSQL via `SUPABASE_DATABASE_URL` secret. SSL configured with
 
 ### Drizzle Schema: `lib/db/src/schema/claims.ts`, `lib/db/src/schema/prompt-settings.ts`
 
+## File Storage
+
+Replit Object Storage (GCS-backed) for claim document uploads.
+- **Server lib**: `artifacts/api-server/src/lib/objectStorage.ts` — GCS client wrapper, presigned URL generation
+- **ACL**: `artifacts/api-server/src/lib/objectAcl.ts` — access control framework
+- **Storage routes**: `artifacts/api-server/src/routes/storage.ts` — upload URL request + object serving
+- **Document routes**: `artifacts/api-server/src/routes/documents.ts` — CRUD for claim documents + PDF text extraction
+- **Client lib**: `lib/object-storage-web/` — `useUpload()` hook for presigned URL uploads
+- **Upload flow**: Client requests presigned URL → uploads directly to GCS → registers document in DB → extracts text (PDF/text)
+- **Env vars**: `DEFAULT_OBJECT_STORAGE_BUCKET_ID`, `PUBLIC_OBJECT_SEARCH_PATHS`, `PRIVATE_OBJECT_DIR` (auto-provisioned)
+
+## Email
+
+SendGrid integration for sending carrier audit emails.
+- **Service**: `artifacts/api-server/src/services/sendgrid.ts` — wraps @sendgrid/mail
+- **From address**: john@claimsiq.ai (configurable via `SENDGRID_FROM_EMAIL` env var)
+- **Email rendering**: `artifacts/api-server/src/services/email.ts` — inline HTML with full carrier scorecard
+- **Routes**: GET `/api/claims/:id/email` (preview HTML), POST `/api/claims/:id/email/send` (send via SendGrid)
+- **Env vars**: `SENDGRID_API_KEY` (user-provided secret)
+
 ## AI Integration
 
 Uses Replit AI Integrations for OpenAI access (no API key needed, billed to Replit credits).
@@ -74,7 +98,6 @@ Uses Replit AI Integrations for OpenAI access (no API key needed, billed to Repl
 - **Technical Score (80)**: Coverage & Liability Clarity (15), Scope Completeness (15), Estimate Technical Accuracy (15), Documentation & Evidence Support (10), Financial Accuracy & Reconciliation (10), Carrier Risk & Completeness (15)
 - **Presentation Score (20)**: File Stack Order (3), Payment Recommendations Match (5), Estimate Operational Order (3), Photographs Clear and In Order (3), DA Report Not Cumbersome (2), FA Report Detailed Enough (2), Unique Policy Provisions Addressed (2)
 - **Response format**: Structured JSON with overall/technical/presentation scores, 13 section scores, findings (including presentation_issues), risk level, approval status, executive summary
-- **Email service**: `artifacts/api-server/src/services/email.ts` — renders carrier scorecard as inline HTML email
 - **Env vars**: `AI_INTEGRATIONS_OPENAI_BASE_URL`, `AI_INTEGRATIONS_OPENAI_API_KEY` (auto-provisioned)
 
 ## API Routes
@@ -84,7 +107,14 @@ All routes prefixed with `/api`:
 - `GET /api/claims` — List all claims
 - `GET /api/claims/:id` — Get claim detail with documents, audit, sections, findings
 - `POST /api/claims/:id/audit` — Run Andover-style carrier audit (calls OpenAI, saves results to DB)
-- `GET /api/claims/:id/email` — Generate carrier audit email HTML
+- `POST /api/claims/:id/documents` — Register an uploaded document to a claim
+- `DELETE /api/claims/:id/documents/:docId` — Delete a document
+- `POST /api/claims/:id/documents/:docId/extract` — Extract text from uploaded document (PDF/text)
+- `GET /api/claims/:id/email` — Generate carrier audit email HTML (preview)
+- `POST /api/claims/:id/email/send` — Send audit email via SendGrid
+- `POST /api/storage/uploads/request-url` — Request presigned upload URL
+- `GET /api/storage/objects/*` — Serve uploaded objects
+- `GET /api/storage/public-objects/*` — Serve public assets
 - `GET /api/settings/prompts` — Get current prompt settings (DB values or defaults)
 - `PUT /api/settings/prompts` — Save prompt settings (validates {{REPORT}} placeholder, atomic upsert)
 - `POST /api/settings/prompts/reset` — Reset prompts to hardcoded defaults
@@ -93,7 +123,9 @@ All routes prefixed with `/api`:
 
 - `/` — Dashboard with claim stats and quick links
 - `/claims` — Claims list with status badges
-- `/claims/:id` — 3-column carrier audit dashboard (claim details | Andover-style technical + presentation scorecard + findings | document viewer)
+- `/claims/:id` — 3-column carrier audit dashboard (claim details | Andover-style technical + presentation scorecard + findings | document viewer) with "Preview Email" and "Send to Carrier" actions
+- `/upload` — Working file upload page: select claim, choose doc type, drag-and-drop or browse files, auto-extracts text from PDFs
+- `/audit-results` — Lists audited and pending claims
 - `/settings` — AI prompt editor (system prompt + user prompt template, saved to Supabase)
 
 ## Secrets
@@ -102,6 +134,7 @@ All routes prefixed with `/api`:
 - `SUPABASE_ANON_KEY` — Supabase anon key
 - `SUPABASE_SERVICE_ROLE` — Supabase service role key
 - `SESSION_SECRET` — Session secret
+- `SENDGRID_API_KEY` — SendGrid API key for email sending
 
 ## TypeScript & Composite Projects
 

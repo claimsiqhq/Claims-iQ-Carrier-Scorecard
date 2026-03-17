@@ -1,0 +1,235 @@
+Modify the existing application to integrate OpenAI-based claim auditing using a STRICT JSON contract.
+
+IMPORTANT:
+- DO NOT rebuild the app
+- DO NOT refactor unrelated code
+- ONLY replace demo logic and add validation
+- ENSURE the AI response ALWAYS matches a strict schema
+
+---
+
+==================================================
+1. DEFINE JSON CONTRACT (REQUIRED)
+==================================================
+
+Create a new file:
+
+/types/audit.ts
+
+Add:
+
+export interface AuditResult {
+  overall_score: number;
+  technical_score: number;
+  presentation_score: number;
+
+  section_scores: {
+    coverage_clarity: number;
+    scope_completeness: number;
+    estimate_accuracy: number;
+    documentation_support: number;
+    financial_accuracy: number;
+    carrier_risk: number;
+
+    file_stack_order: number;
+    payment_match: number;
+    estimate_operational_order: number;
+    photo_organization: number;
+    da_report_quality: number;
+    fa_report_quality: number;
+    policy_provisions: number;
+  };
+
+  risk_level: "LOW" | "MEDIUM" | "HIGH";
+
+  approval_status:
+    | "APPROVE"
+    | "APPROVE WITH MINOR CHANGES"
+    | "REQUIRES REVIEW"
+    | "REJECT";
+
+  critical_failures: string[];
+  key_defects: string[];
+  presentation_issues: string[];
+  carrier_questions: string[];
+
+  deferred_items: any[];
+  invoice_adjustments: any[];
+  scope_deviations: any[];
+  unknowns: string[];
+
+  executive_summary: string;
+}
+
+---
+
+==================================================
+2. CREATE VALIDATION FUNCTION
+==================================================
+
+Create:
+
+/services/validateAudit.ts
+
+Add:
+
+export function validateAuditResult(data: any): boolean {
+  if (!data) return false;
+
+  const requiredFields = [
+    "overall_score",
+    "technical_score",
+    "presentation_score",
+    "section_scores",
+    "risk_level",
+    "approval_status",
+    "executive_summary"
+  ];
+
+  for (const field of requiredFields) {
+    if (!(field in data)) return false;
+  }
+
+  if (typeof data.overall_score !== "number") return false;
+  if (typeof data.technical_score !== "number") return false;
+  if (typeof data.presentation_score !== "number") return false;
+
+  return true;
+}
+
+---
+
+==================================================
+3. UPDATE PROMPTS (STRICT JSON OUTPUT)
+==================================================
+
+SYSTEM PROMPT:
+
+You are a senior insurance carrier audit reviewer.
+
+You must return STRICT JSON ONLY.
+
+DO NOT include explanations, markdown, or text outside JSON.
+
+If you cannot comply, return a valid JSON object with zero scores.
+
+---
+
+USER PROMPT TEMPLATE:
+
+Evaluate the following finalized claim report.
+
+You must return ONLY valid JSON.
+
+If any field is missing, create it.
+
+If uncertain, still return a complete JSON structure.
+
+(then include full scorecard prompt exactly as previously defined)
+
+---
+
+==================================================
+4. UPDATE OPENAI CALL
+==================================================
+
+Modify audit function:
+
+const content = response.choices[0].message.content;
+
+let parsed;
+
+try {
+  parsed = JSON.parse(content);
+} catch (e) {
+  console.error("Raw AI response:", content);
+
+  return getFallbackAudit();
+}
+
+if (!validateAuditResult(parsed)) {
+  console.error("Invalid structure:", parsed);
+  return getFallbackAudit();
+}
+
+return parsed;
+
+---
+
+==================================================
+5. ADD FALLBACK RESULT (CRITICAL)
+==================================================
+
+Create:
+
+function getFallbackAudit() {
+  return {
+    overall_score: 0,
+    technical_score: 0,
+    presentation_score: 0,
+    section_scores: {
+      coverage_clarity: 0,
+      scope_completeness: 0,
+      estimate_accuracy: 0,
+      documentation_support: 0,
+      financial_accuracy: 0,
+      carrier_risk: 0,
+      file_stack_order: 0,
+      payment_match: 0,
+      estimate_operational_order: 0,
+      photo_organization: 0,
+      da_report_quality: 0,
+      fa_report_quality: 0,
+      policy_provisions: 0
+    },
+    risk_level: "HIGH",
+    approval_status: "REQUIRES REVIEW",
+    critical_failures: ["Audit parsing failed"],
+    key_defects: [],
+    presentation_issues: [],
+    carrier_questions: [],
+    deferred_items: [],
+    invoice_adjustments: [],
+    scope_deviations: [],
+    unknowns: [],
+    executive_summary: "The audit could not be completed due to a processing error."
+  };
+}
+
+---
+
+==================================================
+6. OPTIONAL (HIGHLY RECOMMENDED)
+==================================================
+
+Before returning results:
+
+Ensure:
+
+parsed.overall_score =
+  parsed.technical_score + parsed.presentation_score;
+
+---
+
+==================================================
+7. DO NOT TOUCH
+==================================================
+
+- UI layout
+- File upload logic
+- Routing
+- Existing parsing logic
+
+Only:
+- Replace demo logic
+- Add validation
+- Add strict JSON enforcement
+
+---
+
+FINAL RESULT:
+
+- AI ALWAYS returns structured data
+- UI never breaks
+- Email never breaks
+- System is stable even if AI misbehaves

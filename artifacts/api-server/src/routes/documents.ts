@@ -1,0 +1,157 @@
+import { Router, type IRouter } from "express";
+import { db } from "@workspace/db";
+import { claims, documents } from "@workspace/db";
+import { eq, and } from "drizzle-orm";
+import { ObjectStorageService } from "../lib/objectStorage";
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const router: IRouter = Router();
+const objectStorageService = new ObjectStorageService();
+
+router.post("/claims/:id/documents", async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!UUID_RE.test(id)) {
+      res.status(400).json({ error: "Invalid claim ID format" });
+      return;
+    }
+
+    const [claim] = await db.select().from(claims).where(eq(claims.id, id));
+    if (!claim) {
+      res.status(404).json({ error: "Claim not found" });
+      return;
+    }
+
+    const { type, objectPath, fileName, contentType } = req.body;
+    if (!type || !objectPath || !fileName) {
+      res.status(400).json({ error: "type, objectPath, and fileName are required" });
+      return;
+    }
+
+    const [doc] = await db.insert(documents).values({
+      claimId: id,
+      type,
+      fileUrl: objectPath,
+      metadata: { fileName, contentType: contentType || "application/octet-stream", objectPath },
+    }).returning();
+
+    res.status(201).json({
+      id: doc.id,
+      claimId: doc.claimId ?? "",
+      type: doc.type ?? "",
+      fileUrl: doc.fileUrl ?? undefined,
+      createdAt: doc.createdAt?.toISOString() ?? undefined,
+    });
+  } catch (err) {
+    console.error("Error creating document:", err);
+    res.status(500).json({ error: "Failed to create document" });
+  }
+});
+
+router.delete("/claims/:id/documents/:docId", async (req, res) => {
+  try {
+    const { id, docId } = req.params;
+    if (!UUID_RE.test(id) || !UUID_RE.test(docId)) {
+      res.status(400).json({ error: "Invalid ID format" });
+      return;
+    }
+
+    const [doc] = await db.select().from(documents).where(
+      and(eq(documents.id, docId), eq(documents.claimId, id))
+    );
+
+    if (!doc) {
+      res.status(404).json({ error: "Document not found" });
+      return;
+    }
+
+    await db.delete(documents).where(eq(documents.id, docId));
+    res.json({ success: true, message: "Document deleted" });
+  } catch (err) {
+    console.error("Error deleting document:", err);
+    res.status(500).json({ error: "Failed to delete document" });
+  }
+});
+
+router.post("/claims/:id/documents/:docId/extract", async (req, res) => {
+  try {
+    const { id, docId } = req.params;
+    if (!UUID_RE.test(id) || !UUID_RE.test(docId)) {
+      res.status(400).json({ error: "Invalid ID format" });
+      return;
+    }
+
+    const [doc] = await db.select().from(documents).where(
+      and(eq(documents.id, docId), eq(documents.claimId, id))
+    );
+
+    if (!doc) {
+      res.status(404).json({ error: "Document not found" });
+      return;
+    }
+
+    const meta = doc.metadata as Record<string, unknown> | null;
+    const objectPath = (meta?.objectPath as string) || doc.fileUrl || "";
+    const contentType = (meta?.contentType as string) || "";
+
+    let extractedText = "";
+
+    if (contentType === "application/pdf" && objectPath) {
+      try {
+        const objectFile = await objectStorageService.getObjectEntityFile(objectPath);
+        const downloadResponse = await objectStorageService.downloadObject(objectFile);
+
+        if (downloadResponse.body) {
+          const chunks: Uint8Array[] = [];
+          const reader = (downloadResponse.body as ReadableStream<Uint8Array>).getReader();
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            if (value) chunks.push(value);
+          }
+          const buffer = Buffer.concat(chunks);
+          const pdfParseModule = await import("pdf-parse");
+          const pdfParse = (pdfParseModule as any).default || pdfParseModule;
+          const pdfData = await pdfParse(buffer);
+          extractedText = pdfData.text;
+        }
+      } catch (pdfErr) {
+        console.error("PDF extraction failed:", pdfErr);
+        extractedText = "[PDF extraction failed]";
+      }
+    } else if (contentType?.startsWith("text/")) {
+      try {
+        const objectFile = await objectStorageService.getObjectEntityFile(objectPath);
+        const downloadResponse = await objectStorageService.downloadObject(objectFile);
+        if (downloadResponse.body) {
+          const chunks: Uint8Array[] = [];
+          const reader = (downloadResponse.body as ReadableStream<Uint8Array>).getReader();
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            if (value) chunks.push(value);
+          }
+          extractedText = Buffer.concat(chunks).toString("utf-8");
+        }
+      } catch (txtErr) {
+        console.error("Text extraction failed:", txtErr);
+        extractedText = "[Text extraction failed]";
+      }
+    } else {
+      extractedText = `[No text extraction available for ${contentType}]`;
+    }
+
+    await db.update(documents).set({ extractedText }).where(eq(documents.id, docId));
+
+    res.json({
+      documentId: docId,
+      extractedLength: extractedText.length,
+      preview: extractedText.substring(0, 500),
+    });
+  } catch (err) {
+    console.error("Error extracting text:", err);
+    res.status(500).json({ error: "Failed to extract text" });
+  }
+});
+
+export default router;

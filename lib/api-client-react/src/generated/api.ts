@@ -5,18 +5,33 @@
  * Claims iQ Audit API
  * OpenAPI spec version: 0.1.0
  */
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import type {
+  MutationFunction,
   QueryFunction,
   QueryKey,
+  UseMutationOptions,
+  UseMutationResult,
   UseQueryOptions,
   UseQueryResult,
 } from "@tanstack/react-query";
 
-import type { Claim, ClaimDetail, HealthStatus } from "./api.schemas";
+import type {
+  Claim,
+  ClaimDetail,
+  CreateDocumentRequest,
+  Document,
+  ErrorEnvelope,
+  ExtractTextResponse,
+  HealthStatus,
+  SendEmailRequest,
+  SuccessEnvelope,
+  UploadUrlRequest,
+  UploadUrlResponse,
+} from "./api.schemas";
 
 import { customFetch } from "../custom-fetch";
-import type { ErrorType } from "../custom-fetch";
+import type { ErrorType, BodyType } from "../custom-fetch";
 
 type AwaitedInput<T> = PromiseLike<T> | T;
 
@@ -258,3 +273,436 @@ export function useGetClaimDetail<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * @summary Request a presigned URL for file upload
+ */
+export const getRequestUploadUrlUrl = () => {
+  return `/api/storage/uploads/request-url`;
+};
+
+export const requestUploadUrl = async (
+  uploadUrlRequest: UploadUrlRequest,
+  options?: RequestInit,
+): Promise<UploadUrlResponse> => {
+  return customFetch<UploadUrlResponse>(getRequestUploadUrlUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(uploadUrlRequest),
+  });
+};
+
+export const getRequestUploadUrlMutationOptions = <
+  TError = ErrorType<ErrorEnvelope>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof requestUploadUrl>>,
+    TError,
+    { data: BodyType<UploadUrlRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof requestUploadUrl>>,
+  TError,
+  { data: BodyType<UploadUrlRequest> },
+  TContext
+> => {
+  const mutationKey = ["requestUploadUrl"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof requestUploadUrl>>,
+    { data: BodyType<UploadUrlRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return requestUploadUrl(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RequestUploadUrlMutationResult = NonNullable<
+  Awaited<ReturnType<typeof requestUploadUrl>>
+>;
+export type RequestUploadUrlMutationBody = BodyType<UploadUrlRequest>;
+export type RequestUploadUrlMutationError = ErrorType<ErrorEnvelope>;
+
+/**
+ * @summary Request a presigned URL for file upload
+ */
+export const useRequestUploadUrl = <
+  TError = ErrorType<ErrorEnvelope>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof requestUploadUrl>>,
+    TError,
+    { data: BodyType<UploadUrlRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof requestUploadUrl>>,
+  TError,
+  { data: BodyType<UploadUrlRequest> },
+  TContext
+> => {
+  return useMutation(getRequestUploadUrlMutationOptions(options));
+};
+
+/**
+ * @summary Register an uploaded document to a claim
+ */
+export const getUploadClaimDocumentUrl = (id: string) => {
+  return `/api/claims/${id}/documents`;
+};
+
+export const uploadClaimDocument = async (
+  id: string,
+  createDocumentRequest: CreateDocumentRequest,
+  options?: RequestInit,
+): Promise<Document> => {
+  return customFetch<Document>(getUploadClaimDocumentUrl(id), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(createDocumentRequest),
+  });
+};
+
+export const getUploadClaimDocumentMutationOptions = <
+  TError = ErrorType<ErrorEnvelope>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof uploadClaimDocument>>,
+    TError,
+    { id: string; data: BodyType<CreateDocumentRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof uploadClaimDocument>>,
+  TError,
+  { id: string; data: BodyType<CreateDocumentRequest> },
+  TContext
+> => {
+  const mutationKey = ["uploadClaimDocument"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof uploadClaimDocument>>,
+    { id: string; data: BodyType<CreateDocumentRequest> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return uploadClaimDocument(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UploadClaimDocumentMutationResult = NonNullable<
+  Awaited<ReturnType<typeof uploadClaimDocument>>
+>;
+export type UploadClaimDocumentMutationBody = BodyType<CreateDocumentRequest>;
+export type UploadClaimDocumentMutationError = ErrorType<ErrorEnvelope>;
+
+/**
+ * @summary Register an uploaded document to a claim
+ */
+export const useUploadClaimDocument = <
+  TError = ErrorType<ErrorEnvelope>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof uploadClaimDocument>>,
+    TError,
+    { id: string; data: BodyType<CreateDocumentRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof uploadClaimDocument>>,
+  TError,
+  { id: string; data: BodyType<CreateDocumentRequest> },
+  TContext
+> => {
+  return useMutation(getUploadClaimDocumentMutationOptions(options));
+};
+
+/**
+ * @summary Delete a document from a claim
+ */
+export const getDeleteClaimDocumentUrl = (id: string, docId: string) => {
+  return `/api/claims/${id}/documents/${docId}`;
+};
+
+export const deleteClaimDocument = async (
+  id: string,
+  docId: string,
+  options?: RequestInit,
+): Promise<SuccessEnvelope> => {
+  return customFetch<SuccessEnvelope>(getDeleteClaimDocumentUrl(id, docId), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getDeleteClaimDocumentMutationOptions = <
+  TError = ErrorType<ErrorEnvelope>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteClaimDocument>>,
+    TError,
+    { id: string; docId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deleteClaimDocument>>,
+  TError,
+  { id: string; docId: string },
+  TContext
+> => {
+  const mutationKey = ["deleteClaimDocument"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deleteClaimDocument>>,
+    { id: string; docId: string }
+  > = (props) => {
+    const { id, docId } = props ?? {};
+
+    return deleteClaimDocument(id, docId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeleteClaimDocumentMutationResult = NonNullable<
+  Awaited<ReturnType<typeof deleteClaimDocument>>
+>;
+
+export type DeleteClaimDocumentMutationError = ErrorType<ErrorEnvelope>;
+
+/**
+ * @summary Delete a document from a claim
+ */
+export const useDeleteClaimDocument = <
+  TError = ErrorType<ErrorEnvelope>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteClaimDocument>>,
+    TError,
+    { id: string; docId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof deleteClaimDocument>>,
+  TError,
+  { id: string; docId: string },
+  TContext
+> => {
+  return useMutation(getDeleteClaimDocumentMutationOptions(options));
+};
+
+/**
+ * @summary Extract text from an uploaded document (PDF)
+ */
+export const getExtractDocumentTextUrl = (id: string, docId: string) => {
+  return `/api/claims/${id}/documents/${docId}/extract`;
+};
+
+export const extractDocumentText = async (
+  id: string,
+  docId: string,
+  options?: RequestInit,
+): Promise<ExtractTextResponse> => {
+  return customFetch<ExtractTextResponse>(
+    getExtractDocumentTextUrl(id, docId),
+    {
+      ...options,
+      method: "POST",
+    },
+  );
+};
+
+export const getExtractDocumentTextMutationOptions = <
+  TError = ErrorType<ErrorEnvelope>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof extractDocumentText>>,
+    TError,
+    { id: string; docId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof extractDocumentText>>,
+  TError,
+  { id: string; docId: string },
+  TContext
+> => {
+  const mutationKey = ["extractDocumentText"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof extractDocumentText>>,
+    { id: string; docId: string }
+  > = (props) => {
+    const { id, docId } = props ?? {};
+
+    return extractDocumentText(id, docId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ExtractDocumentTextMutationResult = NonNullable<
+  Awaited<ReturnType<typeof extractDocumentText>>
+>;
+
+export type ExtractDocumentTextMutationError = ErrorType<ErrorEnvelope>;
+
+/**
+ * @summary Extract text from an uploaded document (PDF)
+ */
+export const useExtractDocumentText = <
+  TError = ErrorType<ErrorEnvelope>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof extractDocumentText>>,
+    TError,
+    { id: string; docId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof extractDocumentText>>,
+  TError,
+  { id: string; docId: string },
+  TContext
+> => {
+  return useMutation(getExtractDocumentTextMutationOptions(options));
+};
+
+/**
+ * @summary Send audit email via SendGrid
+ */
+export const getSendAuditEmailUrl = (id: string) => {
+  return `/api/claims/${id}/email/send`;
+};
+
+export const sendAuditEmail = async (
+  id: string,
+  sendEmailRequest: SendEmailRequest,
+  options?: RequestInit,
+): Promise<SuccessEnvelope> => {
+  return customFetch<SuccessEnvelope>(getSendAuditEmailUrl(id), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(sendEmailRequest),
+  });
+};
+
+export const getSendAuditEmailMutationOptions = <
+  TError = ErrorType<ErrorEnvelope>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof sendAuditEmail>>,
+    TError,
+    { id: string; data: BodyType<SendEmailRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof sendAuditEmail>>,
+  TError,
+  { id: string; data: BodyType<SendEmailRequest> },
+  TContext
+> => {
+  const mutationKey = ["sendAuditEmail"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof sendAuditEmail>>,
+    { id: string; data: BodyType<SendEmailRequest> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return sendAuditEmail(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SendAuditEmailMutationResult = NonNullable<
+  Awaited<ReturnType<typeof sendAuditEmail>>
+>;
+export type SendAuditEmailMutationBody = BodyType<SendEmailRequest>;
+export type SendAuditEmailMutationError = ErrorType<ErrorEnvelope>;
+
+/**
+ * @summary Send audit email via SendGrid
+ */
+export const useSendAuditEmail = <
+  TError = ErrorType<ErrorEnvelope>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof sendAuditEmail>>,
+    TError,
+    { id: string; data: BodyType<SendEmailRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof sendAuditEmail>>,
+  TError,
+  { id: string; data: BodyType<SendEmailRequest> },
+  TContext
+> => {
+  return useMutation(getSendAuditEmailMutationOptions(options));
+};

@@ -102,15 +102,15 @@ export function renderAuditEmail(data: EmailData): string {
         <table style="width:100%;border-collapse:collapse;">
           <tr>
             <td style="text-align:center;padding:8px 16px;border-right:1px solid #e3dfe8;">
-              <div style="font-size:32px;font-weight:700;color:#342A4F;">${r.overall_score}</div>
+              <div style="font-size:32px;font-weight:700;color:#342A4F;">${escapeHtml(String(r.overall_score))}</div>
               <div style="font-size:11px;color:#9D8BBF;text-transform:uppercase;letter-spacing:0.05em;">Overall Score</div>
             </td>
             <td style="text-align:center;padding:8px 16px;border-right:1px solid #e3dfe8;">
-              <div style="font-size:24px;font-weight:700;color:#7763B7;">${r.technical_score}</div>
+              <div style="font-size:24px;font-weight:700;color:#7763B7;">${escapeHtml(String(r.technical_score))}</div>
               <div style="font-size:11px;color:#9D8BBF;text-transform:uppercase;letter-spacing:0.05em;">Technical / 80</div>
             </td>
             <td style="text-align:center;padding:8px 16px;border-right:1px solid #e3dfe8;">
-              <div style="font-size:24px;font-weight:700;color:#7763B7;">${r.presentation_score}</div>
+              <div style="font-size:24px;font-weight:700;color:#7763B7;">${escapeHtml(String(r.presentation_score))}</div>
               <div style="font-size:11px;color:#9D8BBF;text-transform:uppercase;letter-spacing:0.05em;">Presentation / 20</div>
             </td>
             <td style="text-align:center;padding:8px 16px;border-right:1px solid #e3dfe8;">

@@ -86,3 +86,82 @@ export const GetClaimDetailResponse = zod.object({
     })
     .optional(),
 });
+
+/**
+ * @summary Request a presigned URL for file upload
+ */
+export const RequestUploadUrlBody = zod.object({
+  name: zod.string(),
+  size: zod.number(),
+  contentType: zod.string(),
+});
+
+export const RequestUploadUrlResponse = zod.object({
+  uploadURL: zod.string().url(),
+  objectPath: zod.string(),
+  metadata: zod
+    .object({
+      name: zod.string(),
+      size: zod.number(),
+      contentType: zod.string(),
+    })
+    .optional(),
+});
+
+/**
+ * @summary Register an uploaded document to a claim
+ */
+export const UploadClaimDocumentParams = zod.object({
+  id: zod.coerce.string().uuid(),
+});
+
+export const UploadClaimDocumentBody = zod.object({
+  type: zod.string(),
+  objectPath: zod.string(),
+  fileName: zod.string(),
+  contentType: zod.string().optional(),
+});
+
+/**
+ * @summary Delete a document from a claim
+ */
+export const DeleteClaimDocumentParams = zod.object({
+  id: zod.coerce.string().uuid(),
+  docId: zod.coerce.string().uuid(),
+});
+
+export const DeleteClaimDocumentResponse = zod.object({
+  success: zod.boolean(),
+  message: zod.string().optional(),
+});
+
+/**
+ * @summary Extract text from an uploaded document (PDF)
+ */
+export const ExtractDocumentTextParams = zod.object({
+  id: zod.coerce.string().uuid(),
+  docId: zod.coerce.string().uuid(),
+});
+
+export const ExtractDocumentTextResponse = zod.object({
+  documentId: zod.string(),
+  extractedLength: zod.number(),
+  preview: zod.string().optional(),
+});
+
+/**
+ * @summary Send audit email via SendGrid
+ */
+export const SendAuditEmailParams = zod.object({
+  id: zod.coerce.string().uuid(),
+});
+
+export const SendAuditEmailBody = zod.object({
+  to: zod.string().email(),
+  subject: zod.string().optional(),
+});
+
+export const SendAuditEmailResponse = zod.object({
+  success: zod.boolean(),
+  message: zod.string().optional(),
+});
