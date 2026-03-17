@@ -186,7 +186,7 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
   const claimFileName = claimFile ? ((claimFile as any).metadata?.fileName || claimFile.type || "Claim File") : null
 
   return (
-    <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
+    <main className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
       <header className="h-16 flex items-center justify-between px-6 shrink-0" style={{ backgroundColor: BRAND.white, borderBottom: `1px solid ${BRAND.greyLavender}` }}>
         <div className="flex items-center gap-2 text-sm" style={{ color: BRAND.purpleSecondary }}>
           <span className="cursor-pointer hover:opacity-80 transition-opacity" onClick={() => setLocation("/claims")}>Claims</span>
@@ -226,7 +226,7 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
         </div>
       </header>
 
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex overflow-hidden min-h-0">
         <div className="w-72 flex flex-col shrink-0 overflow-hidden hidden md:flex" style={{ backgroundColor: BRAND.white, borderRight: `1px solid ${BRAND.greyLavender}` }}>
           <div className="flex-1 overflow-y-auto p-5 space-y-6">
             <div>

@@ -70,7 +70,7 @@ function AppLayout() {
   const [, setLocation] = useLocation();
 
   return (
-    <div className="min-h-screen flex" style={{ backgroundColor: BRAND.offWhite, fontFamily: FONTS.body, color: BRAND.deepPurple }}>
+    <div className="h-screen flex overflow-hidden" style={{ backgroundColor: BRAND.offWhite, fontFamily: FONTS.body, color: BRAND.deepPurple }}>
       <Sidebar
         claims={claims}
         onSelectClaim={(id) => setLocation(`/claims/${id}`)}
