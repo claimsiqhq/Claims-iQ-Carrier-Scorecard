@@ -59,6 +59,8 @@ export const GetClaimDetailResponse = zod.object({
       id: zod.string(),
       claimId: zod.string(),
       overallScore: zod.number(),
+      technicalScore: zod.number(),
+      presentationScore: zod.number(),
       riskLevel: zod.string(),
       approvalStatus: zod.string(),
       executiveSummary: zod.string(),

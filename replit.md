@@ -52,7 +52,7 @@ Uses Supabase PostgreSQL via `SUPABASE_DATABASE_URL` secret. SSL configured with
 ### Tables (created via Supabase SQL, Drizzle maps to them):
 - `claims` — id (uuid), claim_number, insured_name, carrier, date_of_loss, status
 - `documents` — id (uuid), claim_id (FK), type, file_url, extracted_text, metadata (jsonb)
-- `audits` — id (uuid), claim_id (FK), overall_score, risk_level, approval_status, executive_summary, raw_response (jsonb)
+- `audits` — id (uuid), claim_id (FK), overall_score, technical_score, presentation_score, risk_level, approval_status, executive_summary, raw_response (jsonb)
 - `audit_sections` — id (uuid), audit_id (FK), section, score
 - `audit_findings` — id (uuid), audit_id (FK), type, severity, title, description, source_document_id (FK), metadata (jsonb)
 - `audit_structured` — id (uuid), audit_id (FK), deferred_items, invoice_adjustments, scope_deviations, unknowns, carrier_questions (all jsonb)
@@ -70,9 +70,11 @@ Uses Replit AI Integrations for OpenAI access (no API key needed, billed to Repl
 - **Prompt storage**: `prompt_settings` table in Supabase — editable via Settings page, falls back to defaults
 - **Audit service**: `artifacts/api-server/src/services/audit.ts` — `runFinalAudit()` reads prompts from DB (with fallback)
 - **Audit route**: `artifacts/api-server/src/routes/audit.ts` — POST endpoint with transactional DB persistence
-- **Prompt structure**: System prompt as senior insurance carrier audit reviewer + user prompt with carrier scorecard rubric
-- **Scoring categories**: Coverage Clarity (20), Scope Completeness (20), Estimate Accuracy (20), Documentation Support (15), Financial Accuracy (10), Carrier Risk (15)
-- **Response format**: Structured JSON with scores, findings, risk level, approval status, executive summary
+- **Prompt structure**: Andover-style carrier scorecard — evaluates technical correctness + carrier presentation quality
+- **Technical Score (80)**: Coverage & Liability Clarity (15), Scope Completeness (15), Estimate Technical Accuracy (15), Documentation & Evidence Support (10), Financial Accuracy & Reconciliation (10), Carrier Risk & Completeness (15)
+- **Presentation Score (20)**: File Stack Order (3), Payment Recommendations Match (5), Estimate Operational Order (3), Photographs Clear and In Order (3), DA Report Not Cumbersome (2), FA Report Detailed Enough (2), Unique Policy Provisions Addressed (2)
+- **Response format**: Structured JSON with overall/technical/presentation scores, 13 section scores, findings (including presentation_issues), risk level, approval status, executive summary
+- **Email service**: `artifacts/api-server/src/services/email.ts` — renders carrier scorecard as inline HTML email
 - **Env vars**: `AI_INTEGRATIONS_OPENAI_BASE_URL`, `AI_INTEGRATIONS_OPENAI_API_KEY` (auto-provisioned)
 
 ## API Routes
@@ -81,7 +83,8 @@ All routes prefixed with `/api`:
 - `GET /api/healthz` — Health check
 - `GET /api/claims` — List all claims
 - `GET /api/claims/:id` — Get claim detail with documents, audit, sections, findings
-- `POST /api/claims/:id/audit` — Run AI-powered audit on a claim (calls OpenAI, saves results to DB)
+- `POST /api/claims/:id/audit` — Run Andover-style carrier audit (calls OpenAI, saves results to DB)
+- `GET /api/claims/:id/email` — Generate carrier audit email HTML
 - `GET /api/settings/prompts` — Get current prompt settings (DB values or defaults)
 - `PUT /api/settings/prompts` — Save prompt settings (validates {{REPORT}} placeholder, atomic upsert)
 - `POST /api/settings/prompts/reset` — Reset prompts to hardcoded defaults
@@ -90,7 +93,7 @@ All routes prefixed with `/api`:
 
 - `/` — Dashboard with claim stats and quick links
 - `/claims` — Claims list with status badges
-- `/claims/:id` — 3-column audit dashboard (claim details | scorecard + findings | document viewer)
+- `/claims/:id` — 3-column carrier audit dashboard (claim details | Andover-style technical + presentation scorecard + findings | document viewer)
 - `/settings` — AI prompt editor (system prompt + user prompt template, saved to Supabase)
 
 ## Secrets

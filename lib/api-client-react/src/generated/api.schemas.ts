@@ -48,6 +48,8 @@ export interface AuditResult {
   id: string;
   claimId: string;
   overallScore: number;
+  technicalScore: number;
+  presentationScore: number;
   riskLevel: string;
   approvalStatus: string;
   executiveSummary: string;

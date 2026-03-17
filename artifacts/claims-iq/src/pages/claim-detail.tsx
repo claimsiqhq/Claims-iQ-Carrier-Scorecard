@@ -12,6 +12,13 @@ import {
   Sparks,
   PageEdit,
   ClipboardCheck,
+  Folder,
+  CreditCard,
+  List,
+  MediaImage,
+  Page,
+  BookStack,
+  Lock,
 } from "iconoir-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -23,34 +30,37 @@ import { BRAND, FONTS } from "@/lib/brand"
 import { useGetClaimDetail } from "@workspace/api-client-react"
 import { useLocation } from "wouter"
 
-const SECTION_LABELS: Record<string, string> = {
-  coverage_clarity: "Coverage Clarity",
-  scope_completeness: "Scope Completeness",
-  estimate_accuracy: "Estimate Accuracy",
-  documentation_support: "Doc Support",
-  financial_accuracy: "Financial Accuracy",
-  carrier_risk: "Carrier Risk",
+interface ScorecardRow {
+  key: string
+  label: string
+  max: number
+  icon: React.ReactNode
 }
 
-const SECTION_ICONS: Record<string, React.ReactNode> = {
-  coverage_clarity: <Shield width={16} height={16} />,
-  scope_completeness: <CheckCircle width={16} height={16} />,
-  estimate_accuracy: <Calculator width={16} height={16} />,
-  documentation_support: <PageSearch width={16} height={16} />,
-  financial_accuracy: <DollarCircle width={16} height={16} />,
-  carrier_risk: <WarningTriangle width={16} height={16} />,
-  "Coverage Clarity": <Shield width={16} height={16} />,
-  "Scope Completeness": <CheckCircle width={16} height={16} />,
-  "Estimate Accuracy": <Calculator width={16} height={16} />,
-  "Doc Support": <PageSearch width={16} height={16} />,
-  "Financial Accuracy": <DollarCircle width={16} height={16} />,
-  "Carrier Risk": <WarningTriangle width={16} height={16} />,
-}
+const TECHNICAL_ROWS: ScorecardRow[] = [
+  { key: "coverage_clarity", label: "Coverage & Liability Clarity", max: 15, icon: <Shield width={16} height={16} /> },
+  { key: "scope_completeness", label: "Scope Completeness", max: 15, icon: <CheckCircle width={16} height={16} /> },
+  { key: "estimate_accuracy", label: "Estimate Technical Accuracy", max: 15, icon: <Calculator width={16} height={16} /> },
+  { key: "documentation_support", label: "Documentation & Evidence Support", max: 10, icon: <PageSearch width={16} height={16} /> },
+  { key: "financial_accuracy", label: "Financial Accuracy & Reconciliation", max: 10, icon: <DollarCircle width={16} height={16} /> },
+  { key: "carrier_risk", label: "Carrier Risk & Completeness", max: 15, icon: <WarningTriangle width={16} height={16} /> },
+]
 
-function getScoreLevel(score: number): "good" | "warning" | "critical" {
-  if (score >= 85) return "good"
-  if (score >= 70) return "warning"
-  return "critical"
+const PRESENTATION_ROWS: ScorecardRow[] = [
+  { key: "file_stack_order", label: "File Stack Order", max: 3, icon: <Folder width={16} height={16} /> },
+  { key: "payment_match", label: "Payment Recommendations Match", max: 5, icon: <CreditCard width={16} height={16} /> },
+  { key: "estimate_operational_order", label: "Estimate Operational Order", max: 3, icon: <List width={16} height={16} /> },
+  { key: "photo_organization", label: "Photographs Clear and In Order", max: 3, icon: <MediaImage width={16} height={16} /> },
+  { key: "da_report_quality", label: "DA Report Not Cumbersome", max: 2, icon: <Page width={16} height={16} /> },
+  { key: "fa_report_quality", label: "FA Report Detailed Enough", max: 2, icon: <BookStack width={16} height={16} /> },
+  { key: "policy_provisions", label: "Unique Policy Provisions Addressed", max: 2, icon: <Lock width={16} height={16} /> },
+]
+
+function getScoreColor(score: number, max: number): { text: string; bg: string; bar: string } {
+  const pct = max > 0 ? (score / max) * 100 : 0
+  if (pct >= 80) return { text: "#16a34a", bg: "#f0fdf4", bar: "#16a34a" }
+  if (pct >= 60) return { text: BRAND.gold, bg: "#fef9ec", bar: BRAND.gold }
+  return { text: "#dc2626", bg: "#fef2f2", bar: "#dc2626" }
 }
 
 export default function ClaimDetailPage({ claimId }: { claimId: string }) {
@@ -59,6 +69,7 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
   const [, setLocation] = useLocation()
   const [auditing, setAuditing] = useState(false)
   const [auditError, setAuditError] = useState<string | null>(null)
+  const [emailLoading, setEmailLoading] = useState(false)
 
   const { data, isLoading, error, refetch } = useGetClaimDetail(claimId)
 
@@ -79,6 +90,25 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
       setAuditing(false)
     }
   }, [claimId, refetch])
+
+  const handleGenerateEmail = useCallback(async () => {
+    setEmailLoading(true)
+    try {
+      const baseUrl = import.meta.env.VITE_API_URL || "/api"
+      const res = await fetch(`${baseUrl}/claims/${claimId}/email`)
+      if (!res.ok) throw new Error("Failed to generate email")
+      const { html } = await res.json()
+      const win = window.open("", "_blank")
+      if (win) {
+        win.document.write(html)
+        win.document.close()
+      }
+    } catch (err: any) {
+      alert(err.message || "Failed to generate email")
+    } finally {
+      setEmailLoading(false)
+    }
+  }, [claimId])
 
   if (isLoading) {
     return (
@@ -101,10 +131,18 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
 
   const { claim, documents: docs, audit } = data
   const overallScore = audit?.overallScore ?? 0
+  const technicalScore = (audit as any)?.technicalScore ?? 0
+  const presentationScore = (audit as any)?.presentationScore ?? 0
   const sections = audit?.sections ?? []
   const findings = audit?.findings ?? []
 
+  const sectionScoreMap: Record<string, number> = {}
+  for (const s of sections) {
+    sectionScoreMap[s.section] = s.score
+  }
+
   const defects = findings.filter((f) => f.type === "defect")
+  const presentationIssues = findings.filter((f) => f.type === "presentation_issue")
   const questions = findings.filter((f) => f.type === "question" || f.type === "carrier_question")
   const risks = findings.filter((f) => f.type === "risk")
   const deferred = findings.filter((f) => f.type === "deferred")
@@ -124,8 +162,6 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
     desk_report: "doc",
   }
 
-  const deskDoc = docs.find((d) => d.type === "desk_report")
-
   return (
     <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
       <header className="h-16 flex items-center justify-between px-6 shrink-0" style={{ backgroundColor: BRAND.white, borderBottom: `1px solid ${BRAND.greyLavender}` }}>
@@ -136,10 +172,19 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
         </div>
 
         <div className="flex items-center gap-3">
-          <Button variant="outline" size="sm" className="hidden lg:flex gap-2" style={{ borderColor: BRAND.greyLavender, color: BRAND.deepPurple }}>
-            <Mail width={16} height={16} />
-            Generate Carrier Email
-          </Button>
+          {audit && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="hidden lg:flex gap-2"
+              style={{ borderColor: BRAND.greyLavender, color: BRAND.deepPurple }}
+              onClick={handleGenerateEmail}
+              disabled={emailLoading}
+            >
+              <Mail width={16} height={16} />
+              {emailLoading ? "Generating..." : "Generate Carrier Email"}
+            </Button>
+          )}
           <Button variant="outline" size="sm" className="hidden md:flex gap-2" style={{ borderColor: BRAND.greyLavender, color: BRAND.deepPurple }}>
             <Download width={16} height={16} />
             Export Report (PDF)
@@ -201,7 +246,7 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
                     Running Audit...
                   </span>
                 ) : (
-                  "Run Final Audit"
+                  "Run Carrier Audit"
                 )}
               </Button>
               {auditError && (
@@ -218,7 +263,7 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
                 <Card className="shadow-sm overflow-hidden relative" style={{ borderColor: BRAND.greyLavender, backgroundColor: BRAND.white }}>
                   <div className="absolute top-0 left-0 w-1.5 h-full" style={{ backgroundColor: BRAND.purple }} />
                   <CardContent className="p-6">
-                    <div className="flex flex-col md:flex-row items-center justify-between gap-6">
+                    <div className="flex flex-col md:flex-row items-center gap-6">
                       <div className="flex items-center gap-6">
                         <div className="relative w-24 h-24 flex items-center justify-center rounded-full">
                           <svg className="w-full h-full transform -rotate-90 absolute top-0 left-0" viewBox="0 0 36 36">
@@ -231,7 +276,19 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
                           </div>
                         </div>
                         <div>
-                          <h2 className="text-2xl font-bold mb-2" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>Audit Score</h2>
+                          <h2 className="text-xl font-bold mb-1" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>Carrier Audit Score</h2>
+                          <div className="flex gap-4 mb-2">
+                            <div>
+                              <span className="text-lg font-bold" style={{ color: BRAND.purple, fontFamily: FONTS.mono }}>{technicalScore}</span>
+                              <span className="text-xs ml-1" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.mono }}>/ 80</span>
+                              <span className="text-xs block" style={{ color: BRAND.purpleSecondary }}>Technical</span>
+                            </div>
+                            <div>
+                              <span className="text-lg font-bold" style={{ color: BRAND.purple, fontFamily: FONTS.mono }}>{presentationScore}</span>
+                              <span className="text-xs ml-1" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.mono }}>/ 20</span>
+                              <span className="text-xs block" style={{ color: BRAND.purpleSecondary }}>Presentation</span>
+                            </div>
+                          </div>
                           <div className="flex gap-2">
                             <Badge className="shadow-none border" style={{ backgroundColor: BRAND.lightPurpleGrey, color: BRAND.purple, borderColor: BRAND.purpleLight }}>
                               {audit.riskLevel === "LOW" ? "Low Risk" : audit.riskLevel === "MEDIUM" ? "Medium Risk" : "High Risk"}
@@ -246,26 +303,23 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
                           </div>
                         </div>
                       </div>
-                      <div className="text-sm max-w-xs text-right hidden md:block" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.body }}>
-                        Based on our AI analysis of {docs.length} documents against carrier guidelines.
-                      </div>
                     </div>
                   </CardContent>
                 </Card>
 
-                <div>
-                  <h3 className="text-sm font-semibold mb-3 ml-1" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>Score Breakdown</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {sections.map((s) => (
-                      <ScoreCard
-                        key={s.id}
-                        label={SECTION_LABELS[s.section] || s.section}
-                        score={s.score}
-                        icon={SECTION_ICONS[s.section] || <Shield width={16} height={16} />}
-                        level={getScoreLevel(s.score)}
-                      />
-                    ))}
-                  </div>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  <ScorecardPanel
+                    title="Technical Scorecard"
+                    subtitle={`${technicalScore} / 80`}
+                    rows={TECHNICAL_ROWS}
+                    scores={sectionScoreMap}
+                  />
+                  <ScorecardPanel
+                    title="Carrier Readiness"
+                    subtitle={`${presentationScore} / 20`}
+                    rows={PRESENTATION_ROWS}
+                    scores={sectionScoreMap}
+                  />
                 </div>
 
                 <Card className="shadow-sm" style={{ borderColor: BRAND.greyLavender, backgroundColor: BRAND.white }}>
@@ -287,9 +341,12 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
 
                 <div className="pt-2 pb-10">
                   <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-                    <TabsList className="p-1 w-full flex mb-4 h-auto" style={{ backgroundColor: BRAND.lightPurpleGrey, border: `1px solid ${BRAND.greyLavender}` }}>
+                    <TabsList className="p-1 w-full flex mb-4 h-auto flex-wrap" style={{ backgroundColor: BRAND.lightPurpleGrey, border: `1px solid ${BRAND.greyLavender}` }}>
                       <TabsTrigger value="defects" className="flex-1 text-sm py-2 data-[state=active]:shadow-sm" style={{ fontFamily: FONTS.heading }}>
-                        Defects <CountBadge count={defects.length} />
+                        Critical / Defects <CountBadge count={defects.length} />
+                      </TabsTrigger>
+                      <TabsTrigger value="presentation" className="flex-1 text-sm py-2 data-[state=active]:shadow-sm" style={{ fontFamily: FONTS.heading }}>
+                        Presentation <CountBadge count={presentationIssues.length} />
                       </TabsTrigger>
                       <TabsTrigger value="questions" className="flex-1 text-sm py-2 data-[state=active]:shadow-sm" style={{ fontFamily: FONTS.heading }}>
                         Carrier Questions <CountBadge count={questions.length} />
@@ -298,15 +355,27 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
                         Risks <CountBadge count={risks.length} />
                       </TabsTrigger>
                       <TabsTrigger value="deferred" className="flex-1 text-sm py-2 data-[state=active]:shadow-sm" style={{ fontFamily: FONTS.heading }}>
-                        Deferred Items <CountBadge count={deferred.length} />
+                        Deferred <CountBadge count={deferred.length} />
                       </TabsTrigger>
                     </TabsList>
 
                     <TabsContent value="defects" className="mt-0">
                       <div className="space-y-3">
-                        {defects.map((f) => (
+                        {defects.length > 0 ? defects.map((f) => (
                           <DefectCard key={f.id} severity={f.severity === "high" || f.severity === "critical" ? "critical" : "warning"} title={f.title} description={f.description} category={(f as any).category || f.type} />
-                        ))}
+                        )) : (
+                          <EmptyTabContent icon={<CheckCircle width={40} height={40} />} title="No Critical Failures or Defects" subtitle="No defects identified for this claim." />
+                        )}
+                      </div>
+                    </TabsContent>
+
+                    <TabsContent value="presentation" className="mt-0">
+                      <div className="space-y-3">
+                        {presentationIssues.length > 0 ? presentationIssues.map((f) => (
+                          <DefectCard key={f.id} severity="warning" title={f.title} description={f.description} category="Presentation" />
+                        )) : (
+                          <EmptyTabContent icon={<Folder width={40} height={40} />} title="No Presentation Issues" subtitle="File organization meets carrier readiness standards." />
+                        )}
                       </div>
                     </TabsContent>
 
@@ -350,7 +419,7 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
                   <Sparks width={48} height={48} className="mx-auto mb-4" style={{ color: BRAND.purpleSecondary }} />
                   <h3 className="text-lg font-semibold mb-2" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>No Audit Available</h3>
                   <p className="text-sm mb-6" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.body }}>
-                    This claim hasn't been audited yet. Run an audit to get AI-powered analysis.
+                    This claim hasn't been audited yet. Run a carrier audit to get AI-powered scoring.
                   </p>
                   <Button
                     className="text-white font-semibold"
@@ -364,7 +433,7 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
                         Running Audit...
                       </span>
                     ) : (
-                      "Run Audit Now"
+                      "Run Carrier Audit"
                     )}
                   </Button>
                   {auditError && (
@@ -423,13 +492,6 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
                     </span>{" "}
                     The north elevation siding also shows signs of minor wind damage.
                   </p>
-                  <h4 className="font-bold mt-6 mb-2 uppercase text-[10px] tracking-wider" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>Depreciation Notes</h4>
-                  <p className="mb-4 text-justify">
-                    <span className="px-1 py-0.5 rounded" style={{ backgroundColor: "#fef9ec", color: BRAND.gold, outline: `1px solid ${BRAND.goldLight}` }}>
-                      The current estimate reflects RCV (Replacement Cost Value) for the roofing materials.
-                    </span>{" "}
-                    Age of roof is estimated at 15 years based on homeowner records.
-                  </p>
                 </>
               )}
               {activeDoc === "est" && (
@@ -447,6 +509,46 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
         </div>
       </div>
     </main>
+  )
+}
+
+function ScorecardPanel({ title, subtitle, rows, scores }: { title: string; subtitle: string; rows: ScorecardRow[]; scores: Record<string, number> }) {
+  return (
+    <Card className="shadow-sm" style={{ borderColor: BRAND.greyLavender, backgroundColor: BRAND.white }}>
+      <CardHeader className="pb-2 pt-5 px-5">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-sm font-bold uppercase tracking-wider" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
+            {title}
+          </CardTitle>
+          <span className="text-sm font-bold" style={{ color: BRAND.purple, fontFamily: FONTS.mono }}>{subtitle}</span>
+        </div>
+      </CardHeader>
+      <CardContent className="px-5 pb-5">
+        <div className="space-y-3">
+          {rows.map((row) => {
+            const score = scores[row.key] ?? 0
+            const pct = row.max > 0 ? (score / row.max) * 100 : 0
+            const colors = getScoreColor(score, row.max)
+            return (
+              <div key={row.key}>
+                <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center gap-2">
+                    <div className="p-1 rounded" style={{ backgroundColor: colors.bg, color: colors.text }}>{row.icon}</div>
+                    <span className="text-xs font-medium" style={{ color: BRAND.deepPurple, fontFamily: FONTS.body }}>{row.label}</span>
+                  </div>
+                  <span className="text-sm font-bold" style={{ color: colors.text, fontFamily: FONTS.mono }}>
+                    {score}<span className="text-xs font-normal" style={{ color: BRAND.purpleSecondary }}>/{row.max}</span>
+                  </span>
+                </div>
+                <div className="w-full h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: colors.bg }}>
+                  <div className="h-full rounded-full transition-all duration-500" style={{ width: `${pct}%`, backgroundColor: colors.bar }} />
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </CardContent>
+    </Card>
   )
 }
 
@@ -476,31 +578,6 @@ function DocumentItem({ name, type, active = false }: { name: string; type: "pdf
         </span>
       </div>
     </div>
-  )
-}
-
-function ScoreCard({ label, score, icon, level }: { label: string; score: number; icon: React.ReactNode; level: "good" | "warning" | "critical" }) {
-  const colors = {
-    good: { bar: BRAND.purple, barBg: BRAND.lightPurpleGrey, iconBg: BRAND.lightPurpleGrey, iconColor: BRAND.purple, text: BRAND.purple },
-    warning: { bar: BRAND.gold, barBg: "#fef9ec", iconBg: "#fef9ec", iconColor: BRAND.gold, text: BRAND.gold },
-    critical: { bar: "#dc2626", barBg: "#fef2f2", iconBg: "#fef2f2", iconColor: "#dc2626", text: "#dc2626" },
-  }
-  const c = colors[level]
-  return (
-    <Card className="shadow-sm overflow-hidden" style={{ borderColor: BRAND.greyLavender, backgroundColor: BRAND.white }}>
-      <CardContent className="p-4">
-        <div className="flex justify-between items-center mb-3">
-          <div className="flex items-center gap-2">
-            <div className="p-1.5 rounded-md" style={{ backgroundColor: c.iconBg, color: c.iconColor }}>{icon}</div>
-            <span className="text-sm font-medium" style={{ color: BRAND.deepPurple, fontFamily: FONTS.body }}>{label}</span>
-          </div>
-          <span className="text-lg font-bold" style={{ color: c.text, fontFamily: FONTS.mono }}>{score}</span>
-        </div>
-        <div className="w-full h-2 rounded-full overflow-hidden" style={{ backgroundColor: c.barBg }}>
-          <div className="h-full rounded-full transition-all duration-500" style={{ width: `${score}%`, backgroundColor: c.bar }} />
-        </div>
-      </CardContent>
-    </Card>
   )
 }
 

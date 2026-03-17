@@ -66,6 +66,8 @@ router.post("/claims/:id/audit", async (req, res) => {
       res.status(502).json({
         error: "Audit failed. Please retry.",
         overall_score: 0,
+        technical_score: 0,
+        presentation_score: 0,
         risk_level: "HIGH",
         approval_status: "REQUIRES REVIEW",
         executive_summary: "Audit failed to process. Please retry.",
@@ -97,6 +99,8 @@ router.post("/claims/:id/audit", async (req, res) => {
         .values({
           claimId: id,
           overallScore: String(auditResult.overall_score),
+          technicalScore: String(auditResult.technical_score),
+          presentationScore: String(auditResult.presentation_score),
           riskLevel: auditResult.risk_level,
           approvalStatus: auditResult.approval_status,
           executiveSummary: auditResult.executive_summary,
@@ -111,6 +115,13 @@ router.post("/claims/:id/audit", async (req, res) => {
         { section: "documentation_support", score: auditResult.section_scores.documentation_support },
         { section: "financial_accuracy", score: auditResult.section_scores.financial_accuracy },
         { section: "carrier_risk", score: auditResult.section_scores.carrier_risk },
+        { section: "file_stack_order", score: auditResult.section_scores.file_stack_order },
+        { section: "payment_match", score: auditResult.section_scores.payment_match },
+        { section: "estimate_operational_order", score: auditResult.section_scores.estimate_operational_order },
+        { section: "photo_organization", score: auditResult.section_scores.photo_organization },
+        { section: "da_report_quality", score: auditResult.section_scores.da_report_quality },
+        { section: "fa_report_quality", score: auditResult.section_scores.fa_report_quality },
+        { section: "policy_provisions", score: auditResult.section_scores.policy_provisions },
       ];
 
       for (const entry of sectionEntries) {
@@ -124,6 +135,7 @@ router.post("/claims/:id/audit", async (req, res) => {
       const findingGroups: { type: string; severity: string; items: string[] }[] = [
         { type: "defect", severity: "critical", items: auditResult.critical_failures || [] },
         { type: "defect", severity: "warning", items: auditResult.key_defects || [] },
+        { type: "presentation_issue", severity: "warning", items: auditResult.presentation_issues || [] },
         { type: "carrier_question", severity: "info", items: auditResult.carrier_questions || [] },
         { type: "deferred", severity: "info", items: auditResult.deferred_items || [] },
       ];
@@ -196,10 +208,14 @@ router.post("/claims/:id/audit", async (req, res) => {
 
       await client.query("COMMIT");
 
+      console.log("Audit saved to database");
+
       res.json({
         success: true,
         auditId: newAudit.id,
         overallScore: auditResult.overall_score,
+        technicalScore: auditResult.technical_score,
+        presentationScore: auditResult.presentation_score,
         riskLevel: auditResult.risk_level,
         approvalStatus: auditResult.approval_status,
       });

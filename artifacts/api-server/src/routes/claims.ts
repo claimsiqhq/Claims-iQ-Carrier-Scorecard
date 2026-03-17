@@ -56,6 +56,8 @@ router.get("/claims/:id", async (req, res) => {
         id: audit.id,
         claimId: audit.claimId ?? "",
         overallScore: audit.overallScore ? Number(audit.overallScore) : 0,
+        technicalScore: audit.technicalScore ? Number(audit.technicalScore) : 0,
+        presentationScore: audit.presentationScore ? Number(audit.presentationScore) : 0,
         riskLevel: audit.riskLevel ?? "",
         approvalStatus: audit.approvalStatus ?? "",
         executiveSummary: audit.executiveSummary ?? "",

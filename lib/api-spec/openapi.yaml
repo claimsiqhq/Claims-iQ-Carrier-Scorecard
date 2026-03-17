@@ -140,13 +140,17 @@ components:
 
     AuditResult:
       type: object
-      required: [id, claimId, overallScore, riskLevel, approvalStatus, executiveSummary, sections, findings]
+      required: [id, claimId, overallScore, technicalScore, presentationScore, riskLevel, approvalStatus, executiveSummary, sections, findings]
       properties:
         id:
           type: string
         claimId:
           type: string
         overallScore:
+          type: number
+        technicalScore:
+          type: number
+        presentationScore:
           type: number
         riskLevel:
           type: string

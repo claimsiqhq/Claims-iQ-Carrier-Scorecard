@@ -42,6 +42,8 @@ export const audits = pgTable("audits", {
   id: uuid("id").primaryKey().defaultRandom(),
   claimId: uuid("claim_id").references(() => claims.id, { onDelete: "cascade" }),
   overallScore: numeric("overall_score"),
+  technicalScore: numeric("technical_score"),
+  presentationScore: numeric("presentation_score"),
   riskLevel: text("risk_level"),
   approvalStatus: text("approval_status"),
   executiveSummary: text("executive_summary"),
