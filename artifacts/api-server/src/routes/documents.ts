@@ -112,8 +112,7 @@ router.post("/claims/:id/documents/:docId/extract", async (req, res) => {
             if (value) chunks.push(value);
           }
           const buffer = Buffer.concat(chunks);
-          const pdfParseModule = await import("pdf-parse");
-          const pdfParse = (pdfParseModule as any).default || pdfParseModule;
+          const pdfParse = (await import("pdf-parse")).default;
           const pdfData = await pdfParse(buffer);
           extractedText = pdfData.text;
         }
