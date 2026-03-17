@@ -1,8 +1,12 @@
 import { Router, type IRouter } from "express";
+import { createRequire } from "module";
 import { db } from "@workspace/db";
 import { claims, documents } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { ObjectStorageService } from "../lib/objectStorage";
+
+const require = createRequire(import.meta.url);
+const pdfParse = require("pdf-parse");
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const router: IRouter = Router();
@@ -112,7 +116,6 @@ router.post("/claims/:id/documents/:docId/extract", async (req, res) => {
             if (value) chunks.push(value);
           }
           const buffer = Buffer.concat(chunks);
-          const pdfParse = (await import("pdf-parse")).default;
           const pdfData = await pdfParse(buffer);
           extractedText = pdfData.text;
         }

@@ -143,8 +143,7 @@ export async function runFinalAudit(reportText: string): Promise<AuditResponse> 
   const userPrompt = userTemplate.replace("{{REPORT}}", reportText);
 
   const response = await openai.chat.completions.create({
-    model: "gpt-5",
-    temperature: 0,
+    model: "gpt-4o",
     max_completion_tokens: 8192,
     messages: [
       { role: "system", content: systemPrompt },
