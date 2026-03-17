@@ -227,8 +227,8 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
       </header>
 
       <div className="flex-1 flex overflow-hidden">
-        <div className="w-72 flex flex-col shrink-0 overflow-y-auto hidden md:flex" style={{ backgroundColor: BRAND.white, borderRight: `1px solid ${BRAND.greyLavender}` }}>
-          <div className="p-5 space-y-6">
+        <div className="w-72 flex flex-col shrink-0 overflow-hidden hidden md:flex" style={{ backgroundColor: BRAND.white, borderRight: `1px solid ${BRAND.greyLavender}` }}>
+          <div className="flex-1 overflow-y-auto p-5 space-y-6">
             <div>
               <h2 className="text-xs font-bold uppercase tracking-wider mb-4 flex items-center justify-between" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
                 Claim Details
@@ -477,17 +477,17 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
           </div>
         </ScrollArea>
 
-        <div className="w-80 flex flex-col shrink-0 hidden xl:flex" style={{ backgroundColor: BRAND.white, borderLeft: `1px solid ${BRAND.greyLavender}` }}>
-          <div className="p-4" style={{ borderBottom: `1px solid ${BRAND.greyLavender}` }}>
+        <div className="w-80 flex flex-col shrink-0 hidden xl:flex overflow-hidden" style={{ backgroundColor: BRAND.white, borderLeft: `1px solid ${BRAND.greyLavender}` }}>
+          <div className="p-4 shrink-0" style={{ borderBottom: `1px solid ${BRAND.greyLavender}` }}>
             <h2 className="text-sm font-semibold" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>Document Viewer</h2>
             {claimFileName && (
               <p className="text-xs mt-1 truncate" style={{ color: BRAND.purpleSecondary }}>{claimFileName}</p>
             )}
           </div>
 
-          <ScrollArea className="flex-1 p-4" style={{ backgroundColor: BRAND.offWhite }}>
+          <div className="flex-1 overflow-y-auto p-4" style={{ backgroundColor: BRAND.offWhite }}>
             {claimFile ? (
-              <div className="rounded shadow-sm w-full min-h-[600px] p-6 text-xs leading-relaxed whitespace-pre-wrap" style={{ backgroundColor: BRAND.white, border: `1px solid ${BRAND.greyLavender}`, color: BRAND.deepPurple, fontFamily: FONTS.mono, fontSize: "11px" }}>
+              <div className="rounded shadow-sm w-full p-4 text-xs leading-relaxed whitespace-pre-wrap" style={{ backgroundColor: BRAND.white, border: `1px solid ${BRAND.greyLavender}`, color: BRAND.deepPurple, fontFamily: FONTS.mono, fontSize: "11px" }}>
                 {(claimFile as any).extractedText
                   ? (claimFile as any).extractedText
                   : (
@@ -505,7 +505,7 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
                 </p>
               </div>
             )}
-          </ScrollArea>
+          </div>
         </div>
       </div>
 
