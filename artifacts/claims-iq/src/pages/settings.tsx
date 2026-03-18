@@ -97,8 +97,8 @@ export default function SettingsPage() {
   if (loading) {
     return (
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <header className="h-16 flex items-center px-6 shrink-0" style={{ backgroundColor: BRAND.white, borderBottom: `1px solid ${BRAND.greyLavender}` }}>
-          <h1 className="text-lg font-bold" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>Settings</h1>
+        <header className="h-14 md:h-16 flex items-center px-4 md:px-6 shrink-0" style={{ backgroundColor: BRAND.white, borderBottom: `1px solid ${BRAND.greyLavender}` }}>
+          <h1 className="text-base md:text-lg font-bold" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>Settings</h1>
         </header>
         <div className="flex-1 flex items-center justify-center" style={{ backgroundColor: BRAND.offWhite }}>
           <div className="w-8 h-8 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: BRAND.purple, borderTopColor: "transparent" }} />
@@ -109,40 +109,42 @@ export default function SettingsPage() {
 
   return (
     <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
-      <header className="h-16 flex items-center justify-between px-6 shrink-0" style={{ backgroundColor: BRAND.white, borderBottom: `1px solid ${BRAND.greyLavender}` }}>
-        <div className="flex items-center gap-3">
-          <h1 className="text-lg font-bold" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>Settings</h1>
-          <Badge className="shadow-none border-transparent text-xs" style={{ backgroundColor: BRAND.lightPurpleGrey, color: BRAND.purple }}>
+      <header className="h-14 md:h-16 flex items-center justify-between px-4 md:px-6 shrink-0" style={{ backgroundColor: BRAND.white, borderBottom: `1px solid ${BRAND.greyLavender}` }}>
+        <div className="flex items-center gap-2 md:gap-3">
+          <h1 className="text-base md:text-lg font-bold" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>Settings</h1>
+          <Badge className="shadow-none border-transparent text-xs hidden sm:inline-flex" style={{ backgroundColor: BRAND.lightPurpleGrey, color: BRAND.purple }}>
             AI Prompts
           </Badge>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 md:gap-3">
           <Button
             variant="outline"
             size="sm"
-            className="gap-2"
+            className="gap-1 md:gap-2 text-xs md:text-sm"
             style={{ borderColor: BRAND.greyLavender, color: BRAND.deepPurple }}
             onClick={handleReset}
             disabled={resetting || saving}
           >
             <RefreshDouble width={16} height={16} />
-            {resetting ? "Resetting..." : "Reset to Defaults"}
+            <span className="hidden sm:inline">{resetting ? "Resetting..." : "Reset to Defaults"}</span>
+            <span className="sm:hidden">{resetting ? "..." : "Reset"}</span>
           </Button>
           <Button
             size="sm"
-            className="gap-2 text-white"
+            className="gap-1 md:gap-2 text-xs md:text-sm text-white"
             style={{ backgroundColor: dirty ? BRAND.purple : BRAND.purpleSecondary, fontFamily: FONTS.heading, fontWeight: 600 }}
             onClick={handleSave}
             disabled={saving || !dirty}
           >
             <FloppyDisk width={16} height={16} />
-            {saving ? "Saving..." : "Save Changes"}
+            <span className="hidden sm:inline">{saving ? "Saving..." : "Save Changes"}</span>
+            <span className="sm:hidden">{saving ? "..." : "Save"}</span>
           </Button>
         </div>
       </header>
 
-      <div className="flex-1 overflow-y-auto p-6" style={{ backgroundColor: BRAND.offWhite }}>
-        <div className="max-w-4xl mx-auto space-y-6">
+      <div className="flex-1 overflow-y-auto p-4 md:p-6" style={{ backgroundColor: BRAND.offWhite }}>
+        <div className="max-w-4xl mx-auto space-y-4 md:space-y-6">
           {error && (
             <div className="flex items-center gap-2 p-3 rounded-lg border" style={{ backgroundColor: "#fef2f2", borderColor: "#fecaca", color: "#dc2626" }}>
               <WarningTriangle width={16} height={16} />

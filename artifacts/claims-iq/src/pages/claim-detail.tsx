@@ -209,14 +209,14 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
 
   return (
     <main className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
-      <header className="h-16 flex items-center justify-between px-6 shrink-0" style={{ backgroundColor: BRAND.white, borderBottom: `1px solid ${BRAND.greyLavender}` }}>
-        <div className="flex items-center gap-2 text-sm" style={{ color: BRAND.purpleSecondary }}>
-          <span className="cursor-pointer hover:opacity-80 transition-opacity" onClick={() => setLocation("/claims")}>Claims</span>
-          <NavArrowRight width={16} height={16} />
-          <span className="font-semibold" style={{ color: BRAND.deepPurple, fontFamily: FONTS.mono }}>{claim.claimNumber}</span>
+      <header className="h-14 md:h-16 flex items-center justify-between px-3 md:px-6 shrink-0" style={{ backgroundColor: BRAND.white, borderBottom: `1px solid ${BRAND.greyLavender}` }}>
+        <div className="flex items-center gap-2 text-sm min-w-0" style={{ color: BRAND.purpleSecondary }}>
+          <span className="cursor-pointer hover:opacity-80 transition-opacity shrink-0" onClick={() => setLocation("/claims")}>Claims</span>
+          <NavArrowRight width={16} height={16} className="shrink-0" />
+          <span className="font-semibold truncate" style={{ color: BRAND.deepPurple, fontFamily: FONTS.mono }}>{claim.claimNumber}</span>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 md:gap-3 shrink-0">
           {audit && (
             <>
               <Button
@@ -232,19 +232,20 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
               </Button>
               <Button
                 size="sm"
-                className="hidden lg:flex gap-2 text-white border-transparent"
+                className="gap-1 md:gap-2 text-white border-transparent text-xs md:text-sm"
                 style={{ backgroundColor: BRAND.gold, fontFamily: FONTS.heading, fontWeight: 600 }}
                 onClick={() => { setShowEmailModal(true); setEmailError(null); setEmailSent(false) }}
               >
                 <SendMail width={16} height={16} />
-                Send to Carrier
+                <span className="hidden sm:inline">Send to Carrier</span>
+                <span className="sm:hidden">Send</span>
               </Button>
             </>
           )}
         </div>
       </header>
 
-      <div className="flex-1 flex overflow-hidden min-h-0">
+      <div className="flex-1 flex flex-col md:flex-row overflow-hidden min-h-0">
         <div className="w-72 flex flex-col shrink-0 overflow-hidden hidden md:flex" style={{ backgroundColor: BRAND.white, borderRight: `1px solid ${BRAND.greyLavender}` }}>
           <div className="flex-1 overflow-y-auto p-5 space-y-6">
             <div>
@@ -349,7 +350,31 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
         </div>
 
         <ScrollArea className="flex-1 relative" style={{ backgroundColor: BRAND.offWhite }}>
-          <div className="max-w-4xl mx-auto p-6 space-y-6">
+          <div className="max-w-4xl mx-auto p-4 md:p-6 space-y-4 md:space-y-6">
+            <div className="md:hidden flex gap-2">
+              <Button
+                className="flex-1 text-white font-semibold text-sm"
+                style={{ backgroundColor: auditing ? BRAND.purpleSecondary : BRAND.purple, fontFamily: FONTS.heading }}
+                onClick={handleRunAudit}
+                disabled={auditing}
+              >
+                {auditing ? "Running..." : "Run Audit"}
+              </Button>
+              {audit && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1 text-sm"
+                  style={{ borderColor: BRAND.greyLavender, color: BRAND.deepPurple }}
+                  onClick={handlePreviewEmail}
+                  disabled={emailLoading}
+                >
+                  <Eye width={16} height={16} />
+                  Email
+                </Button>
+              )}
+            </div>
+
             {audit && (
               <>
                 <Card className="shadow-sm overflow-hidden relative" style={{ borderColor: BRAND.greyLavender, backgroundColor: BRAND.white }}>
@@ -570,8 +595,8 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
       </div>
 
       {emailPreviewHtml && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ backgroundColor: "rgba(52, 42, 79, 0.5)" }} onClick={() => setEmailPreviewHtml(null)} role="dialog" aria-label="Email preview">
-          <div className="w-full max-w-3xl h-[80vh] rounded-xl shadow-2xl flex flex-col overflow-hidden" style={{ backgroundColor: BRAND.white }} onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center" style={{ backgroundColor: "rgba(52, 42, 79, 0.5)" }} onClick={() => setEmailPreviewHtml(null)} role="dialog" aria-label="Email preview">
+          <div className="w-full md:max-w-3xl h-[90vh] md:h-[80vh] rounded-t-xl md:rounded-xl shadow-2xl flex flex-col overflow-hidden" style={{ backgroundColor: BRAND.white }} onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between p-4 shrink-0" style={{ borderBottom: `1px solid ${BRAND.greyLavender}` }}>
               <h3 className="text-lg font-bold" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>Email Preview</h3>
               <button onClick={() => setEmailPreviewHtml(null)} className="p-1 rounded hover:opacity-70 transition-opacity" style={{ color: BRAND.purpleSecondary }} aria-label="Close email preview">
@@ -589,8 +614,8 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
       )}
 
       {showEmailModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ backgroundColor: "rgba(52, 42, 79, 0.5)" }} onClick={() => setShowEmailModal(false)} role="dialog" aria-label="Send audit email">
-          <div className="w-full max-w-md rounded-xl shadow-2xl p-6" style={{ backgroundColor: BRAND.white }} onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center" style={{ backgroundColor: "rgba(52, 42, 79, 0.5)" }} onClick={() => setShowEmailModal(false)} role="dialog" aria-label="Send audit email">
+          <div className="w-full md:max-w-md rounded-t-xl md:rounded-xl shadow-2xl p-5 md:p-6" style={{ backgroundColor: BRAND.white }} onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-5">
               <h3 className="text-lg font-bold flex items-center gap-2" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
                 <SendMail width={20} height={20} style={{ color: BRAND.gold }} />

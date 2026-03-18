@@ -44,7 +44,7 @@ app.use(requestMetrics);
 app.use(auditLog);
 
 app.use((req: Request, res: Response, next: NextFunction) => {
-  if (["POST", "PUT", "DELETE"].includes(req.method) && !req.path.includes("/auth") && !req.path.includes("/login") && !req.path.includes("/callback") && !req.path.includes("/logout") && !req.path.includes("/mobile-auth")) {
+  if (["POST", "PUT", "DELETE"].includes(req.method) && !req.path.includes("/auth/login") && !req.path.includes("/auth/logout")) {
     const origin = req.headers.origin;
     const referer = req.headers.referer;
     if (origin || referer) {

@@ -220,8 +220,25 @@
     @apply border-border;
   }
 
+  html {
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+  }
+
   body {
     @apply font-sans antialiased bg-background text-foreground;
+    overscroll-behavior: none;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+
+  input, textarea, select, button {
+    font-size: 16px;
+  }
+
+  @media (min-width: 768px) {
+    input, textarea, select, button {
+      font-size: inherit;
+    }
   }
 }
 

@@ -115,16 +115,16 @@ export default function UploadPage() {
 
   return (
     <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
-      <header className="h-16 flex items-center px-6 shrink-0" style={{ backgroundColor: BRAND.white, borderBottom: `1px solid ${BRAND.greyLavender}` }}>
-        <h1 className="text-lg font-bold" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>Upload / Ingest</h1>
+      <header className="h-14 md:h-16 flex items-center px-4 md:px-6 shrink-0" style={{ backgroundColor: BRAND.white, borderBottom: `1px solid ${BRAND.greyLavender}` }}>
+        <h1 className="text-base md:text-lg font-bold" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>Upload / Ingest</h1>
       </header>
 
-      <div className="flex-1 overflow-y-auto p-6" style={{ backgroundColor: BRAND.offWhite }}>
+      <div className="flex-1 overflow-y-auto p-4 md:p-6" style={{ backgroundColor: BRAND.offWhite }}>
         <div className="max-w-2xl mx-auto space-y-6">
 
           {(status === "idle" || status === "error") && (
             <div
-              className="border-2 border-dashed rounded-xl p-16 flex flex-col items-center justify-center text-center transition-all cursor-pointer"
+              className="border-2 border-dashed rounded-xl p-8 md:p-16 flex flex-col items-center justify-center text-center transition-all cursor-pointer"
               style={{
                 borderColor: dragOver ? BRAND.purple : BRAND.purpleSecondary,
                 backgroundColor: dragOver ? BRAND.lightPurpleGrey : BRAND.white,
@@ -141,13 +141,14 @@ export default function UploadPage() {
                 className="hidden"
                 onChange={handleInputChange}
               />
-              <div className="w-20 h-20 rounded-full flex items-center justify-center mb-5" style={{ backgroundColor: BRAND.lightPurpleGrey }}>
-                <CloudUpload width={40} height={40} style={{ color: BRAND.purple }} />
+              <div className="w-16 h-16 md:w-20 md:h-20 rounded-full flex items-center justify-center mb-4 md:mb-5" style={{ backgroundColor: BRAND.lightPurpleGrey }}>
+                <CloudUpload width={32} height={32} className="md:hidden" style={{ color: BRAND.purple }} />
+                <CloudUpload width={40} height={40} className="hidden md:block" style={{ color: BRAND.purple }} />
               </div>
-              <p className="text-xl font-bold mb-2" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
+              <p className="text-lg md:text-xl font-bold mb-2" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
                 {dragOver ? "Drop it here" : "Drop your claim file"}
               </p>
-              <p className="text-sm mb-6" style={{ color: BRAND.purpleSecondary }}>
+              <p className="text-sm mb-4 md:mb-6" style={{ color: BRAND.purpleSecondary }}>
                 Upload the complete claim PDF package and we'll extract everything automatically.
               </p>
               <Button
@@ -228,7 +229,7 @@ export default function UploadPage() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3 mb-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
                     <DataField label="Claim Number" value={result.parsedData.claimNumber} mono />
                     <DataField label="Insured Name" value={result.parsedData.insuredName} />
                     <DataField label="Carrier" value={result.parsedData.carrier} />
@@ -250,7 +251,7 @@ export default function UploadPage() {
                     </div>
                   )}
 
-                  <div className="flex items-center gap-3">
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
                     <Button
                       className="flex-1 gap-2 text-white"
                       style={{ backgroundColor: BRAND.purple, fontFamily: FONTS.heading, fontWeight: 600 }}

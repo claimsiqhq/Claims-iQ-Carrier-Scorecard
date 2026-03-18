@@ -19,13 +19,13 @@ export default function ClaimsListPage() {
 
   return (
     <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
-      <header className="h-16 flex items-center px-6 shrink-0" style={{ backgroundColor: BRAND.white, borderBottom: `1px solid ${BRAND.greyLavender}` }}>
-        <h1 className="text-lg font-bold" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
+      <header className="h-14 md:h-16 flex items-center px-4 md:px-6 shrink-0" style={{ backgroundColor: BRAND.white, borderBottom: `1px solid ${BRAND.greyLavender}` }}>
+        <h1 className="text-base md:text-lg font-bold" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
           All Claims
         </h1>
       </header>
 
-      <div className="flex-1 overflow-y-auto p-6" style={{ backgroundColor: BRAND.offWhite }}>
+      <div className="flex-1 overflow-y-auto p-4 md:p-6" style={{ backgroundColor: BRAND.offWhite }}>
         <div className="max-w-4xl mx-auto space-y-3">
           {isLoading && (
             <div className="text-center py-12">
@@ -43,7 +43,7 @@ export default function ClaimsListPage() {
                 style={{ borderColor: BRAND.greyLavender, backgroundColor: BRAND.white }}
                 onClick={() => setLocation(`/claims/${claim.id}`)}
               >
-                <CardContent className="p-5 flex items-center justify-between">
+                <CardContent className="p-4 md:p-5 flex items-center justify-between">
                   <div className="flex items-center gap-4">
                     <div className="p-2 rounded-lg" style={{ backgroundColor: BRAND.lightPurpleGrey }}>
                       <PageEdit width={20} height={20} style={{ color: BRAND.purple }} />

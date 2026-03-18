@@ -14,8 +14,8 @@ export default function AuditResultsPage() {
   if (isLoading) {
     return (
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <header className="h-16 flex items-center px-6 shrink-0" style={{ backgroundColor: BRAND.white, borderBottom: `1px solid ${BRAND.greyLavender}` }}>
-          <h1 className="text-lg font-bold" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>Audit Results</h1>
+        <header className="h-14 md:h-16 flex items-center px-4 md:px-6 shrink-0" style={{ backgroundColor: BRAND.white, borderBottom: `1px solid ${BRAND.greyLavender}` }}>
+          <h1 className="text-base md:text-lg font-bold" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>Audit Results</h1>
         </header>
         <div className="flex-1 flex items-center justify-center" style={{ backgroundColor: BRAND.offWhite }}>
           <div className="w-8 h-8 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: BRAND.purple, borderTopColor: "transparent" }} />
@@ -26,23 +26,23 @@ export default function AuditResultsPage() {
 
   return (
     <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
-      <header className="h-16 flex items-center px-6 shrink-0" style={{ backgroundColor: BRAND.white, borderBottom: `1px solid ${BRAND.greyLavender}` }}>
-        <h1 className="text-lg font-bold" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>Audit Results</h1>
+      <header className="h-14 md:h-16 flex items-center px-4 md:px-6 shrink-0" style={{ backgroundColor: BRAND.white, borderBottom: `1px solid ${BRAND.greyLavender}` }}>
+        <h1 className="text-base md:text-lg font-bold" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>Audit Results</h1>
       </header>
-      <div className="flex-1 overflow-y-auto p-6" style={{ backgroundColor: BRAND.offWhite }}>
+      <div className="flex-1 overflow-y-auto p-4 md:p-6" style={{ backgroundColor: BRAND.offWhite }}>
         <div className="max-w-4xl mx-auto">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-            <div className="p-5 rounded-lg border" style={{ backgroundColor: BRAND.white, borderColor: BRAND.greyLavender }}>
-              <p className="text-xs uppercase tracking-wider mb-1" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.heading }}>Total Claims</p>
-              <p className="text-2xl font-bold" style={{ color: BRAND.deepPurple, fontFamily: FONTS.mono }}>{claims?.length ?? 0}</p>
+          <div className="grid grid-cols-3 gap-3 md:gap-4 mb-6 md:mb-8">
+            <div className="p-3 md:p-5 rounded-lg border" style={{ backgroundColor: BRAND.white, borderColor: BRAND.greyLavender }}>
+              <p className="text-[10px] md:text-xs uppercase tracking-wider mb-1" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.heading }}>Total Claims</p>
+              <p className="text-xl md:text-2xl font-bold" style={{ color: BRAND.deepPurple, fontFamily: FONTS.mono }}>{claims?.length ?? 0}</p>
             </div>
-            <div className="p-5 rounded-lg border" style={{ backgroundColor: BRAND.white, borderColor: BRAND.greyLavender }}>
-              <p className="text-xs uppercase tracking-wider mb-1" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.heading }}>Audited</p>
-              <p className="text-2xl font-bold" style={{ color: "#16a34a", fontFamily: FONTS.mono }}>{analyzedClaims.length}</p>
+            <div className="p-3 md:p-5 rounded-lg border" style={{ backgroundColor: BRAND.white, borderColor: BRAND.greyLavender }}>
+              <p className="text-[10px] md:text-xs uppercase tracking-wider mb-1" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.heading }}>Audited</p>
+              <p className="text-xl md:text-2xl font-bold" style={{ color: "#16a34a", fontFamily: FONTS.mono }}>{analyzedClaims.length}</p>
             </div>
-            <div className="p-5 rounded-lg border" style={{ backgroundColor: BRAND.white, borderColor: BRAND.greyLavender }}>
-              <p className="text-xs uppercase tracking-wider mb-1" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.heading }}>Pending Audit</p>
-              <p className="text-2xl font-bold" style={{ color: BRAND.gold, fontFamily: FONTS.mono }}>{pendingClaims.length}</p>
+            <div className="p-3 md:p-5 rounded-lg border" style={{ backgroundColor: BRAND.white, borderColor: BRAND.greyLavender }}>
+              <p className="text-[10px] md:text-xs uppercase tracking-wider mb-1" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.heading }}>Pending Audit</p>
+              <p className="text-xl md:text-2xl font-bold" style={{ color: BRAND.gold, fontFamily: FONTS.mono }}>{pendingClaims.length}</p>
             </div>
           </div>
 
