@@ -26,7 +26,6 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { BRAND, FONTS } from "@/lib/brand"
@@ -68,6 +67,7 @@ function getScoreColor(score: number, max: number): { text: string; bg: string; 
 }
 
 export default function ClaimDetailPage({ claimId }: { claimId: string }) {
+  const [activeTab, setActiveTab] = useState("defects")
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     defects: true,
     presentation: false,
@@ -582,76 +582,86 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
                   </CardContent>
                 </Card>
 
-                <div className="pt-2 pb-10">
-                  <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-                    <TabsList className="p-1 w-full flex mb-4 h-auto flex-wrap" style={{ backgroundColor: BRAND.lightPurpleGrey, border: `1px solid ${BRAND.greyLavender}` }}>
-                      <TabsTrigger value="defects" className="flex-1 text-sm py-2 data-[state=active]:shadow-sm" style={{ fontFamily: FONTS.heading }}>
-                        Critical / Defects <CountBadge count={defects.length} />
-                      </TabsTrigger>
-                      <TabsTrigger value="presentation" className="flex-1 text-sm py-2 data-[state=active]:shadow-sm" style={{ fontFamily: FONTS.heading }}>
-                        Presentation <CountBadge count={presentationIssues.length} />
-                      </TabsTrigger>
-                      <TabsTrigger value="questions" className="flex-1 text-sm py-2 data-[state=active]:shadow-sm" style={{ fontFamily: FONTS.heading }}>
-                        Carrier Questions <CountBadge count={questions.length} />
-                      </TabsTrigger>
-                      <TabsTrigger value="risks" className="flex-1 text-sm py-2 data-[state=active]:shadow-sm" style={{ fontFamily: FONTS.heading }}>
-                        Risks <CountBadge count={risks.length} />
-                      </TabsTrigger>
-                      <TabsTrigger value="deferred" className="flex-1 text-sm py-2 data-[state=active]:shadow-sm" style={{ fontFamily: FONTS.heading }}>
-                        Deferred <CountBadge count={deferred.length} />
-                      </TabsTrigger>
-                    </TabsList>
+                <div className="pt-2 pb-10 space-y-3">
+                  <FindingsSection
+                    sectionKey="defects"
+                    title="Critical / Defects"
+                    icon={<WarningTriangle width={16} height={16} />}
+                    accentColor="#dc2626"
+                    count={defects.length}
+                    expanded={expandedSections.defects}
+                    onToggle={() => setExpandedSections((s) => ({ ...s, defects: !s.defects }))}
+                  >
+                    {defects.length > 0 ? defects.map((f) => (
+                      <DefectCard key={f.id} severity={f.severity === "high" || f.severity === "critical" ? "critical" : "warning"} title={f.title} description={f.description} category={f.category || f.type} />
+                    )) : (
+                      <EmptyTabContent icon={<CheckCircle width={40} height={40} />} title="No Critical Failures or Defects" subtitle="No defects identified for this claim." />
+                    )}
+                  </FindingsSection>
 
-                    <TabsContent value="defects" className="mt-0">
-                      <div className="space-y-3">
-                        {defects.length > 0 ? defects.map((f) => (
-                          <DefectCard key={f.id} severity={f.severity === "high" || f.severity === "critical" ? "critical" : "warning"} title={f.title} description={f.description} category={f.category || f.type} />
-                        )) : (
-                          <EmptyTabContent icon={<CheckCircle width={40} height={40} />} title="No Critical Failures or Defects" subtitle="No defects identified for this claim." />
-                        )}
-                      </div>
-                    </TabsContent>
+                  <FindingsSection
+                    sectionKey="presentation"
+                    title="Presentation Issues"
+                    icon={<Folder width={16} height={16} />}
+                    accentColor={BRAND.gold}
+                    count={presentationIssues.length}
+                    expanded={expandedSections.presentation}
+                    onToggle={() => setExpandedSections((s) => ({ ...s, presentation: !s.presentation }))}
+                  >
+                    {presentationIssues.length > 0 ? presentationIssues.map((f) => (
+                      <DefectCard key={f.id} severity="warning" title={f.title} description={f.description} category="Presentation" />
+                    )) : (
+                      <EmptyTabContent icon={<Folder width={40} height={40} />} title="No Presentation Issues" subtitle="File organization meets carrier readiness standards." />
+                    )}
+                  </FindingsSection>
 
-                    <TabsContent value="presentation" className="mt-0">
-                      <div className="space-y-3">
-                        {presentationIssues.length > 0 ? presentationIssues.map((f) => (
-                          <DefectCard key={f.id} severity="warning" title={f.title} description={f.description} category="Presentation" />
-                        )) : (
-                          <EmptyTabContent icon={<Folder width={40} height={40} />} title="No Presentation Issues" subtitle="File organization meets carrier readiness standards." />
-                        )}
-                      </div>
-                    </TabsContent>
+                  <FindingsSection
+                    sectionKey="questions"
+                    title="Carrier Questions"
+                    icon={<PageSearch width={16} height={16} />}
+                    accentColor={BRAND.purple}
+                    count={questions.length}
+                    expanded={expandedSections.questions}
+                    onToggle={() => setExpandedSections((s) => ({ ...s, questions: !s.questions }))}
+                  >
+                    {questions.length > 0 ? questions.map((f) => (
+                      <DefectCard key={f.id} severity="warning" title={f.title} description={f.description} category={f.category || "Question"} />
+                    )) : (
+                      <EmptyTabContent icon={<PageSearch width={40} height={40} />} title="No Carrier Questions" subtitle="No questions identified for this claim." />
+                    )}
+                  </FindingsSection>
 
-                    <TabsContent value="questions" className="mt-0">
-                      <div className="space-y-3">
-                        {questions.length > 0 ? questions.map((f) => (
-                          <DefectCard key={f.id} severity="warning" title={f.title} description={f.description} category={f.category || "Question"} />
-                        )) : (
-                          <EmptyTabContent icon={<PageSearch width={40} height={40} />} title="No Carrier Questions" subtitle="No questions identified for this claim." />
-                        )}
-                      </div>
-                    </TabsContent>
+                  <FindingsSection
+                    sectionKey="risks"
+                    title="Risks"
+                    icon={<WarningTriangle width={16} height={16} />}
+                    accentColor="#f59e0b"
+                    count={risks.length}
+                    expanded={expandedSections.risks}
+                    onToggle={() => setExpandedSections((s) => ({ ...s, risks: !s.risks }))}
+                  >
+                    {risks.length > 0 ? risks.map((f) => (
+                      <DefectCard key={f.id} severity={f.severity === "high" || f.severity === "critical" ? "critical" : "warning"} title={f.title} description={f.description} category={f.category || "Risk"} />
+                    )) : (
+                      <EmptyTabContent icon={<WarningTriangle width={40} height={40} />} title="No Risks Identified" subtitle="No risks found for this claim." />
+                    )}
+                  </FindingsSection>
 
-                    <TabsContent value="risks" className="mt-0">
-                      <div className="space-y-3">
-                        {risks.length > 0 ? risks.map((f) => (
-                          <DefectCard key={f.id} severity={f.severity === "high" || f.severity === "critical" ? "critical" : "warning"} title={f.title} description={f.description} category={f.category || "Risk"} />
-                        )) : (
-                          <EmptyTabContent icon={<WarningTriangle width={40} height={40} />} title="No Risks Identified" subtitle="No risks found for this claim." />
-                        )}
-                      </div>
-                    </TabsContent>
-
-                    <TabsContent value="deferred" className="mt-0">
-                      <div className="space-y-3">
-                        {deferred.length > 0 ? deferred.map((f) => (
-                          <DefectCard key={f.id} severity="warning" title={f.title} description={f.description} category={f.category || "Deferred"} />
-                        )) : (
-                          <EmptyTabContent icon={<ClipboardCheck width={40} height={40} />} title="No Deferred Items" subtitle="No items deferred for later review." />
-                        )}
-                      </div>
-                    </TabsContent>
-                  </Tabs>
+                  <FindingsSection
+                    sectionKey="deferred"
+                    title="Deferred Items"
+                    icon={<ClipboardCheck width={16} height={16} />}
+                    accentColor={BRAND.purpleSecondary}
+                    count={deferred.length}
+                    expanded={expandedSections.deferred}
+                    onToggle={() => setExpandedSections((s) => ({ ...s, deferred: !s.deferred }))}
+                  >
+                    {deferred.length > 0 ? deferred.map((f) => (
+                      <DefectCard key={f.id} severity="warning" title={f.title} description={f.description} category={f.category || "Deferred"} />
+                    )) : (
+                      <EmptyTabContent icon={<ClipboardCheck width={40} height={40} />} title="No Deferred Items" subtitle="No items deferred for later review." />
+                    )}
+                  </FindingsSection>
                 </div>
               </>
             )}
@@ -870,11 +880,38 @@ function DetailItem({ label, value, mono = false }: { label: string; value: stri
   )
 }
 
-function CountBadge({ count }: { count: number }) {
+function FindingsSection({ sectionKey, title, icon, accentColor, count, expanded, onToggle, children }: {
+  sectionKey: string; title: string; icon: React.ReactNode; accentColor: string; count: number; expanded: boolean; onToggle: () => void; children: React.ReactNode
+}) {
   return (
-    <span className="ml-1.5 inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 text-xs font-bold rounded-full" style={{ backgroundColor: BRAND.purple, color: BRAND.white }}>
-      {count}
-    </span>
+    <Card className="shadow-sm overflow-hidden" style={{ borderColor: BRAND.greyLavender, backgroundColor: BRAND.white }}>
+      <button
+        className="w-full flex items-center justify-between p-4 hover:bg-black/[0.02] transition-colors"
+        onClick={onToggle}
+        aria-expanded={expanded}
+        aria-controls={`findings-${sectionKey}`}
+      >
+        <div className="flex items-center gap-3">
+          <div className="p-1.5 rounded" style={{ backgroundColor: `${accentColor}14`, color: accentColor }}>{icon}</div>
+          <span className="text-sm font-semibold" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>{title}</span>
+          <span className="inline-flex items-center justify-center min-w-[22px] h-[22px] px-1.5 text-xs font-bold rounded-full" style={{ backgroundColor: count > 0 ? accentColor : BRAND.greyLavender, color: count > 0 ? "#fff" : BRAND.purpleSecondary }}>
+            {count}
+          </span>
+        </div>
+        <NavArrowDown
+          width={16} height={16}
+          className="transition-transform duration-200"
+          style={{ color: BRAND.purpleSecondary, transform: expanded ? "rotate(180deg)" : "rotate(0deg)" }}
+        />
+      </button>
+      {expanded && (
+        <div id={`findings-${sectionKey}`} className="px-4 pb-4 space-y-3" style={{ borderTop: `1px solid ${BRAND.greyLavender}` }}>
+          <div className="pt-3 space-y-3">
+            {children}
+          </div>
+        </div>
+      )}
+    </Card>
   )
 }
 
