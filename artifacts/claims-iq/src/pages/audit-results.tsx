@@ -3,106 +3,13 @@ import { useListClaims } from "@workspace/api-client-react"
 import { useLocation } from "wouter"
 import { ClipboardCheck, WarningTriangle, Check, Eye } from "iconoir-react"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import CarrierScorecardPanel, { type CarrierScorecardResult } from "@/components/inspection/CarrierScorecardPanel"
-import { useState } from "react"
 
 export default function AuditResultsPage() {
   const { data: claims, isLoading } = useListClaims()
   const [, setLocation] = useLocation()
-  const [reportText, setReportText] = useState("")
-  const [reportPdfFile, setReportPdfFile] = useState<File | null>(null)
-  const [runningStandaloneAudit, setRunningStandaloneAudit] = useState(false)
-  const [standaloneAuditError, setStandaloneAuditError] = useState<string | null>(null)
-  const [standaloneAudit, setStandaloneAudit] = useState<CarrierScorecardResult | null>(null)
-  const [emailTo, setEmailTo] = useState("")
-  const [sendingStandaloneEmail, setSendingStandaloneEmail] = useState(false)
-  const [standaloneEmailStatus, setStandaloneEmailStatus] = useState<string | null>(null)
 
   const analyzedClaims = claims?.filter((c) => c.status === "analyzed") ?? []
   const pendingClaims = claims?.filter((c) => c.status === "pending") ?? []
-
-  const handleRunStandaloneAudit = async () => {
-    if (!reportText.trim() && !reportPdfFile) {
-      setStandaloneAuditError("Paste final report text or upload a PDF before running the standalone audit.")
-      return
-    }
-
-    setRunningStandaloneAudit(true)
-    setStandaloneAuditError(null)
-    setStandaloneEmailStatus(null)
-    setStandaloneAudit(null)
-
-    try {
-      const baseUrl = import.meta.env.VITE_API_URL || "/api"
-      let response: Response
-
-      if (reportPdfFile) {
-        const formData = new FormData()
-        formData.append("file", reportPdfFile)
-        if (reportText.trim()) {
-          formData.append("reportText", reportText.trim())
-        }
-        response = await fetch(`${baseUrl}/audit/standalone`, {
-          method: "POST",
-          credentials: "include",
-          body: formData,
-        })
-      } else {
-        response = await fetch(`${baseUrl}/audit/standalone`, {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ reportText }),
-        })
-      }
-
-      const body = await response.json().catch(() => ({}))
-      if (!response.ok) {
-        throw new Error(body.error || "Standalone audit failed")
-      }
-
-      setStandaloneAudit(body as CarrierScorecardResult)
-    } catch (err: any) {
-      setStandaloneAuditError(err.message || "Standalone audit failed")
-    } finally {
-      setRunningStandaloneAudit(false)
-    }
-  }
-
-  const handleSendStandaloneEmail = async () => {
-    if (!standaloneAudit) return
-    if (!emailTo.trim()) {
-      setStandaloneEmailStatus("Enter a recipient email first.")
-      return
-    }
-
-    setSendingStandaloneEmail(true)
-    setStandaloneEmailStatus(null)
-    try {
-      const baseUrl = import.meta.env.VITE_API_URL || "/api"
-      const response = await fetch(`${baseUrl}/audit/standalone/email`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          to: emailTo.trim(),
-          audit: standaloneAudit,
-          subject: "Carrier Scorecard Audit",
-        }),
-      })
-
-      const body = await response.json().catch(() => ({}))
-      if (!response.ok) {
-        throw new Error(body.error || "Failed to send carrier scorecard email")
-      }
-      setStandaloneEmailStatus("Carrier scorecard email sent.")
-    } catch (err: any) {
-      setStandaloneEmailStatus(err.message || "Failed to send carrier scorecard email")
-    } finally {
-      setSendingStandaloneEmail(false)
-    }
-  }
 
   if (isLoading) {
     return (
@@ -124,87 +31,6 @@ export default function AuditResultsPage() {
       </header>
       <div className="flex-1 overflow-y-auto p-4 md:p-6" style={{ backgroundColor: BRAND.offWhite }}>
         <div className="max-w-4xl mx-auto">
-          <div className="rounded-lg border p-4 md:p-5 mb-6 space-y-4" style={{ backgroundColor: BRAND.white, borderColor: BRAND.greyLavender }}>
-            <h2 className="text-sm font-semibold uppercase tracking-wider" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
-              Standalone Carrier Scorecard Audit
-            </h2>
-            <p className="text-xs leading-relaxed" style={{ color: BRAND.purpleSecondary }}>
-              Paste final report package text or upload one PDF to run a strict standalone carrier scorecard audit.
-            </p>
-
-            <div className="space-y-2">
-              <label className="text-xs font-semibold uppercase tracking-wider block" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
-                Optional PDF Upload
-              </label>
-              <input
-                type="file"
-                accept="application/pdf,.pdf"
-                onChange={(event) => {
-                  const file = event.target.files?.[0] ?? null
-                  setReportPdfFile(file)
-                }}
-                className="w-full rounded-lg border p-2 text-xs"
-                style={{ borderColor: BRAND.greyLavender, color: BRAND.deepPurple, fontFamily: FONTS.body }}
-              />
-              {reportPdfFile && (
-                <p className="text-xs" style={{ color: BRAND.purpleSecondary }}>
-                  Selected PDF: {reportPdfFile.name}
-                </p>
-              )}
-            </div>
-
-            <textarea
-              value={reportText}
-              onChange={(event) => setReportText(event.target.value)}
-              placeholder="Paste final report text here (optional if a PDF is uploaded)..."
-              className="w-full min-h-[160px] rounded-lg border p-3 text-sm outline-none"
-              style={{ borderColor: BRAND.greyLavender, color: BRAND.deepPurple, fontFamily: FONTS.body }}
-            />
-
-            <div className="flex flex-col md:flex-row md:items-center gap-3">
-              <Button
-                className="text-white"
-                style={{ backgroundColor: runningStandaloneAudit ? BRAND.purpleSecondary : BRAND.purple, fontFamily: FONTS.heading }}
-                onClick={handleRunStandaloneAudit}
-                disabled={runningStandaloneAudit}
-              >
-                {runningStandaloneAudit ? "Running..." : "Run Standalone Audit"}
-              </Button>
-              {standaloneAuditError && (
-                <span className="text-xs" style={{ color: "#dc2626" }}>{standaloneAuditError}</span>
-              )}
-            </div>
-
-            {standaloneAudit && (
-              <div className="space-y-3">
-                <CarrierScorecardPanel audit={standaloneAudit} />
-                <div className="rounded-lg border p-3 flex flex-col md:flex-row gap-3 md:items-center" style={{ borderColor: BRAND.greyLavender }}>
-                  <input
-                    type="email"
-                    value={emailTo}
-                    onChange={(event) => setEmailTo(event.target.value)}
-                    placeholder="carrier-reviewer@example.com"
-                    className="w-full md:flex-1 rounded-lg border px-3 py-2 text-sm outline-none"
-                    style={{ borderColor: BRAND.greyLavender, color: BRAND.deepPurple, fontFamily: FONTS.body }}
-                  />
-                  <Button
-                    className="text-white"
-                    style={{ backgroundColor: sendingStandaloneEmail ? BRAND.purpleSecondary : BRAND.gold, fontFamily: FONTS.heading }}
-                    onClick={handleSendStandaloneEmail}
-                    disabled={sendingStandaloneEmail}
-                  >
-                    {sendingStandaloneEmail ? "Sending..." : "Send Scorecard Email"}
-                  </Button>
-                </div>
-                {standaloneEmailStatus && (
-                  <p className="text-xs" style={{ color: standaloneEmailStatus.includes("sent") ? "#166534" : "#dc2626" }}>
-                    {standaloneEmailStatus}
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
-
           <div className="grid grid-cols-3 gap-3 md:gap-4 mb-6 md:mb-8">
             <div className="p-3 md:p-5 rounded-lg border" style={{ backgroundColor: BRAND.white, borderColor: BRAND.greyLavender }}>
               <p className="text-[10px] md:text-xs uppercase tracking-wider mb-1" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.heading }}>Total Claims</p>
