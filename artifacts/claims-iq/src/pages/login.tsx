@@ -27,33 +27,30 @@ export default function LoginPage() {
   return (
     <div
       className="min-h-[100dvh] flex items-center justify-center p-4"
-      style={{ backgroundColor: BRAND.deepPurple }}
+      style={{ backgroundColor: BRAND.offWhite }}
     >
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
-          <div
-            className="w-16 h-16 rounded-2xl mx-auto mb-4 flex items-center justify-center"
-            style={{ backgroundColor: BRAND.purple }}
-          >
-            <span className="text-white text-2xl font-bold" style={{ fontFamily: FONTS.heading }}>
-              iQ
-            </span>
-          </div>
+          <img
+            src={`${import.meta.env.BASE_URL}images/claims-iq-logo.png`}
+            alt="ClaimsiQ"
+            className="h-14 w-14 mx-auto mb-4"
+          />
           <h1
-            className="text-2xl font-bold text-white mb-1"
-            style={{ fontFamily: FONTS.heading }}
+            className="text-2xl font-bold mb-1"
+            style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}
           >
-            Claims iQ
+            Claims<span style={{ color: BRAND.purple }}>iQ</span>
           </h1>
           <p style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.body }} className="text-sm">
-            Audit Engine
+            Sign in to your account
           </p>
         </div>
 
         <form
           onSubmit={handleSubmit}
-          className="rounded-xl p-6 space-y-4"
-          style={{ backgroundColor: BRAND.white }}
+          className="rounded-xl p-6 space-y-5 border shadow-sm"
+          style={{ backgroundColor: BRAND.white, borderColor: BRAND.greyLavender }}
         >
           <div>
             <label
@@ -146,7 +143,7 @@ export default function LoginPage() {
 
         <p
           className="text-xs text-center mt-6"
-          style={{ color: "rgba(255,255,255,0.3)" }}
+          style={{ color: BRAND.purpleSecondary }}
         >
           Claims iQ Audit Engine
         </p>

@@ -98,7 +98,7 @@ export default function DashboardPage() {
         case "dateOfLoss": av = a.dateOfLoss || ""; bv = b.dateOfLoss || ""; break
         case "createdAt": av = a.createdAt || ""; bv = b.createdAt || ""; break
       }
-      const cmp = typeof av === "string" ? av.localeCompare(bv as string) : (av as number) - (bv as number)
+      const cmp = String(av).localeCompare(String(bv))
       return sortDir === "asc" ? cmp : -cmp
     })
 
