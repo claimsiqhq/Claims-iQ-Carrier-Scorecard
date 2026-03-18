@@ -7,10 +7,12 @@ import {
   Settings as SettingsIcon,
   Menu,
   Xmark,
+  LogOut,
 } from "iconoir-react"
 import { BRAND, FONTS } from "@/lib/brand"
 import { useLocation } from "wouter"
 import { useIsMobile } from "@/hooks/use-mobile"
+import { useAuth } from "@/lib/auth-context"
 import type { Claim } from "@workspace/api-client-react"
 
 interface SidebarProps {
@@ -23,6 +25,7 @@ export function Sidebar({ claims, selectedClaimId, onSelectClaim }: SidebarProps
   const [location, setLocation] = useLocation()
   const isMobile = useIsMobile()
   const [open, setOpen] = useState(false)
+  const { user, logout } = useAuth()
 
   useEffect(() => {
     if (!isMobile) setOpen(false)
