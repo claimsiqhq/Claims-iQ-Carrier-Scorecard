@@ -155,7 +155,7 @@ export default function DashboardPage() {
           size="sm"
           className="gap-2 text-white text-xs md:text-sm"
           style={{ backgroundColor: BRAND.purple, fontFamily: FONTS.heading, fontWeight: 600 }}
-          onClick={() => setLocation("/upload")}
+          onClick={() => setLocation("/claims")}
         >
           <UploadIcon width={16} height={16} />
           <span className="hidden sm:inline">New Claim</span>
@@ -312,7 +312,7 @@ export default function DashboardPage() {
                     size="sm"
                     className="gap-2 text-white"
                     style={{ backgroundColor: BRAND.purple, fontFamily: FONTS.heading, fontWeight: 600 }}
-                    onClick={() => setLocation("/upload")}
+                    onClick={() => setLocation("/claims")}
                   >
                     <UploadIcon width={16} height={16} />
                     Upload First Claim

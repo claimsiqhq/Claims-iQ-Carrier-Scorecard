@@ -70,7 +70,7 @@ function AppLayout() {
           <Route path="/" component={DashboardPage} />
           <Route path="/claims" component={ClaimsListPage} />
           <Route path="/claims/:id">{(params) => <ClaimDetailWrapper params={params} />}</Route>
-          <Route path="/upload" component={UploadPage} />
+          <Route path="/upload">{() => { setLocation("/claims"); return null; }}</Route>
           <Route path="/audit-results" component={AuditResultsPage} />
           <Route path="/settings" component={SettingsPage} />
           <Route>
