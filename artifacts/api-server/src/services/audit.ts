@@ -41,6 +41,39 @@ export interface AuditResponse {
   executive_summary: string;
 }
 
+const REQUIRED_SECTIONS: (keyof SectionScores)[] = [
+  "coverage_clarity", "scope_completeness", "estimate_accuracy",
+  "documentation_support", "financial_accuracy", "carrier_risk",
+  "file_stack_order", "payment_match", "estimate_operational_order",
+  "photo_organization", "da_report_quality", "fa_report_quality",
+  "policy_provisions",
+];
+
+export function normalizeAuditResponse(data: any): void {
+  if (!data || typeof data !== "object") return;
+  if (!data.section_scores || typeof data.section_scores !== "object") return;
+
+  if (!data.section_reasoning || typeof data.section_reasoning !== "object") {
+    data.section_reasoning = {};
+  }
+
+  let converted = 0;
+  for (const key of REQUIRED_SECTIONS) {
+    const val = data.section_scores[key];
+    if (val && typeof val === "object" && typeof val.score === "number") {
+      data.section_scores[key] = val.score;
+      if (typeof val.reason === "string" && !data.section_reasoning[key]) {
+        data.section_reasoning[key] = val.reason;
+      }
+      converted++;
+    }
+  }
+
+  if (converted > 0) {
+    logger.warn({ convertedCount: converted }, "Normalized section_scores from objects to numbers");
+  }
+}
+
 export function validateAuditResult(data: any): data is AuditResponse {
   if (!data || typeof data !== "object") return false;
 
@@ -70,14 +103,7 @@ export function validateAuditResult(data: any): data is AuditResponse {
   const validStatus = ["APPROVE", "APPROVE WITH MINOR CHANGES", "REQUIRES REVIEW", "REJECT"];
   if (!validStatus.includes(data.approval_status)) return false;
 
-  const requiredSections = [
-    "coverage_clarity", "scope_completeness", "estimate_accuracy",
-    "documentation_support", "financial_accuracy", "carrier_risk",
-    "file_stack_order", "payment_match", "estimate_operational_order",
-    "photo_organization", "da_report_quality", "fa_report_quality",
-    "policy_provisions",
-  ];
-  for (const key of requiredSections) {
+  for (const key of REQUIRED_SECTIONS) {
     if (!(key in data.section_scores) || typeof data.section_scores[key] !== "number") return false;
   }
 
@@ -190,6 +216,8 @@ export async function runFinalAudit(reportText: string): Promise<AuditResponse> 
     logger.error({ contentPreview: content?.substring(0, 200) }, "Raw AI response (not valid JSON)");
     return getFallbackAudit();
   }
+
+  normalizeAuditResponse(parsed);
 
   if (!validateAuditResult(parsed)) {
     logger.error({ parsedPreview: JSON.stringify(parsed).substring(0, 200) }, "Invalid audit structure");
