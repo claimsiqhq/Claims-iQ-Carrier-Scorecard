@@ -2,7 +2,6 @@ import React, { useState, useEffect } from "react"
 import {
   DashboardDots,
   PageEdit,
-  Upload as UploadIcon,
   ClipboardCheck,
   Settings as SettingsIcon,
   Menu,
@@ -48,12 +47,6 @@ export function Sidebar({ claims, selectedClaimId, onSelectClaim }: SidebarProps
         label="Claims"
         active={location.startsWith("/claims")}
         onClick={() => setLocation("/claims")}
-      />
-      <SidebarItem
-        icon={<UploadIcon width={20} height={20} />}
-        label="Upload / Ingest"
-        active={location === "/upload"}
-        onClick={() => setLocation("/upload")}
       />
       <SidebarItem
         icon={<ClipboardCheck width={20} height={20} />}

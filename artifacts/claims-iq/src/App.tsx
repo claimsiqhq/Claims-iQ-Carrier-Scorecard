@@ -9,7 +9,6 @@ import LoginPage from "@/pages/login";
 import DashboardPage from "@/pages/dashboard";
 import ClaimsListPage from "@/pages/claims-list";
 import ClaimDetailPage from "@/pages/claim-detail";
-import UploadPage from "@/pages/upload";
 import AuditResultsPage from "@/pages/audit-results";
 import SettingsPage from "@/pages/settings";
 import { useListClaims } from "@workspace/api-client-react";
