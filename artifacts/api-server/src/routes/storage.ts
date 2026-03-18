@@ -40,9 +40,9 @@ router.post("/storage/upload", upload.single("file"), async (req: Request, res: 
   }
 });
 
-router.get("/storage/download/:path(*)", async (req: Request, res: Response) => {
+router.get("/storage/download/*storagePath", async (req: Request, res: Response) => {
   try {
-    const storagePath = req.params.path;
+    const storagePath = req.params.storagePath;
     if (!storagePath) {
       res.status(400).json({ error: "Path is required" });
       return;
@@ -61,9 +61,9 @@ router.get("/storage/download/:path(*)", async (req: Request, res: Response) => 
   }
 });
 
-router.get("/storage/signed-url/:path(*)", async (req: Request, res: Response) => {
+router.get("/storage/signed-url/*storagePath", async (req: Request, res: Response) => {
   try {
-    const storagePath = req.params.path;
+    const storagePath = req.params.storagePath;
     if (!storagePath) {
       res.status(400).json({ error: "Path is required" });
       return;

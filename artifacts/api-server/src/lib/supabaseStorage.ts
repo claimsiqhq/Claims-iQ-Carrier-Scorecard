@@ -5,7 +5,7 @@ const BUCKET_NAME = "claim-documents";
 
 function getSupabaseUrl(): string {
   const dbUrl = process.env.SUPABASE_DATABASE_URL || "";
-  const match = dbUrl.match(/postgres\.([a-z0-9]+)@/);
+  const match = dbUrl.match(/postgres\.([a-z0-9]+)[:/]/);
   if (match) {
     return `https://${match[1]}.supabase.co`;
   }

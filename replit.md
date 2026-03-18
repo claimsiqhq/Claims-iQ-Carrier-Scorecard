@@ -17,7 +17,7 @@ Claims iQ Audit — a full-stack insurance claim auditing SaaS application. pnpm
 - **Frontend**: React + Vite + Tailwind CSS v4
 - **Icons**: iconoir-react
 - **Build**: esbuild (CJS bundle for API server)
-- **File storage**: Replit Object Storage (GCS-backed, presigned URL uploads)
+- **File storage**: Supabase Storage (bucket: `claim-documents`)
 - **Email**: SendGrid (@sendgrid/mail) — from john@claimsiq.ai
 - **PDF extraction**: pdf-parse
 
@@ -67,14 +67,12 @@ Uses Supabase PostgreSQL via `SUPABASE_DATABASE_URL` secret. SSL configured with
 
 ## File Storage
 
-Replit Object Storage (GCS-backed) for claim document uploads.
-- **Server lib**: `artifacts/api-server/src/lib/objectStorage.ts` — GCS client wrapper, presigned URL generation
-- **ACL**: `artifacts/api-server/src/lib/objectAcl.ts` — access control framework
-- **Storage routes**: `artifacts/api-server/src/routes/storage.ts` — upload URL request + object serving
-- **Document routes**: `artifacts/api-server/src/routes/documents.ts` — CRUD for claim documents + PDF text extraction
-- **Client lib**: `lib/object-storage-web/` — `useUpload()` hook for presigned URL uploads
-- **Upload flow**: Client requests presigned URL → uploads directly to GCS → registers document in DB → extracts text (PDF/text)
-- **Env vars**: `DEFAULT_OBJECT_STORAGE_BUCKET_ID`, `PUBLIC_OBJECT_SEARCH_PATHS`, `PRIVATE_OBJECT_DIR` (auto-provisioned)
+Supabase Storage for claim document uploads.
+- **Bucket**: `claim-documents` (auto-created on server start)
+- **Server lib**: `artifacts/api-server/src/lib/supabaseStorage.ts` — Supabase Storage client, upload/download/signedUrl/delete
+- **Storage routes**: `artifacts/api-server/src/routes/storage.ts` — file upload (multipart), download, signed URL generation
+- **Ingest flow**: Frontend sends PDF via FormData to `/api/ingest` → server uploads to Supabase Storage → extracts text → parses with AI → creates claim + document records
+- **Env vars**: `SUPABASE_DATABASE_URL` (project ref derived from it), `SUPABASE_SERVICE_ROLE` (for storage admin access)
 
 ## Email
 

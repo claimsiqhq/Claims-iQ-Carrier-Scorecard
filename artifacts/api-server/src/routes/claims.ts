@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import * as schema from "@workspace/db/schema";
 import { ListClaimsResponse, GetClaimDetailResponse } from "@workspace/api-zod";
+import { deleteFile } from "../lib/supabaseStorage";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -168,10 +169,18 @@ router.delete("/claims/:id", async (req, res) => {
       }
       await txDb.delete(auditVersions).where(eq(auditVersions.claimId, id));
       await txDb.delete(audits).where(eq(audits.claimId, id));
+      const existingDocs = await txDb.select().from(documents).where(eq(documents.claimId, id));
       await txDb.delete(documents).where(eq(documents.claimId, id));
       await txDb.delete(claims).where(eq(claims.id, id));
 
       await client.query("COMMIT");
+
+      for (const doc of existingDocs) {
+        if (doc.fileUrl) {
+          deleteFile(doc.fileUrl).catch((e) => console.error("Storage cleanup error:", e));
+        }
+      }
+
       console.log(`Claim ${claim.claimNumber} (${id}) deleted`);
       res.json({ success: true, message: `Claim ${claim.claimNumber} deleted` });
     } catch (txErr) {
