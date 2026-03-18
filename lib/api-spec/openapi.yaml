@@ -359,6 +359,8 @@ components:
           type: string
         score:
           type: number
+        reasoning:
+          type: string
 
     AuditFinding:
       type: object
