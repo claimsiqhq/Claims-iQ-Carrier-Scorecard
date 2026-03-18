@@ -71,6 +71,8 @@ SCORING RULES:
 - If special policy provisions appear relevant but are not addressed, mark a defect
 - If something is pending but clearly stated, treat it as a deferred item, not an automatic failure
 
+For every section score, you MUST provide a brief reasoning (1-2 sentences) explaining why the score was given. If the score is perfect, state what criteria were met. If points were deducted, explain specifically what was missing, unclear, or deficient.
+
 Return ONLY valid JSON with this exact structure:
 
 {
@@ -91,6 +93,21 @@ Return ONLY valid JSON with this exact structure:
     "da_report_quality": 0,
     "fa_report_quality": 0,
     "policy_provisions": 0
+  },
+  "section_reasoning": {
+    "coverage_clarity": "",
+    "scope_completeness": "",
+    "estimate_accuracy": "",
+    "documentation_support": "",
+    "financial_accuracy": "",
+    "carrier_risk": "",
+    "file_stack_order": "",
+    "payment_match": "",
+    "estimate_operational_order": "",
+    "photo_organization": "",
+    "da_report_quality": "",
+    "fa_report_quality": "",
+    "policy_provisions": ""
   },
   "risk_level": "LOW | MEDIUM | HIGH",
   "approval_status": "APPROVE | APPROVE WITH MINOR CHANGES | REQUIRES REVIEW | REJECT",

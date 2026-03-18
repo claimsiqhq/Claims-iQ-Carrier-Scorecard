@@ -30,6 +30,9 @@ function getAuditHtml(claim: any, audit: any): string {
   if (!auditResult.section_scores) {
     auditResult.section_scores = {} as any;
   }
+  if (!auditResult.section_reasoning) {
+    auditResult.section_reasoning = {} as any;
+  }
   return renderAuditEmail({
     claimNumber: claim.claimNumber ?? "",
     insuredName: claim.insuredName ?? "",

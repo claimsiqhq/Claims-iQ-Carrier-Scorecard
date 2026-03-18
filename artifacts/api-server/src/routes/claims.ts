@@ -110,6 +110,7 @@ router.get("/claims/:id", requireAuth, async (req, res) => {
           auditId: s.auditId ?? "",
           section: s.section ?? "",
           score: s.score ? Number(s.score) : 0,
+          reasoning: s.reasoning ?? "",
         })),
         findings: findingRows.map((f) => {
           const meta = f.metadata as Record<string, unknown> | null;

@@ -197,8 +197,10 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
   const findings = audit?.findings ?? []
 
   const sectionScoreMap: Record<string, number> = {}
+  const sectionReasoningMap: Record<string, string> = {}
   for (const s of sections) {
     sectionScoreMap[s.section] = s.score
+    if (s.reasoning) sectionReasoningMap[s.section] = s.reasoning
   }
 
   const defects = findings.filter((f) => f.type === "defect")
@@ -556,12 +558,14 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
                     subtitle={`${technicalScore} / 80`}
                     rows={TECHNICAL_ROWS}
                     scores={sectionScoreMap}
+                    reasoning={sectionReasoningMap}
                   />
                   <ScorecardPanel
                     title="Carrier Readiness"
                     subtitle={`${presentationScore} / 20`}
                     rows={PRESENTATION_ROWS}
                     scores={sectionScoreMap}
+                    reasoning={sectionReasoningMap}
                   />
                 </div>
 
@@ -830,7 +834,7 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
   )
 }
 
-function ScorecardPanel({ title, subtitle, rows, scores }: { title: string; subtitle: string; rows: ScorecardRow[]; scores: Record<string, number> }) {
+function ScorecardPanel({ title, subtitle, rows, scores, reasoning }: { title: string; subtitle: string; rows: ScorecardRow[]; scores: Record<string, number>; reasoning?: Record<string, string> }) {
   return (
     <Card className="shadow-sm" style={{ borderColor: BRAND.greyLavender, backgroundColor: BRAND.white }}>
       <CardHeader className="pb-2 pt-5 px-5">
@@ -847,6 +851,7 @@ function ScorecardPanel({ title, subtitle, rows, scores }: { title: string; subt
             const score = scores[row.key] ?? 0
             const pct = row.max > 0 ? (score / row.max) * 100 : 0
             const colors = getScoreColor(score, row.max)
+            const reason = reasoning?.[row.key]
             return (
               <div key={row.key}>
                 <div className="flex items-center justify-between mb-1">
@@ -861,6 +866,11 @@ function ScorecardPanel({ title, subtitle, rows, scores }: { title: string; subt
                 <div className="w-full h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: colors.bg }}>
                   <div className="h-full rounded-full transition-all duration-500" style={{ width: `${pct}%`, backgroundColor: colors.bar }} />
                 </div>
+                {reason && (
+                  <p className="text-xs mt-1 leading-relaxed italic" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.body, paddingLeft: "28px" }}>
+                    {reason}
+                  </p>
+                )}
               </div>
             )
           })}

@@ -20,11 +20,14 @@ export interface SectionScores {
   policy_provisions: number;
 }
 
+export type SectionReasoning = Record<keyof SectionScores, string>;
+
 export interface AuditResponse {
   overall_score: number;
   technical_score: number;
   presentation_score: number;
   section_scores: SectionScores;
+  section_reasoning: SectionReasoning;
   risk_level: string;
   approval_status: string;
   critical_failures: string[];
@@ -85,6 +88,22 @@ export function getFallbackAudit(): AuditResponse {
   return { ...FALLBACK_RESULT };
 }
 
+const EMPTY_REASONING: SectionReasoning = {
+  coverage_clarity: "",
+  scope_completeness: "",
+  estimate_accuracy: "",
+  documentation_support: "",
+  financial_accuracy: "",
+  carrier_risk: "",
+  file_stack_order: "",
+  payment_match: "",
+  estimate_operational_order: "",
+  photo_organization: "",
+  da_report_quality: "",
+  fa_report_quality: "",
+  policy_provisions: "",
+};
+
 export const FALLBACK_RESULT: AuditResponse = {
   overall_score: 0,
   technical_score: 0,
@@ -104,6 +123,7 @@ export const FALLBACK_RESULT: AuditResponse = {
     fa_report_quality: 0,
     policy_provisions: 0,
   },
+  section_reasoning: { ...EMPTY_REASONING },
   risk_level: "HIGH",
   approval_status: "REQUIRES REVIEW",
   critical_failures: ["Audit processing failed"],
@@ -203,6 +223,25 @@ export async function runFinalAudit(reportText: string): Promise<AuditResponse> 
   ss.da_report_quality = ss.da_report_quality ?? 0;
   ss.fa_report_quality = ss.fa_report_quality ?? 0;
   ss.policy_provisions = ss.policy_provisions ?? 0;
+
+  const sr = parsed.section_reasoning && typeof parsed.section_reasoning === "object"
+    ? parsed.section_reasoning
+    : {};
+  parsed.section_reasoning = {
+    coverage_clarity: typeof sr.coverage_clarity === "string" ? sr.coverage_clarity : "",
+    scope_completeness: typeof sr.scope_completeness === "string" ? sr.scope_completeness : "",
+    estimate_accuracy: typeof sr.estimate_accuracy === "string" ? sr.estimate_accuracy : "",
+    documentation_support: typeof sr.documentation_support === "string" ? sr.documentation_support : "",
+    financial_accuracy: typeof sr.financial_accuracy === "string" ? sr.financial_accuracy : "",
+    carrier_risk: typeof sr.carrier_risk === "string" ? sr.carrier_risk : "",
+    file_stack_order: typeof sr.file_stack_order === "string" ? sr.file_stack_order : "",
+    payment_match: typeof sr.payment_match === "string" ? sr.payment_match : "",
+    estimate_operational_order: typeof sr.estimate_operational_order === "string" ? sr.estimate_operational_order : "",
+    photo_organization: typeof sr.photo_organization === "string" ? sr.photo_organization : "",
+    da_report_quality: typeof sr.da_report_quality === "string" ? sr.da_report_quality : "",
+    fa_report_quality: typeof sr.fa_report_quality === "string" ? sr.fa_report_quality : "",
+    policy_provisions: typeof sr.policy_provisions === "string" ? sr.policy_provisions : "",
+  };
 
   logger.info("Audit completed — OpenAI response parsed and validated");
   return parsed as AuditResponse;

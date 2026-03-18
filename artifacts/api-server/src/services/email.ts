@@ -42,16 +42,21 @@ function scoreColor(score: number, max: number): string {
   return "#dc2626";
 }
 
-function buildScorecardTable(title: string, sections: typeof TECHNICAL_SECTIONS, scores: AuditResponse["section_scores"]): string {
+function buildScorecardTable(title: string, sections: typeof TECHNICAL_SECTIONS, scores: AuditResponse["section_scores"], reasoning?: AuditResponse["section_reasoning"]): string {
   let rows = "";
   for (const s of sections) {
     const val = scores[s.key] ?? 0;
     const color = scoreColor(val, s.max);
     rows += `<tr>
-      <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-size:14px;color:#374151;">${escapeHtml(s.label)}</td>
-      <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;text-align:center;font-weight:700;color:${color};font-size:14px;">${val}</td>
-      <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;text-align:center;font-size:14px;color:#6b7280;">/ ${s.max}</td>
+      <td style="padding:8px 12px;border-bottom:${reasoning?.[s.key] ? "none" : "1px solid #e5e7eb"};font-size:14px;color:#374151;">${escapeHtml(s.label)}</td>
+      <td style="padding:8px 12px;border-bottom:${reasoning?.[s.key] ? "none" : "1px solid #e5e7eb"};text-align:center;font-weight:700;color:${color};font-size:14px;">${val}</td>
+      <td style="padding:8px 12px;border-bottom:${reasoning?.[s.key] ? "none" : "1px solid #e5e7eb"};text-align:center;font-size:14px;color:#6b7280;">/ ${s.max}</td>
     </tr>`;
+    if (reasoning?.[s.key]) {
+      rows += `<tr>
+        <td colspan="3" style="padding:0 12px 8px 12px;border-bottom:1px solid #e5e7eb;font-size:12px;font-style:italic;color:#9D8BBF;">${escapeHtml(reasoning[s.key])}</td>
+      </tr>`;
+    }
   }
 
   return `
@@ -131,8 +136,8 @@ export function renderAuditEmail(data: EmailData): string {
         <p style="font-size:14px;line-height:1.6;color:#374151;margin:0;">${escapeHtml(r.executive_summary)}</p>
       </div>
 
-      ${buildScorecardTable("Technical Scorecard", TECHNICAL_SECTIONS, r.section_scores)}
-      ${buildScorecardTable("Presentation / Carrier Readiness", PRESENTATION_SECTIONS, r.section_scores)}
+      ${buildScorecardTable("Technical Scorecard", TECHNICAL_SECTIONS, r.section_scores, r.section_reasoning)}
+      ${buildScorecardTable("Presentation / Carrier Readiness", PRESENTATION_SECTIONS, r.section_scores, r.section_reasoning)}
 
       ${buildBulletSection("Critical Failures", r.critical_failures)}
       ${buildBulletSection("Key Defects", r.key_defects)}

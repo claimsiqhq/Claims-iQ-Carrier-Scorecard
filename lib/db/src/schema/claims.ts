@@ -75,6 +75,7 @@ export const auditSections = pgTable("audit_sections", {
   auditId: uuid("audit_id").references(() => audits.id, { onDelete: "cascade" }),
   section: text("section"),
   score: numeric("score"),
+  reasoning: text("reasoning"),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
   index("idx_sections_audit_id").on(table.auditId),

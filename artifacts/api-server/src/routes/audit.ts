@@ -111,27 +111,22 @@ router.post("/claims/:id/audit", requireAuth, auditLimiter, async (req, res) => 
         })
         .returning();
 
-      const sectionEntries = [
-        { section: "coverage_clarity", score: auditResult.section_scores.coverage_clarity },
-        { section: "scope_completeness", score: auditResult.section_scores.scope_completeness },
-        { section: "estimate_accuracy", score: auditResult.section_scores.estimate_accuracy },
-        { section: "documentation_support", score: auditResult.section_scores.documentation_support },
-        { section: "financial_accuracy", score: auditResult.section_scores.financial_accuracy },
-        { section: "carrier_risk", score: auditResult.section_scores.carrier_risk },
-        { section: "file_stack_order", score: auditResult.section_scores.file_stack_order },
-        { section: "payment_match", score: auditResult.section_scores.payment_match },
-        { section: "estimate_operational_order", score: auditResult.section_scores.estimate_operational_order },
-        { section: "photo_organization", score: auditResult.section_scores.photo_organization },
-        { section: "da_report_quality", score: auditResult.section_scores.da_report_quality },
-        { section: "fa_report_quality", score: auditResult.section_scores.fa_report_quality },
-        { section: "policy_provisions", score: auditResult.section_scores.policy_provisions },
-      ];
+      const sectionKeys = [
+        "coverage_clarity", "scope_completeness", "estimate_accuracy",
+        "documentation_support", "financial_accuracy", "carrier_risk",
+        "file_stack_order", "payment_match", "estimate_operational_order",
+        "photo_organization", "da_report_quality", "fa_report_quality",
+        "policy_provisions",
+      ] as const;
+
+      const reasoning = auditResult.section_reasoning ?? {};
 
       await txDb.insert(auditSections).values(
-        sectionEntries.map((entry) => ({
+        sectionKeys.map((key) => ({
           auditId: newAudit.id,
-          section: entry.section,
-          score: String(entry.score),
+          section: key,
+          score: String(auditResult.section_scores[key] ?? 0),
+          reasoning: (reasoning as Record<string, string>)[key] || null,
         }))
       );
 
