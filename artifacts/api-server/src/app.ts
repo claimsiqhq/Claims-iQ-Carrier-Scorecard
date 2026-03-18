@@ -50,7 +50,10 @@ app.use((req: Request, res: Response, next: NextFunction) => {
     if (origin || referer) {
       const host = req.headers.host;
       const requestOrigin = origin || (referer ? new URL(referer).origin : "");
-      if (host && requestOrigin && !requestOrigin.includes(host.split(":")[0])) {
+      const hostName = host?.split(":")[0];
+      let originHost: string | undefined;
+      try { originHost = new URL(requestOrigin).hostname; } catch {}
+      if (hostName && originHost && originHost !== hostName && !originHost.endsWith(`.${hostName}`)) {
         logger.warn({ origin: requestOrigin, host }, "CSRF: Origin mismatch — blocked");
         res.status(403).json({ error: "Forbidden: origin mismatch" });
         return;

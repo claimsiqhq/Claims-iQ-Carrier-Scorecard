@@ -126,12 +126,15 @@ export function Sidebar({ claims, selectedClaimId, onSelectClaim }: SidebarProps
               <div className="p-4" style={{ borderTop: "1px solid rgba(255,255,255,0.1)" }}>
                 <div className="flex items-center gap-3">
                   <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold text-white" style={{ backgroundColor: BRAND.purple }}>
-                    iQ
+                    {user?.firstName?.[0] ?? "U"}
                   </div>
                   <div className="flex-1 overflow-hidden">
-                    <p className="text-sm font-semibold text-white truncate" style={{ fontFamily: FONTS.heading }}>Claims iQ</p>
-                    <p className="text-xs truncate" style={{ color: BRAND.purpleSecondary }}>Audit Engine</p>
+                    <p className="text-sm font-semibold text-white truncate" style={{ fontFamily: FONTS.heading }}>{user?.firstName ?? "User"}</p>
+                    <p className="text-xs truncate" style={{ color: BRAND.purpleSecondary }}>{user?.email ?? ""}</p>
                   </div>
+                  <button onClick={logout} className="p-1.5 rounded-lg transition-colors" style={{ color: "rgba(255,255,255,0.4)" }} aria-label="Sign out">
+                    <LogOut width={18} height={18} />
+                  </button>
                 </div>
               </div>
             </div>
@@ -157,12 +160,15 @@ export function Sidebar({ claims, selectedClaimId, onSelectClaim }: SidebarProps
       <div className="p-4" style={{ borderTop: "1px solid rgba(255,255,255,0.1)" }}>
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold text-white" style={{ backgroundColor: BRAND.purple }}>
-            iQ
+            {user?.firstName?.[0] ?? "U"}
           </div>
           <div className="flex-1 overflow-hidden">
-            <p className="text-sm font-semibold text-white truncate" style={{ fontFamily: FONTS.heading }}>Claims iQ</p>
-            <p className="text-xs truncate" style={{ color: BRAND.purpleSecondary }}>Audit Engine</p>
+            <p className="text-sm font-semibold text-white truncate" style={{ fontFamily: FONTS.heading }}>{user?.firstName ?? "User"}</p>
+            <p className="text-xs truncate" style={{ color: BRAND.purpleSecondary }}>{user?.email ?? ""}</p>
           </div>
+          <button onClick={logout} className="p-1.5 rounded-lg transition-colors" style={{ color: "rgba(255,255,255,0.4)" }} aria-label="Sign out">
+            <LogOut width={18} height={18} />
+          </button>
         </div>
       </div>
     </aside>

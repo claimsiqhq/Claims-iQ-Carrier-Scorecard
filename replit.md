@@ -26,7 +26,7 @@ The project is a pnpm workspace monorepo using Node.js v24 and TypeScript v5.9.
 ### Technical Implementations
 - **API**: Express 5 serves as the API framework.
 - **Database**: Supabase PostgreSQL with Drizzle ORM.
-- **Authentication**: Replit Auth (OIDC + PKCE) for secure user authentication, managing sessions and user data in PostgreSQL.
+- **Authentication**: Email/password login with bcrypt password hashing, cookie-based sessions stored in PostgreSQL.
 - **File Storage**: Supabase Storage for claim document uploads, with a dedicated `claim-documents` bucket.
 - **Email Service**: SendGrid for sending audit emails, with email content rendered as inline HTML.
 - **AI Integration**: Leverages Replit AI Integrations for OpenAI (gpt-5) for audit analysis, with configurable prompts stored in the database.
@@ -56,7 +56,7 @@ The project is a pnpm workspace monorepo using Node.js v24 and TypeScript v5.9.
 - **Object Storage**: Supabase Storage (`claim-documents` bucket)
 - **Email Service**: SendGrid (@sendgrid/mail)
 - **AI Integration**: Replit AI Integrations (for OpenAI access, specifically gpt-5)
-- **Authentication**: Replit Auth (OpenID Connect with PKCE via `openid-client`)
+- **Authentication**: Email/password (bcryptjs for hashing, cookie sessions)
 - **PDF Processing**: `pdf-parse` v1.1.1
 - **ORM**: Drizzle ORM
 - **Validation**: Zod (`zod/v4`), `drizzle-zod`
