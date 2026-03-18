@@ -24,6 +24,13 @@ export const ListClaimsResponseItem = zod.object({
   carrier: zod.string().optional(),
   dateOfLoss: zod.string().optional(),
   status: zod.string(),
+  policyNumber: zod.string().optional(),
+  lossType: zod.string().optional(),
+  propertyAddress: zod.string().optional(),
+  adjuster: zod.string().optional(),
+  totalClaimAmount: zod.string().optional(),
+  deductible: zod.string().optional(),
+  summary: zod.string().optional(),
   createdAt: zod.string().optional(),
 });
 export const ListClaimsResponse = zod.array(ListClaimsResponseItem);
@@ -43,6 +50,13 @@ export const GetClaimDetailResponse = zod.object({
     carrier: zod.string().optional(),
     dateOfLoss: zod.string().optional(),
     status: zod.string(),
+    policyNumber: zod.string().optional(),
+    lossType: zod.string().optional(),
+    propertyAddress: zod.string().optional(),
+    adjuster: zod.string().optional(),
+    totalClaimAmount: zod.string().optional(),
+    deductible: zod.string().optional(),
+    summary: zod.string().optional(),
     createdAt: zod.string().optional(),
   }),
   documents: zod.array(

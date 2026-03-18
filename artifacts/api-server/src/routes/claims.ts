@@ -1,10 +1,31 @@
 import { Router, type IRouter } from "express";
-import { db } from "@workspace/db";
-import { claims, documents, audits, auditSections, auditFindings } from "@workspace/db";
+import { db, pool } from "@workspace/db";
+import { claims, documents, audits, auditSections, auditFindings, auditStructured, auditVersions } from "@workspace/db";
 import { eq } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/node-postgres";
+import * as schema from "@workspace/db/schema";
 import { ListClaimsResponse, GetClaimDetailResponse } from "@workspace/api-zod";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function mapClaim(c: any) {
+  return {
+    id: c.id,
+    claimNumber: c.claimNumber ?? "",
+    insuredName: c.insuredName ?? "",
+    carrier: c.carrier ?? undefined,
+    dateOfLoss: c.dateOfLoss ?? undefined,
+    status: c.status ?? "pending",
+    policyNumber: c.policyNumber ?? undefined,
+    lossType: c.lossType ?? undefined,
+    propertyAddress: c.propertyAddress ?? undefined,
+    adjuster: c.adjuster ?? undefined,
+    totalClaimAmount: c.totalClaimAmount ?? undefined,
+    deductible: c.deductible ?? undefined,
+    summary: c.summary ?? undefined,
+    createdAt: c.createdAt?.toISOString() ?? undefined,
+  };
+}
 
 const router: IRouter = Router();
 
@@ -24,15 +45,7 @@ router.post("/claims", async (req, res) => {
       status: "pending",
     }).returning();
 
-    res.status(201).json({
-      id: newClaim.id,
-      claimNumber: newClaim.claimNumber ?? "",
-      insuredName: newClaim.insuredName ?? "",
-      carrier: newClaim.carrier ?? undefined,
-      dateOfLoss: newClaim.dateOfLoss ?? undefined,
-      status: newClaim.status ?? "pending",
-      createdAt: newClaim.createdAt?.toISOString() ?? undefined,
-    });
+    res.status(201).json(mapClaim(newClaim));
   } catch (err) {
     console.error("Error creating claim:", err);
     res.status(500).json({ error: "Failed to create claim" });
@@ -42,15 +55,7 @@ router.post("/claims", async (req, res) => {
 router.get("/claims", async (_req, res) => {
   try {
     const allClaims = await db.select().from(claims);
-    const mapped = allClaims.map((c) => ({
-      id: c.id,
-      claimNumber: c.claimNumber ?? "",
-      insuredName: c.insuredName ?? "",
-      carrier: c.carrier ?? undefined,
-      dateOfLoss: c.dateOfLoss ?? undefined,
-      status: c.status ?? "pending",
-      createdAt: c.createdAt?.toISOString() ?? undefined,
-    }));
+    const mapped = allClaims.map(mapClaim);
     const data = ListClaimsResponse.parse(mapped);
     res.json(data);
   } catch (err) {
@@ -114,15 +119,7 @@ router.get("/claims/:id", async (req, res) => {
     }
 
     const result = {
-      claim: {
-        id: claim.id,
-        claimNumber: claim.claimNumber ?? "",
-        insuredName: claim.insuredName ?? "",
-        carrier: claim.carrier ?? undefined,
-        dateOfLoss: claim.dateOfLoss ?? undefined,
-        status: claim.status ?? "pending",
-        createdAt: claim.createdAt?.toISOString() ?? undefined,
-      },
+      claim: mapClaim(claim),
       documents: docs.map((d) => ({
         id: d.id,
         claimId: d.claimId ?? "",
@@ -140,6 +137,52 @@ router.get("/claims/:id", async (req, res) => {
   } catch (err) {
     console.error("Error getting claim detail:", err);
     res.status(500).json({ error: "Failed to get claim" });
+  }
+});
+
+router.delete("/claims/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!UUID_RE.test(id)) {
+      res.status(400).json({ error: "Invalid claim ID format" });
+      return;
+    }
+
+    const [claim] = await db.select().from(claims).where(eq(claims.id, id));
+    if (!claim) {
+      res.status(404).json({ error: "Claim not found" });
+      return;
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const txDb = drizzle(client, { schema });
+
+      const existingAudits = await txDb.select().from(audits).where(eq(audits.claimId, id));
+      for (const audit of existingAudits) {
+        await txDb.delete(auditStructured).where(eq(auditStructured.auditId, audit.id));
+        await txDb.delete(auditFindings).where(eq(auditFindings.auditId, audit.id));
+        await txDb.delete(auditSections).where(eq(auditSections.auditId, audit.id));
+      }
+      await txDb.delete(auditVersions).where(eq(auditVersions.claimId, id));
+      await txDb.delete(audits).where(eq(audits.claimId, id));
+      await txDb.delete(documents).where(eq(documents.claimId, id));
+      await txDb.delete(claims).where(eq(claims.id, id));
+
+      await client.query("COMMIT");
+      console.log(`Claim ${claim.claimNumber} (${id}) deleted`);
+      res.json({ success: true, message: `Claim ${claim.claimNumber} deleted` });
+    } catch (txErr) {
+      await client.query("ROLLBACK");
+      throw txErr;
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    console.error("Error deleting claim:", err);
+    res.status(500).json({ error: "Failed to delete claim" });
   }
 });
 

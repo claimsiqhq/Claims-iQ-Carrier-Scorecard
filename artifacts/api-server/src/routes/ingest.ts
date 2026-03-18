@@ -67,6 +67,13 @@ router.post("/ingest", async (req, res) => {
       carrier: parsedData.carrier || null,
       dateOfLoss: parsedData.dateOfLoss || null,
       status: "pending",
+      policyNumber: parsedData.policyNumber || null,
+      lossType: parsedData.lossType || null,
+      propertyAddress: parsedData.propertyAddress || null,
+      adjuster: parsedData.adjusterName || null,
+      totalClaimAmount: parsedData.totalClaimAmount || null,
+      deductible: parsedData.deductible || null,
+      summary: parsedData.summary || null,
     }).returning();
 
     const [doc] = await db.insert(documents).values({

@@ -76,6 +76,8 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
   const [emailSending, setEmailSending] = useState(false)
   const [emailSent, setEmailSent] = useState(false)
   const [emailError, setEmailError] = useState<string | null>(null)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   const { data, isLoading, error, refetch } = useGetClaimDetail(claimId)
 
@@ -96,6 +98,23 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
       setAuditing(false)
     }
   }, [claimId, refetch])
+
+  const handleDeleteClaim = useCallback(async () => {
+    setDeleting(true)
+    try {
+      const baseUrl = import.meta.env.VITE_API_URL || "/api"
+      const res = await fetch(`${baseUrl}/claims/${claimId}`, { method: "DELETE" })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body.error || "Delete failed")
+      }
+      setLocation("/claims")
+    } catch (err: any) {
+      console.error("Delete failed:", err)
+      setDeleting(false)
+      setShowDeleteConfirm(false)
+    }
+  }, [claimId, setLocation])
 
   const handlePreviewEmail = useCallback(async () => {
     setEmailLoading(true)
@@ -237,11 +256,23 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
                 </Badge>
               </h2>
 
-              <div className="space-y-4">
+              <div className="space-y-3">
                 <DetailItem label="Claim Number" value={claim.claimNumber} mono />
                 <DetailItem label="Insured" value={claim.insuredName} />
                 <DetailItem label="Date of Loss" value={claim.dateOfLoss ?? "N/A"} />
                 <DetailItem label="Carrier" value={claim.carrier ?? "N/A"} />
+                {claim.policyNumber && <DetailItem label="Policy Number" value={claim.policyNumber} mono />}
+                {claim.lossType && <DetailItem label="Loss Type" value={claim.lossType} />}
+                {claim.propertyAddress && <DetailItem label="Property Address" value={claim.propertyAddress} />}
+                {claim.adjuster && <DetailItem label="Adjuster" value={claim.adjuster} />}
+                {claim.totalClaimAmount && <DetailItem label="Total Claim Amount" value={claim.totalClaimAmount} mono />}
+                {claim.deductible && <DetailItem label="Deductible" value={claim.deductible} mono />}
+                {claim.summary && (
+                  <div className="flex flex-col gap-1">
+                    <span className="text-xs font-medium uppercase tracking-wider" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.body }}>Summary</span>
+                    <span className="text-xs leading-relaxed" style={{ color: BRAND.deepPurple, fontFamily: FONTS.body }}>{claim.summary}</span>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -283,6 +314,36 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
               </Button>
               {auditError && (
                 <p className="text-xs text-center" style={{ color: "#dc2626" }}>{auditError}</p>
+              )}
+              {!showDeleteConfirm ? (
+                <Button
+                  variant="outline"
+                  className="w-full text-xs"
+                  style={{ borderColor: BRAND.greyLavender, color: BRAND.purpleSecondary }}
+                  onClick={() => setShowDeleteConfirm(true)}
+                >
+                  Delete Claim
+                </Button>
+              ) : (
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    className="flex-1 text-xs"
+                    style={{ borderColor: BRAND.greyLavender, color: BRAND.purpleSecondary }}
+                    onClick={() => setShowDeleteConfirm(false)}
+                    disabled={deleting}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    className="flex-1 text-xs text-white"
+                    style={{ backgroundColor: deleting ? BRAND.purpleSecondary : "#dc2626" }}
+                    onClick={handleDeleteClaim}
+                    disabled={deleting}
+                  >
+                    {deleting ? "Deleting..." : "Confirm Delete"}
+                  </Button>
+                </div>
               )}
             </div>
           </div>

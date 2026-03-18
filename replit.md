@@ -54,7 +54,7 @@ artifacts-monorepo/
 Uses Supabase PostgreSQL via `SUPABASE_DATABASE_URL` secret. SSL configured with `rejectUnauthorized: false` for Supabase pooler connections.
 
 ### Tables (created via Supabase SQL, Drizzle maps to them):
-- `claims` — id (uuid), claim_number, insured_name, carrier, date_of_loss, status
+- `claims` — id (uuid), claim_number, insured_name, carrier, date_of_loss, status, policy_number, loss_type, property_address, adjuster, total_claim_amount, deductible, summary
 - `documents` — id (uuid), claim_id (FK), type, file_url, extracted_text, metadata (jsonb)
 - `audits` — id (uuid), claim_id (FK), overall_score, technical_score, presentation_score, risk_level, approval_status, executive_summary, raw_response (jsonb)
 - `audit_sections` — id (uuid), audit_id (FK), section, score
@@ -104,8 +104,9 @@ Uses Replit AI Integrations for OpenAI access (no API key needed, billed to Repl
 
 All routes prefixed with `/api`:
 - `GET /api/healthz` — Health check
-- `GET /api/claims` — List all claims
+- `GET /api/claims` — List all claims (includes all 13 claim fields)
 - `GET /api/claims/:id` — Get claim detail with documents, audit, sections, findings
+- `DELETE /api/claims/:id` — Delete claim + all related data (transactional)
 - `POST /api/claims/:id/audit` — Run Andover-style carrier audit (calls OpenAI, saves results to DB)
 - `POST /api/claims/:id/documents` — Register an uploaded document to a claim
 - `DELETE /api/claims/:id/documents/:docId` — Delete a document

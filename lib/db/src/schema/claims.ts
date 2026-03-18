@@ -8,6 +8,13 @@ export const claims = pgTable("claims", {
   carrier: text("carrier"),
   dateOfLoss: date("date_of_loss"),
   status: text("status").default("pending"),
+  policyNumber: text("policy_number"),
+  lossType: text("loss_type"),
+  propertyAddress: text("property_address"),
+  adjuster: text("adjuster"),
+  totalClaimAmount: text("total_claim_amount"),
+  deductible: text("deductible"),
+  summary: text("summary"),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
   index("idx_claims_claim_number").on(table.claimNumber),
