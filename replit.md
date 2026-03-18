@@ -111,9 +111,9 @@ All routes prefixed with `/api`:
 - `POST /api/claims/:id/documents/:docId/extract` — Extract text from uploaded document (PDF/text)
 - `GET /api/claims/:id/email` — Generate carrier audit email HTML (preview)
 - `POST /api/claims/:id/email/send` — Send audit email via SendGrid
-- `POST /api/storage/uploads/request-url` — Request presigned upload URL
-- `GET /api/storage/objects/*` — Serve uploaded objects
-- `GET /api/storage/public-objects/*` — Serve public assets
+- `POST /api/storage/upload` — Upload file to Supabase Storage (multipart)
+- `GET /api/storage/download/*` — Download file from Supabase Storage
+- `GET /api/storage/signed-url/*` — Get signed URL for file access
 - `GET /api/settings/prompts` — Get current prompt settings (DB values or defaults)
 - `PUT /api/settings/prompts` — Save prompt settings (validates {{REPORT}} placeholder, atomic upsert)
 - `POST /api/settings/prompts/reset` — Reset prompts to hardcoded defaults
