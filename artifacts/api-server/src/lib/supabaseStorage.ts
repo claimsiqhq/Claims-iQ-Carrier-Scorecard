@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { randomUUID } from "crypto";
+import logger from "./logger";
 
 const BUCKET_NAME = "claim-documents";
 
@@ -40,7 +41,7 @@ export async function ensureBucket(): Promise<void> {
   if (createError && !createError.message.includes("already exists")) {
     throw new Error(`Failed to create bucket: ${createError.message}`);
   }
-  console.log(`Supabase Storage bucket "${BUCKET_NAME}" created`);
+  logger.info({ bucket: BUCKET_NAME }, `Supabase Storage bucket "${BUCKET_NAME}" ensured`);
 }
 
 export async function uploadFile(
@@ -97,7 +98,7 @@ export async function deleteFile(storagePath: string): Promise<void> {
     .remove([storagePath]);
 
   if (error) {
-    console.error(`Failed to delete file from storage: ${error.message}`);
+    logger.error({ err: error }, "Failed to delete file from storage");
   }
 }
 

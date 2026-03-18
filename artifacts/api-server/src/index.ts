@@ -1,5 +1,6 @@
 import app from "./app";
 import { pool } from "@workspace/db";
+import logger from "./lib/logger";
 
 const rawPort = process.env["PORT"];
 
@@ -32,29 +33,29 @@ for (const key of requiredEnvVars) {
 
 for (const { key, feature } of optionalButWarnEnvVars) {
   if (!process.env[key]) {
-    console.warn(`WARNING: ${key} is not set — ${feature} will not work.`);
+    logger.warn(`${key} is not set — ${feature} will not work.`);
   }
 }
 
 const server = app.listen(port, () => {
-  console.log(`Server listening on port ${port}`);
+  logger.info({ port }, `Server listening on port ${port}`);
 });
 
 function gracefulShutdown(signal: string) {
-  console.log(`Received ${signal}. Shutting down gracefully...`);
+  logger.info({ signal }, `Received ${signal}. Shutting down gracefully...`);
   server.close(async () => {
-    console.log("HTTP server closed.");
+    logger.info("HTTP server closed.");
     try {
       await pool.end();
-      console.log("Database pool closed.");
+      logger.info("Database pool closed.");
     } catch (err) {
-      console.error("Error closing DB pool:", err);
+      logger.error({ err }, "Error closing DB pool");
     }
     process.exit(0);
   });
 
   setTimeout(() => {
-    console.error("Forced shutdown after timeout.");
+    logger.error("Forced shutdown after timeout.");
     process.exit(1);
   }, 30000);
 }

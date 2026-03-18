@@ -2,6 +2,7 @@ import { openai } from "@workspace/integrations-openai-ai-server";
 import { db } from "@workspace/db";
 import { promptSettings } from "@workspace/db";
 import { SYSTEM_PROMPT as DEFAULT_SYSTEM, USER_PROMPT_TEMPLATE as DEFAULT_USER } from "./prompts";
+import logger from "../lib/logger";
 
 export interface SectionScores {
   coverage_clarity: number;
@@ -137,7 +138,7 @@ async function getPrompts(): Promise<{ systemPrompt: string; userTemplate: strin
 }
 
 export async function runFinalAudit(reportText: string): Promise<AuditResponse> {
-  console.log("Audit started");
+  logger.info("Audit started");
 
   const { systemPrompt, userTemplate } = await getPrompts();
   const userPrompt = userTemplate.replace("{{REPORT}}", reportText);
@@ -153,7 +154,7 @@ export async function runFinalAudit(reportText: string): Promise<AuditResponse> 
 
   const content = response.choices[0]?.message?.content;
   if (!content) {
-    console.error("Empty AI response — returning fallback");
+    logger.error("Empty AI response — returning fallback");
     return getFallbackAudit();
   }
 
@@ -166,12 +167,12 @@ export async function runFinalAudit(reportText: string): Promise<AuditResponse> 
   try {
     parsed = JSON.parse(cleaned);
   } catch (e) {
-    console.error("Raw AI response (not valid JSON):", content);
+    logger.error({ contentPreview: content?.substring(0, 200) }, "Raw AI response (not valid JSON)");
     return getFallbackAudit();
   }
 
   if (!validateAuditResult(parsed)) {
-    console.error("Invalid audit structure:", JSON.stringify(parsed).substring(0, 500));
+    logger.error({ parsedPreview: JSON.stringify(parsed).substring(0, 200) }, "Invalid audit structure");
     return getFallbackAudit();
   }
 
@@ -203,6 +204,6 @@ export async function runFinalAudit(reportText: string): Promise<AuditResponse> 
   ss.fa_report_quality = ss.fa_report_quality ?? 0;
   ss.policy_provisions = ss.policy_provisions ?? 0;
 
-  console.log("Audit completed — OpenAI response parsed and validated");
+  logger.info("Audit completed — OpenAI response parsed and validated");
   return parsed as AuditResponse;
 }

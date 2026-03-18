@@ -1,4 +1,5 @@
 import type { AuditResponse } from "./audit";
+import logger from "../lib/logger";
 
 interface EmailData {
   claimNumber: string;
@@ -85,7 +86,7 @@ export function renderAuditEmail(data: EmailData): string {
   const riskColors: Record<string, string> = { LOW: "#16a34a", MEDIUM: "#ca8a04", HIGH: "#dc2626" };
   const riskColor = riskColors[r.risk_level] ?? "#6b7280";
 
-  console.log("Email rendered");
+  logger.info("Email rendered");
 
   return `<!DOCTYPE html>
 <html>

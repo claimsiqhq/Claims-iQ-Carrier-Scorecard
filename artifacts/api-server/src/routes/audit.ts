@@ -14,6 +14,8 @@ import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import * as schema from "@workspace/db/schema";
 import { runFinalAudit, type AuditResponse } from "../services/audit";
+import { requireAuth } from "../middlewares/requireAuth";
+import logger from "../lib/logger";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -27,7 +29,7 @@ const auditLimiter = rateLimit({
 
 const router: IRouter = Router();
 
-router.post("/claims/:id/audit", auditLimiter, async (req, res) => {
+router.post("/claims/:id/audit", requireAuth, auditLimiter, async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -71,7 +73,7 @@ router.post("/claims/:id/audit", auditLimiter, async (req, res) => {
     try {
       auditResult = await runFinalAudit(reportText);
     } catch (err) {
-      console.error("OpenAI audit call failed:", err);
+      logger.error({ err }, "OpenAI audit call failed");
       const { getFallbackAudit } = await import("../services/audit");
       auditResult = getFallbackAudit();
     }
@@ -198,7 +200,7 @@ router.post("/claims/:id/audit", auditLimiter, async (req, res) => {
 
       await client.query("COMMIT");
 
-      console.log(`Audit saved for claim ${id}`);
+      logger.info({ claimId: id, auditId: newAudit.id }, "Audit saved");
 
       res.json({
         success: true,
@@ -216,7 +218,7 @@ router.post("/claims/:id/audit", auditLimiter, async (req, res) => {
       client.release();
     }
   } catch (err) {
-    console.error("Error running audit:", err);
+    logger.error({ err }, "Error running audit");
     res.status(500).json({ error: "Failed to run audit" });
   }
 });

@@ -2,50 +2,49 @@ import { Router, type IRouter } from "express";
 import { createRequire } from "module";
 import { db } from "@workspace/db";
 import { claims, documents } from "@workspace/db";
-import { uploadFile, downloadFile } from "../lib/supabaseStorage";
+import { uploadFile } from "../lib/supabaseStorage";
 import { parseClaimFromText } from "../services/ingest";
+import { requireAuth } from "../middlewares/requireAuth";
+import logger from "../lib/logger";
 import multer from "multer";
 
 const require = createRequire(import.meta.url);
 const pdfParse = require("pdf-parse");
 
-const router: IRouter = Router();
+const MAX_PDF_SIZE = 100 * 1024 * 1024;
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
-router.post("/ingest", upload.single("file"), async (req, res) => {
-  try {
-    let fileBuffer: Buffer;
-    let fileName: string;
-    let contentType: string;
+const router: IRouter = Router();
 
-    if (req.file) {
-      fileBuffer = req.file.buffer;
-      fileName = req.file.originalname;
-      contentType = req.file.mimetype;
-    } else if (req.body.storagePath && req.body.fileName) {
-      const { storagePath, fileName: fn, contentType: ct } = req.body;
-      fileBuffer = await downloadFile(storagePath);
-      fileName = fn;
-      contentType = ct || "application/pdf";
-    } else {
-      res.status(400).json({ error: "Provide a file upload or storagePath + fileName" });
+router.post("/ingest", requireAuth, upload.single("file"), async (req, res) => {
+  try {
+    const file = req.file;
+    if (!file) {
+      res.status(400).json({ error: "No file uploaded. Please attach a PDF." });
       return;
     }
 
-    const isPdf = contentType === "application/pdf" || fileName.toLowerCase().endsWith(".pdf");
-    if (!isPdf) {
-      res.status(400).json({ error: "Only PDF files are supported for ingest." });
+    const fileBuffer = file.buffer;
+    const fileName = file.originalname;
+    const contentType = file.mimetype;
+
+    if (fileBuffer.length > MAX_PDF_SIZE) {
+      res.status(413).json({ error: `File too large. Maximum size is ${MAX_PDF_SIZE / 1024 / 1024}MB.` });
       return;
     }
 
     let extractedText = "";
-    try {
-      const pdfData = await pdfParse(fileBuffer);
-      extractedText = pdfData.text;
-    } catch (pdfErr) {
-      console.error("PDF extraction failed during ingest:", pdfErr);
-      res.status(422).json({ error: "Failed to extract text from PDF. Please ensure the file is a valid PDF." });
-      return;
+    if (contentType === "application/pdf") {
+      try {
+        const pdfData = await pdfParse(fileBuffer);
+        extractedText = pdfData.text;
+      } catch (pdfErr) {
+        logger.error({ err: pdfErr }, "PDF parsing failed");
+        res.status(422).json({ error: "Could not extract text from the PDF. The file may be image-only or corrupted." });
+        return;
+      }
+    } else {
+      extractedText = fileBuffer.toString("utf-8");
     }
 
     if (!extractedText || extractedText.trim().length < 50) {
@@ -53,13 +52,13 @@ router.post("/ingest", upload.single("file"), async (req, res) => {
       return;
     }
 
-    console.log(`Ingest: extracted ${extractedText.length} chars, sending to OpenAI for parsing...`);
+    logger.info({ extractedChars: extractedText.length }, "Ingest: extracted text, sending to OpenAI");
 
     const storagePath = await uploadFile(fileBuffer, fileName, contentType);
 
     const parsedData = await parseClaimFromText(extractedText);
 
-    const claimNumber = parsedData.claimNumber || `CLAIM-${Date.now()}`;
+    const claimNumber = parsedData.claimNumber || `CLM-${Date.now()}`;
     const insuredName = parsedData.insuredName || "Unknown Insured";
 
     const [newClaim] = await db.insert(claims).values({
@@ -90,7 +89,7 @@ router.post("/ingest", upload.single("file"), async (req, res) => {
       },
     }).returning();
 
-    console.log(`Ingest complete: claim ${newClaim.id} created with document ${doc.id}`);
+    logger.info({ claimId: newClaim.id, documentId: doc.id }, "Ingest complete");
 
     res.status(201).json({
       claim: {
@@ -110,7 +109,7 @@ router.post("/ingest", upload.single("file"), async (req, res) => {
       parsedData,
     });
   } catch (err) {
-    console.error("Ingest error:", err);
+    logger.error({ err }, "Ingest error");
     res.status(500).json({ error: "Failed to process claim file. Please try again." });
   }
 });

@@ -1,4 +1,5 @@
 import { openai } from "@workspace/integrations-openai-ai-server";
+import logger from "../lib/logger";
 
 export interface ParsedClaimData {
   claimNumber: string;
@@ -53,7 +54,7 @@ export async function parseClaimFromText(extractedText: string): Promise<ParsedC
 
   const content = response.choices[0]?.message?.content;
   if (!content) {
-    console.error("Empty OpenAI response for claim parsing");
+    logger.error("Empty OpenAI response for claim parsing");
     return getFallbackParsedData();
   }
 
@@ -79,7 +80,7 @@ export async function parseClaimFromText(extractedText: string): Promise<ParsedC
       summary: parsed.summary || "",
     };
   } catch (e) {
-    console.error("Failed to parse OpenAI claim extraction response:", content);
+    logger.error({ contentPreview: content?.substring(0, 200) }, "Failed to parse OpenAI claim extraction response");
     return getFallbackParsedData();
   }
 }

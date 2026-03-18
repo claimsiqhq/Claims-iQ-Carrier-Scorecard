@@ -3,18 +3,18 @@ import { relations } from "drizzle-orm";
 
 export const claims = pgTable("claims", {
   id: uuid("id").primaryKey().defaultRandom(),
-  claimNumber: text("claim_number").notNull(),
-  insuredName: text("insured_name").notNull(),
+  claimNumber: text("claim_number").notNull(), /* PII: claim identifier */
+  insuredName: text("insured_name").notNull(), /* PII: personal name — subject to GDPR right-to-erasure */
   carrier: text("carrier"),
   dateOfLoss: date("date_of_loss"),
   status: text("status").notNull().default("pending"),
-  policyNumber: text("policy_number"),
+  policyNumber: text("policy_number"), /* PII: policy identifier */
   lossType: text("loss_type"),
-  propertyAddress: text("property_address"),
-  adjuster: text("adjuster"),
-  totalClaimAmount: text("total_claim_amount"),
-  deductible: text("deductible"),
-  summary: text("summary"),
+  propertyAddress: text("property_address"), /* PII: physical address — subject to GDPR right-to-erasure */
+  adjuster: text("adjuster"), /* PII: adjuster name */
+  totalClaimAmount: text("total_claim_amount"), /* PII: financial data */
+  deductible: text("deductible"), /* PII: financial data */
+  summary: text("summary"), /* may contain PII extracted from claim documents */
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
   index("idx_claims_claim_number").on(table.claimNumber),
@@ -31,9 +31,9 @@ export const documents = pgTable("documents", {
   id: uuid("id").primaryKey().defaultRandom(),
   claimId: uuid("claim_id").references(() => claims.id, { onDelete: "cascade" }),
   type: text("type"),
-  fileUrl: text("file_url"),
-  extractedText: text("extracted_text"),
-  metadata: jsonb("metadata"),
+  fileUrl: text("file_url"), /* storage path — may indirectly identify claim */
+  extractedText: text("extracted_text"), /* PII: may contain personal data extracted from claim PDF */
+  metadata: jsonb("metadata"), /* PII: may contain fileName, parsed claim data */
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
   index("idx_documents_claim_id").on(table.claimId),

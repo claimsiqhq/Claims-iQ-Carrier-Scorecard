@@ -1,12 +1,14 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
 import { promptSettings } from "@workspace/db";
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { SYSTEM_PROMPT as DEFAULT_SYSTEM, USER_PROMPT_TEMPLATE as DEFAULT_USER } from "../services/prompts";
+import { requireAuth } from "../middlewares/requireAuth";
+import logger from "../lib/logger";
 
 const router: IRouter = Router();
 
-router.get("/settings/prompts", async (_req, res) => {
+router.get("/settings/prompts", requireAuth, async (_req, res) => {
   try {
     const rows = await db.select().from(promptSettings);
 
@@ -18,12 +20,12 @@ router.get("/settings/prompts", async (_req, res) => {
       user_prompt_template: userRow?.value ?? DEFAULT_USER,
     });
   } catch (err) {
-    console.error("Error fetching prompt settings:", err);
+    logger.error({ err }, "Error fetching prompt settings");
     res.status(500).json({ error: "Failed to fetch settings" });
   }
 });
 
-router.put("/settings/prompts", async (req, res) => {
+router.put("/settings/prompts", requireAuth, async (req, res) => {
   try {
     const { system_prompt, user_prompt_template } = req.body;
 
@@ -59,12 +61,12 @@ router.put("/settings/prompts", async (req, res) => {
 
     res.json({ success: true });
   } catch (err) {
-    console.error("Error saving prompt settings:", err);
+    logger.error({ err }, "Error saving prompt settings");
     res.status(500).json({ error: "Failed to save settings" });
   }
 });
 
-router.post("/settings/prompts/reset", async (_req, res) => {
+router.post("/settings/prompts/reset", requireAuth, async (_req, res) => {
   try {
     await db.transaction(async (tx) => {
       await tx.delete(promptSettings).where(eq(promptSettings.key, "system_prompt"));
@@ -77,7 +79,7 @@ router.post("/settings/prompts/reset", async (_req, res) => {
       user_prompt_template: DEFAULT_USER,
     });
   } catch (err) {
-    console.error("Error resetting prompt settings:", err);
+    logger.error({ err }, "Error resetting prompt settings");
     res.status(500).json({ error: "Failed to reset settings" });
   }
 });

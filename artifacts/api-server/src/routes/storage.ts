@@ -6,19 +6,28 @@ import {
   ensureBucket,
 } from "../lib/supabaseStorage";
 import multer from "multer";
+import { requireAuth } from "../middlewares/requireAuth";
+import logger from "../lib/logger";
+
+const MAX_FILE_SIZE = 50 * 1024 * 1024;
 
 const router: IRouter = Router();
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_FILE_SIZE } });
 
 ensureBucket().catch((err) => {
-  console.error("Failed to ensure Supabase Storage bucket:", err);
+  logger.error({ err }, "Failed to ensure Supabase Storage bucket");
 });
 
-router.post("/storage/upload", upload.single("file"), async (req: Request, res: Response) => {
+router.post("/storage/upload", requireAuth, upload.single("file"), async (req: Request, res: Response) => {
   try {
     const file = req.file;
     if (!file) {
       res.status(400).json({ error: "No file provided" });
+      return;
+    }
+
+    if (file.size > MAX_FILE_SIZE) {
+      res.status(413).json({ error: `File too large. Maximum size is ${MAX_FILE_SIZE / 1024 / 1024}MB.` });
       return;
     }
 
@@ -35,12 +44,12 @@ router.post("/storage/upload", upload.single("file"), async (req: Request, res: 
       size: file.size,
     });
   } catch (error: any) {
-    console.error("Upload error:", error);
-    res.status(500).json({ error: error.message || "Failed to upload file" });
+    logger.error({ err: error }, "Upload error");
+    res.status(500).json({ error: "Failed to upload file" });
   }
 });
 
-router.get("/storage/download/*storagePath", async (req: Request, res: Response) => {
+router.get("/storage/download/*storagePath", requireAuth, async (req: Request, res: Response) => {
   try {
     const storagePath = req.params.storagePath;
     if (!storagePath) {
@@ -56,12 +65,12 @@ router.get("/storage/download/*storagePath", async (req: Request, res: Response)
     res.setHeader("Content-Length", buffer.length);
     res.send(buffer);
   } catch (error: any) {
-    console.error("Download error:", error);
-    res.status(404).json({ error: error.message || "File not found" });
+    logger.error({ err: error }, "Download error");
+    res.status(404).json({ error: "File not found" });
   }
 });
 
-router.get("/storage/signed-url/*storagePath", async (req: Request, res: Response) => {
+router.get("/storage/signed-url/*storagePath", requireAuth, async (req: Request, res: Response) => {
   try {
     const storagePath = req.params.storagePath;
     if (!storagePath) {
@@ -72,8 +81,8 @@ router.get("/storage/signed-url/*storagePath", async (req: Request, res: Respons
     const url = await getSignedUrl(storagePath);
     res.json({ url });
   } catch (error: any) {
-    console.error("Signed URL error:", error);
-    res.status(500).json({ error: error.message || "Failed to generate signed URL" });
+    logger.error({ err: error }, "Signed URL error");
+    res.status(500).json({ error: "Failed to generate signed URL" });
   }
 });
 

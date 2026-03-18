@@ -5,6 +5,8 @@ import { claims, audits } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { renderAuditEmail } from "../services/email";
 import { sendEmail } from "../services/sendgrid";
+import { requireAuth } from "../middlewares/requireAuth";
+import logger from "../lib/logger";
 import type { AuditResponse } from "../services/audit";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -36,7 +38,7 @@ function getAuditHtml(claim: any, audit: any): string {
   });
 }
 
-router.get("/claims/:id/email", async (req, res) => {
+router.get("/claims/:id/email", requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
     if (!UUID_RE.test(id)) {
@@ -59,12 +61,12 @@ router.get("/claims/:id/email", async (req, res) => {
     const html = getAuditHtml(claim, audit);
     res.json({ html });
   } catch (err) {
-    console.error("Error rendering email:", err);
+    logger.error({ err }, "Error rendering email");
     res.status(500).json({ error: "Failed to render email" });
   }
 });
 
-router.post("/claims/:id/email/send", emailSendLimiter, async (req, res) => {
+router.post("/claims/:id/email/send", requireAuth, emailSendLimiter, async (req, res) => {
   try {
     const { id } = req.params;
     if (!UUID_RE.test(id)) {
@@ -100,10 +102,10 @@ router.post("/claims/:id/email/send", emailSendLimiter, async (req, res) => {
 
     await sendEmail({ to: to.trim(), subject: emailSubject, html });
 
-    console.log(`Audit email sent for claim ${claim.id}`);
+    logger.info({ claimId: claim.id }, "Audit email sent");
     res.json({ success: true, message: "Email sent successfully" });
   } catch (err: any) {
-    console.error("Error sending email:", err);
+    logger.error({ err }, "Error sending email");
     if (err.message?.includes("SENDGRID_API_KEY")) {
       res.status(500).json({ error: "Email service is not configured." });
     } else {

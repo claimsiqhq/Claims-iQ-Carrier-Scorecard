@@ -6,14 +6,17 @@ import { eq, and } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import * as schema from "@workspace/db/schema";
 import { downloadFile } from "../lib/supabaseStorage";
+import { requireAuth } from "../middlewares/requireAuth";
+import logger from "../lib/logger";
 
 const require = createRequire(import.meta.url);
 const pdfParse = require("pdf-parse");
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const MAX_PDF_SIZE = 100 * 1024 * 1024;
 const router: IRouter = Router();
 
-router.post("/claims/:id/documents", async (req, res) => {
+router.post("/claims/:id/documents", requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
     if (!UUID_RE.test(id)) {
@@ -63,12 +66,12 @@ router.post("/claims/:id/documents", async (req, res) => {
       client.release();
     }
   } catch (err) {
-    console.error("Error creating document:", err);
+    logger.error({ err }, "Error creating document");
     res.status(500).json({ error: "Failed to create document" });
   }
 });
 
-router.delete("/claims/:id/documents/:docId", async (req, res) => {
+router.delete("/claims/:id/documents/:docId", requireAuth, async (req, res) => {
   try {
     const { id, docId } = req.params;
     if (!UUID_RE.test(id) || !UUID_RE.test(docId)) {
@@ -88,12 +91,12 @@ router.delete("/claims/:id/documents/:docId", async (req, res) => {
     await db.delete(documents).where(eq(documents.id, docId));
     res.json({ success: true, message: "Document deleted" });
   } catch (err) {
-    console.error("Error deleting document:", err);
+    logger.error({ err }, "Error deleting document");
     res.status(500).json({ error: "Failed to delete document" });
   }
 });
 
-router.post("/claims/:id/documents/:docId/extract", async (req, res) => {
+router.post("/claims/:id/documents/:docId/extract", requireAuth, async (req, res) => {
   try {
     const { id, docId } = req.params;
     if (!UUID_RE.test(id) || !UUID_RE.test(docId)) {
@@ -119,22 +122,26 @@ router.post("/claims/:id/documents/:docId/extract", async (req, res) => {
     if (contentType === "application/pdf" && storagePath) {
       try {
         const buffer = await downloadFile(storagePath);
-        if (buffer.length > 100 * 1024 * 1024) {
-          res.status(413).json({ error: "File too large for text extraction (100MB limit)" });
+        if (buffer.length > MAX_PDF_SIZE) {
+          res.status(413).json({ error: `File too large for text extraction (${MAX_PDF_SIZE / 1024 / 1024}MB limit)` });
           return;
         }
         const pdfData = await pdfParse(buffer);
         extractedText = pdfData.text;
       } catch (pdfErr) {
-        console.error("PDF extraction failed:", pdfErr);
+        logger.error({ err: pdfErr }, "PDF extraction failed");
         extractedText = "[PDF extraction failed]";
       }
     } else if (contentType?.startsWith("text/") && storagePath) {
       try {
         const buffer = await downloadFile(storagePath);
+        if (buffer.length > MAX_PDF_SIZE) {
+          res.status(413).json({ error: "File too large for text extraction" });
+          return;
+        }
         extractedText = buffer.toString("utf-8");
       } catch (txtErr) {
-        console.error("Text extraction failed:", txtErr);
+        logger.error({ err: txtErr }, "Text extraction failed");
         extractedText = "[Text extraction failed]";
       }
     } else {
@@ -149,7 +156,7 @@ router.post("/claims/:id/documents/:docId/extract", async (req, res) => {
       preview: extractedText.substring(0, 500),
     });
   } catch (err) {
-    console.error("Error extracting text:", err);
+    logger.error({ err }, "Error extracting text");
     res.status(500).json({ error: "Failed to extract text" });
   }
 });

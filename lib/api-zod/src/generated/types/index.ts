@@ -6,6 +6,8 @@
  * OpenAPI spec version: 0.1.0
  */
 
+export * from "./authUser";
+export * from "./authEnvelope";
 export * from "./auditFinding";
 export * from "./auditResult";
 export * from "./auditSection";

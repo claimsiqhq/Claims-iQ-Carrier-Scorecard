@@ -72,6 +72,7 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
   const [auditing, setAuditing] = useState(false)
   const [auditError, setAuditError] = useState<string | null>(null)
   const [emailLoading, setEmailLoading] = useState(false)
+  const [emailPreviewHtml, setEmailPreviewHtml] = useState<string | null>(null)
   const [showEmailModal, setShowEmailModal] = useState(false)
   const [emailTo, setEmailTo] = useState("")
   const [emailSending, setEmailSending] = useState(false)
@@ -88,7 +89,7 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
     setAuditError(null)
     try {
       const baseUrl = import.meta.env.VITE_API_URL || "/api"
-      const res = await fetch(`${baseUrl}/claims/${claimId}/audit`, { method: "POST" })
+      const res = await fetch(`${baseUrl}/claims/${claimId}/audit`, { method: "POST", credentials: "include" })
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))
         throw new Error(body.error || "Audit failed")
@@ -106,7 +107,7 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
     setDeleting(true)
     try {
       const baseUrl = import.meta.env.VITE_API_URL || "/api"
-      const res = await fetch(`${baseUrl}/claims/${claimId}`, { method: "DELETE" })
+      const res = await fetch(`${baseUrl}/claims/${claimId}`, { method: "DELETE", credentials: "include" })
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))
         throw new Error(body.error || "Delete failed")
@@ -124,14 +125,10 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
     setEmailLoading(true)
     try {
       const baseUrl = import.meta.env.VITE_API_URL || "/api"
-      const res = await fetch(`${baseUrl}/claims/${claimId}/email`)
+      const res = await fetch(`${baseUrl}/claims/${claimId}/email`, { credentials: "include" })
       if (!res.ok) throw new Error("Failed to generate email")
       const { html } = await res.json()
-      const win = window.open("", "_blank")
-      if (win) {
-        win.document.write(html)
-        win.document.close()
-      }
+      setEmailPreviewHtml(html)
     } catch (err: any) {
       alert(err.message || "Failed to generate email")
     } finally {
@@ -150,6 +147,7 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ to: emailTo }),
+        credentials: "include",
       })
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))
@@ -189,8 +187,8 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
 
   const { claim, documents: docs, audit } = data
   const overallScore = audit?.overallScore ?? 0
-  const technicalScore = (audit as any)?.technicalScore ?? 0
-  const presentationScore = (audit as any)?.presentationScore ?? 0
+  const technicalScore = audit?.technicalScore ?? 0
+  const presentationScore = audit?.presentationScore ?? 0
   const sections = audit?.sections ?? []
   const findings = audit?.findings ?? []
 
@@ -206,7 +204,8 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
   const deferred = findings.filter((f) => f.type === "deferred")
 
   const claimFile = docs.length > 0 ? docs[0] : null
-  const claimFileName = claimFile ? ((claimFile as any).metadata?.fileName || claimFile.type || "Claim File") : null
+  const claimFileMeta = claimFile?.metadata as Record<string, unknown> | undefined
+  const claimFileName = claimFile ? (claimFileMeta?.fileName as string || claimFile.type || "Claim File") : null
 
   return (
     <main className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
@@ -455,7 +454,7 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
                     <TabsContent value="defects" className="mt-0">
                       <div className="space-y-3">
                         {defects.length > 0 ? defects.map((f) => (
-                          <DefectCard key={f.id} severity={f.severity === "high" || f.severity === "critical" ? "critical" : "warning"} title={f.title} description={f.description} category={(f as any).category || f.type} />
+                          <DefectCard key={f.id} severity={f.severity === "high" || f.severity === "critical" ? "critical" : "warning"} title={f.title} description={f.description} category={f.category || f.type} />
                         )) : (
                           <EmptyTabContent icon={<CheckCircle width={40} height={40} />} title="No Critical Failures or Defects" subtitle="No defects identified for this claim." />
                         )}
@@ -475,7 +474,7 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
                     <TabsContent value="questions" className="mt-0">
                       <div className="space-y-3">
                         {questions.length > 0 ? questions.map((f) => (
-                          <DefectCard key={f.id} severity="warning" title={f.title} description={f.description} category={(f as any).category || "Question"} />
+                          <DefectCard key={f.id} severity="warning" title={f.title} description={f.description} category={f.category || "Question"} />
                         )) : (
                           <EmptyTabContent icon={<PageSearch width={40} height={40} />} title="No Carrier Questions" subtitle="No questions identified for this claim." />
                         )}
@@ -485,7 +484,7 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
                     <TabsContent value="risks" className="mt-0">
                       <div className="space-y-3">
                         {risks.length > 0 ? risks.map((f) => (
-                          <DefectCard key={f.id} severity={f.severity === "high" || f.severity === "critical" ? "critical" : "warning"} title={f.title} description={f.description} category={(f as any).category || "Risk"} />
+                          <DefectCard key={f.id} severity={f.severity === "high" || f.severity === "critical" ? "critical" : "warning"} title={f.title} description={f.description} category={f.category || "Risk"} />
                         )) : (
                           <EmptyTabContent icon={<WarningTriangle width={40} height={40} />} title="No Risks Identified" subtitle="No risks found for this claim." />
                         )}
@@ -495,7 +494,7 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
                     <TabsContent value="deferred" className="mt-0">
                       <div className="space-y-3">
                         {deferred.length > 0 ? deferred.map((f) => (
-                          <DefectCard key={f.id} severity="warning" title={f.title} description={f.description} category={(f as any).category || "Deferred"} />
+                          <DefectCard key={f.id} severity="warning" title={f.title} description={f.description} category={f.category || "Deferred"} />
                         )) : (
                           <EmptyTabContent icon={<ClipboardCheck width={40} height={40} />} title="No Deferred Items" subtitle="No items deferred for later review." />
                         )}
@@ -549,8 +548,8 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
           <div className="flex-1 overflow-y-auto p-4" style={{ backgroundColor: BRAND.offWhite }}>
             {claimFile ? (
               <div className="rounded shadow-sm w-full p-4 text-xs leading-relaxed whitespace-pre-wrap" style={{ backgroundColor: BRAND.white, border: `1px solid ${BRAND.greyLavender}`, color: BRAND.deepPurple, fontFamily: FONTS.mono, fontSize: "11px" }}>
-                {(claimFile as any).extractedText
-                  ? (claimFile as any).extractedText
+                {claimFile.extractedText
+                  ? claimFile.extractedText
                   : (
                     <p className="text-center mt-12" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.body, fontSize: "13px" }}>
                       Text not yet extracted. Run a carrier audit or re-upload the file.
@@ -570,15 +569,34 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
         </div>
       </div>
 
+      {emailPreviewHtml && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ backgroundColor: "rgba(52, 42, 79, 0.5)" }} onClick={() => setEmailPreviewHtml(null)} role="dialog" aria-label="Email preview">
+          <div className="w-full max-w-3xl h-[80vh] rounded-xl shadow-2xl flex flex-col overflow-hidden" style={{ backgroundColor: BRAND.white }} onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-4 shrink-0" style={{ borderBottom: `1px solid ${BRAND.greyLavender}` }}>
+              <h3 className="text-lg font-bold" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>Email Preview</h3>
+              <button onClick={() => setEmailPreviewHtml(null)} className="p-1 rounded hover:opacity-70 transition-opacity" style={{ color: BRAND.purpleSecondary }} aria-label="Close email preview">
+                <Xmark width={20} height={20} />
+              </button>
+            </div>
+            <iframe
+              srcDoc={emailPreviewHtml}
+              className="flex-1 w-full border-0"
+              title="Email preview"
+              sandbox="allow-same-origin"
+            />
+          </div>
+        </div>
+      )}
+
       {showEmailModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ backgroundColor: "rgba(52, 42, 79, 0.5)" }} onClick={() => setShowEmailModal(false)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ backgroundColor: "rgba(52, 42, 79, 0.5)" }} onClick={() => setShowEmailModal(false)} role="dialog" aria-label="Send audit email">
           <div className="w-full max-w-md rounded-xl shadow-2xl p-6" style={{ backgroundColor: BRAND.white }} onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-5">
               <h3 className="text-lg font-bold flex items-center gap-2" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
                 <SendMail width={20} height={20} style={{ color: BRAND.gold }} />
                 Send Audit to Carrier
               </h3>
-              <button onClick={() => setShowEmailModal(false)} className="p-1 rounded hover:opacity-70 transition-opacity" style={{ color: BRAND.purpleSecondary }}>
+              <button onClick={() => setShowEmailModal(false)} className="p-1 rounded hover:opacity-70 transition-opacity" style={{ color: BRAND.purpleSecondary }} aria-label="Close send email modal">
                 <Xmark width={20} height={20} />
               </button>
             </div>
