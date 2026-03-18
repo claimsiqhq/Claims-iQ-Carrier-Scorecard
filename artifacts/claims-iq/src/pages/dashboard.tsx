@@ -1,18 +1,14 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { useLocation } from "wouter"
 import { BRAND, FONTS } from "@/lib/brand"
-import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
 import {
-  Shield,
-  WarningTriangle,
-  CheckCircle,
-  Upload as UploadIcon,
   NavArrowRight,
-  ClipboardCheck,
-  Sparks,
-  PageEdit,
+  NavArrowLeft,
+  Search,
+  SortDown,
+  SortUp,
+  Plus,
 } from "iconoir-react"
 
 interface DashboardData {
@@ -41,78 +37,26 @@ interface DashboardData {
   }>
 }
 
-function ScoreRing({ score, size = 72, strokeWidth = 5 }: { score: number; size?: number; strokeWidth?: number }) {
-  const r = (size - strokeWidth) / 2
-  const circ = 2 * Math.PI * r
-  const offset = circ - (score / 100) * circ
-  const color = score >= 80 ? "#16a34a" : score >= 60 ? BRAND.gold : "#dc2626"
+type SortKey = "claimNumber" | "insuredName" | "carrier" | "status" | "dateOfLoss" | "createdAt"
+type SortDir = "asc" | "desc"
 
-  return (
-    <div className="relative inline-flex items-center justify-center" style={{ width: size, height: size }}>
-      <svg width={size} height={size} className="absolute -rotate-90">
-        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={BRAND.greyLavender} strokeWidth={strokeWidth} />
-        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={color} strokeWidth={strokeWidth} strokeDasharray={circ} strokeDashoffset={offset} strokeLinecap="round" />
-      </svg>
-      <span className="text-lg font-bold" style={{ color: BRAND.deepPurple, fontFamily: FONTS.mono }}>{score}</span>
-    </div>
-  )
-}
-
-function RiskBar({ label, count, total, color }: { label: string; count: number; total: number; color: string }) {
-  const pct = total > 0 ? (count / total) * 100 : 0
-  return (
-    <div className="flex items-center gap-3">
-      <span className="text-xs w-16 shrink-0 text-right font-medium" style={{ color: BRAND.deepPurple, fontFamily: FONTS.body }}>{label}</span>
-      <div className="flex-1 h-3 rounded-full overflow-hidden" style={{ backgroundColor: BRAND.lightPurpleGrey }}>
-        <div className="h-full rounded-full transition-all duration-700" style={{ width: `${pct}%`, backgroundColor: color }} />
-      </div>
-      <span className="text-xs w-6 font-bold" style={{ color: BRAND.deepPurple, fontFamily: FONTS.mono }}>{count}</span>
-    </div>
-  )
-}
-
-function getApprovalLabel(status: string) {
-  switch (status) {
-    case "APPROVE": return "Approve"
-    case "APPROVE WITH MINOR CHANGES": return "Minor Changes"
-    case "REQUIRES REVIEW": return "Needs Review"
-    case "REJECT": return "Deny"
-    default: return status
-  }
-}
-
-function getApprovalColor(status: string) {
-  switch (status) {
-    case "APPROVE": return { bg: "#e8f5e9", text: "#2e7d32" }
-    case "APPROVE WITH MINOR CHANGES": return { bg: "#e8f5e9", text: "#558b2f" }
-    case "REQUIRES REVIEW": return { bg: "#fef9ec", text: BRAND.gold }
-    case "REJECT": return { bg: "#fef2f2", text: "#dc2626" }
-    default: return { bg: BRAND.lightPurpleGrey, text: BRAND.purple }
-  }
-}
-
-function getRiskColor(level: string) {
-  switch (level) {
-    case "LOW": return "#16a34a"
-    case "MEDIUM": return BRAND.gold
-    case "HIGH": return "#dc2626"
-    default: return BRAND.purpleSecondary
-  }
-}
-
-function getRiskBadgeStyle(level: string | null) {
-  switch (level) {
-    case "LOW": return { bg: "#e8f5e9", text: "#16a34a", border: "#a3d9a5" }
-    case "MEDIUM": return { bg: "#fef9ec", text: BRAND.gold, border: BRAND.goldLight }
-    case "HIGH": return { bg: "#fef2f2", text: "#dc2626", border: "#fca5a5" }
-    default: return { bg: BRAND.lightPurpleGrey, text: BRAND.purpleSecondary, border: BRAND.greyLavender }
-  }
+function formatDate(iso: string | null) {
+  if (!iso) return "—"
+  const d = new Date(iso)
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
 }
 
 export default function DashboardPage() {
   const [, setLocation] = useLocation()
   const [data, setData] = useState<DashboardData | null>(null)
   const [loading, setLoading] = useState(true)
+  const [searchQuery, setSearchQuery] = useState("")
+  const [statusFilter, setStatusFilter] = useState<string>("all")
+  const [carrierFilter, setCarrierFilter] = useState<string>("all")
+  const [sortKey, setSortKey] = useState<SortKey>("createdAt")
+  const [sortDir, setSortDir] = useState<SortDir>("desc")
+  const [page, setPage] = useState(1)
+  const perPage = 10
 
   useEffect(() => {
     const baseUrl = import.meta.env.VITE_API_URL || "/api"
@@ -122,6 +66,63 @@ export default function DashboardPage() {
       .catch(() => {})
       .finally(() => setLoading(false))
   }, [])
+
+  const filteredClaims = useMemo(() => {
+    if (!data) return []
+    let list = [...data.recentClaims]
+
+    if (statusFilter !== "all") {
+      list = list.filter((c) => c.status === statusFilter)
+    }
+    if (carrierFilter !== "all") {
+      list = list.filter((c) => (c.carrier || "Unknown") === carrierFilter)
+    }
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase()
+      list = list.filter(
+        (c) =>
+          c.claimNumber.toLowerCase().includes(q) ||
+          c.insuredName.toLowerCase().includes(q) ||
+          (c.carrier || "").toLowerCase().includes(q)
+      )
+    }
+
+    list.sort((a, b) => {
+      let av: string | number = ""
+      let bv: string | number = ""
+      switch (sortKey) {
+        case "claimNumber": av = a.claimNumber; bv = b.claimNumber; break
+        case "insuredName": av = a.insuredName; bv = b.insuredName; break
+        case "carrier": av = a.carrier || ""; bv = b.carrier || ""; break
+        case "status": av = a.status; bv = b.status; break
+        case "dateOfLoss": av = a.dateOfLoss || ""; bv = b.dateOfLoss || ""; break
+        case "createdAt": av = a.createdAt || ""; bv = b.createdAt || ""; break
+      }
+      const cmp = typeof av === "string" ? av.localeCompare(bv as string) : (av as number) - (bv as number)
+      return sortDir === "asc" ? cmp : -cmp
+    })
+
+    return list
+  }, [data, statusFilter, carrierFilter, searchQuery, sortKey, sortDir])
+
+  const totalPages = Math.max(1, Math.ceil(filteredClaims.length / perPage))
+  const paginatedClaims = filteredClaims.slice((page - 1) * perPage, page * perPage)
+
+  const uniqueCarriers = useMemo(() => {
+    if (!data) return []
+    const set = new Set<string>()
+    data.recentClaims.forEach((c) => set.add(c.carrier || "Unknown"))
+    return Array.from(set).sort()
+  }, [data])
+
+  const handleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"))
+    } else {
+      setSortKey(key)
+      setSortDir("asc")
+    }
+  }
 
   if (loading) {
     return (
@@ -142,217 +143,282 @@ export default function DashboardPage() {
     )
   }
 
-  const { stats, riskDistribution, approvalDistribution, carriers, findingSeverity, recentClaims } = data
-  const totalAnalyzed = Object.values(riskDistribution).reduce((a, b) => a + b, 0)
-  const criticalFindings = (findingSeverity["critical"] || 0) + (findingSeverity["high"] || 0)
-  const warningFindings = (findingSeverity["warning"] || 0) + (findingSeverity["medium"] || 0)
+  const { stats } = data
 
   return (
     <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
-      <header className="h-14 md:h-16 flex items-center justify-between px-4 md:px-6 shrink-0" style={{ backgroundColor: BRAND.white, borderBottom: `1px solid ${BRAND.greyLavender}` }}>
-        <h1 className="text-base md:text-lg font-bold" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>Dashboard</h1>
-        <Button
-          size="sm"
-          className="gap-2 text-white text-xs md:text-sm"
-          style={{ backgroundColor: BRAND.purple, fontFamily: FONTS.heading, fontWeight: 600 }}
-          onClick={() => setLocation("/claims")}
-        >
-          <UploadIcon width={16} height={16} />
-          <span className="hidden sm:inline">New Claim</span>
-          <span className="sm:hidden">Upload</span>
-        </Button>
-      </header>
+      <div className="flex-1 overflow-y-auto" style={{ backgroundColor: BRAND.offWhite }}>
+        <div className="px-6 md:px-8 py-6 md:py-8 max-w-[1200px]">
 
-      <div className="flex-1 overflow-y-auto p-4 md:p-6" style={{ backgroundColor: BRAND.offWhite }}>
-        <div className="max-w-5xl mx-auto space-y-4 md:space-y-6">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
-            <StatCard label="Total Claims" value={stats.totalClaims} icon={<PageEdit width={18} height={18} />} color={BRAND.purple} onClick={() => setLocation("/claims")} />
-            <StatCard label="Audited" value={stats.analyzedCount} icon={<ClipboardCheck width={18} height={18} />} color="#16a34a" />
-            <StatCard label="Pending" value={stats.pendingCount} icon={<Sparks width={18} height={18} />} color={BRAND.gold} accent />
-            <StatCard label="Avg Score" value={stats.avgScore !== null ? stats.avgScore : "—"} icon={<Shield width={18} height={18} />} color={BRAND.deepPurple} isScore />
+          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-8">
+            <div>
+              <h1 className="text-2xl md:text-3xl font-bold mb-1" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
+                Claims Audit Dashboard
+              </h1>
+              <p className="text-sm" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.body }}>
+                View and manage all active claims, review processed documents, track progress, and complete the audit workflow.
+              </p>
+            </div>
+            <Button
+              className="gap-2 text-white shrink-0 px-5 py-2.5 text-sm"
+              style={{ backgroundColor: "#16a34a", fontFamily: FONTS.heading, fontWeight: 600, borderRadius: 8 }}
+              onClick={() => setLocation("/claims")}
+            >
+              <Plus width={16} height={16} strokeWidth={2.5} />
+              Create new claim
+            </Button>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
-            <Card className="shadow-sm" style={{ borderColor: BRAND.greyLavender, backgroundColor: BRAND.white }}>
-              <CardContent className="p-5">
-                <h3 className="text-xs font-bold uppercase tracking-wider mb-4" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>Risk Distribution</h3>
-                {totalAnalyzed > 0 ? (
-                  <div className="space-y-3">
-                    <RiskBar label="High" count={riskDistribution["HIGH"] || 0} total={totalAnalyzed} color="#dc2626" />
-                    <RiskBar label="Medium" count={riskDistribution["MEDIUM"] || 0} total={totalAnalyzed} color={BRAND.gold} />
-                    <RiskBar label="Low" count={riskDistribution["LOW"] || 0} total={totalAnalyzed} color="#16a34a" />
-                  </div>
-                ) : (
-                  <p className="text-sm py-4 text-center" style={{ color: BRAND.purpleSecondary }}>No audited claims yet</p>
-                )}
-              </CardContent>
-            </Card>
-
-            <Card className="shadow-sm" style={{ borderColor: BRAND.greyLavender, backgroundColor: BRAND.white }}>
-              <CardContent className="p-5">
-                <h3 className="text-xs font-bold uppercase tracking-wider mb-4" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>Approval Status</h3>
-                {Object.keys(approvalDistribution).length > 0 ? (
-                  <div className="flex flex-wrap gap-2">
-                    {Object.entries(approvalDistribution).map(([status, count]) => {
-                      const c = getApprovalColor(status)
-                      return (
-                        <div key={status} className="flex items-center gap-2 px-3 py-2 rounded-lg" style={{ backgroundColor: c.bg }}>
-                          <span className="text-lg font-bold" style={{ color: c.text, fontFamily: FONTS.mono }}>{count}</span>
-                          <span className="text-xs font-medium" style={{ color: c.text }}>{getApprovalLabel(status)}</span>
-                        </div>
-                      )
-                    })}
-                  </div>
-                ) : (
-                  <p className="text-sm py-4 text-center" style={{ color: BRAND.purpleSecondary }}>No audited claims yet</p>
-                )}
-
-                {(criticalFindings > 0 || warningFindings > 0) && (
-                  <div className="mt-4 pt-4 flex gap-4" style={{ borderTop: `1px solid ${BRAND.greyLavender}` }}>
-                    {criticalFindings > 0 && (
-                      <div className="flex items-center gap-2">
-                        <div className="w-2 h-2 rounded-full" style={{ backgroundColor: "#dc2626" }} />
-                        <span className="text-xs" style={{ color: BRAND.deepPurple }}><strong style={{ fontFamily: FONTS.mono }}>{criticalFindings}</strong> critical findings</span>
-                      </div>
-                    )}
-                    {warningFindings > 0 && (
-                      <div className="flex items-center gap-2">
-                        <div className="w-2 h-2 rounded-full" style={{ backgroundColor: BRAND.gold }} />
-                        <span className="text-xs" style={{ color: BRAND.deepPurple }}><strong style={{ fontFamily: FONTS.mono }}>{warningFindings}</strong> warnings</span>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+            <StatusCard
+              label="Ready for Review"
+              description="All items ready for review."
+              count={stats.analyzedCount}
+              borderColor={BRAND.purple}
+              countColor={BRAND.purple}
+            />
+            <StatusCard
+              label="In Progress"
+              description="Claim processing underway."
+              count={stats.pendingCount}
+              borderColor={BRAND.gold}
+              countColor={BRAND.gold}
+            />
+            <StatusCard
+              label="Total Claims"
+              description="All claims in system."
+              count={stats.totalClaims}
+              borderColor="#16a34a"
+              countColor="#16a34a"
+            />
           </div>
 
-          {carriers.length > 0 && (
-            <Card className="shadow-sm" style={{ borderColor: BRAND.greyLavender, backgroundColor: BRAND.white }}>
-              <CardContent className="p-5">
-                <h3 className="text-xs font-bold uppercase tracking-wider mb-4" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>Carrier Breakdown</h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                  {carriers.map((c) => (
-                    <div key={c.name} className="flex items-center justify-between p-3 rounded-lg" style={{ backgroundColor: BRAND.offWhite }}>
-                      <div className="min-w-0">
-                        <p className="text-sm font-semibold truncate" style={{ color: BRAND.deepPurple, fontFamily: FONTS.body }}>{c.name}</p>
-                        <p className="text-xs" style={{ color: BRAND.purpleSecondary }}>{c.count} claim{c.count !== 1 ? "s" : ""}</p>
-                      </div>
-                      {c.avgScore !== null && (
-                        <ScoreRing score={c.avgScore} size={48} strokeWidth={4} />
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          <Card className="shadow-sm" style={{ borderColor: BRAND.greyLavender, backgroundColor: BRAND.white }}>
-            <CardContent className="p-5">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-xs font-bold uppercase tracking-wider" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>Recent Claims</h3>
-                <button
-                  className="text-xs font-semibold flex items-center gap-1 hover:opacity-80 transition-opacity"
-                  style={{ color: BRAND.purple }}
-                  onClick={() => setLocation("/claims")}
-                >
-                  View All <NavArrowRight width={14} height={14} />
-                </button>
+          <div className="rounded-xl border overflow-hidden" style={{ backgroundColor: BRAND.white, borderColor: BRAND.greyLavender }}>
+            <div className="px-5 pt-5 pb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3" style={{ borderBottom: `1px solid ${BRAND.greyLavender}` }}>
+              <div>
+                <h2 className="text-lg font-bold" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>My Claims</h2>
+                <p className="text-xs" style={{ color: BRAND.purpleSecondary }}>Today</p>
               </div>
+              <span className="text-2xl font-bold" style={{ color: BRAND.deepPurple, fontFamily: FONTS.mono }}>{filteredClaims.length}</span>
+            </div>
 
-              {recentClaims.length > 0 ? (
-                <div className="space-y-2">
-                  {recentClaims.map((c) => {
-                    const riskStyle = getRiskBadgeStyle(c.riskLevel)
-                    return (
-                      <button
-                        key={c.id}
-                        className="w-full text-left flex items-center gap-3 p-3 rounded-lg transition-colors hover:shadow-sm active:scale-[0.995]"
-                        style={{ backgroundColor: BRAND.offWhite }}
-                        onClick={() => setLocation(`/claims/${c.id}`)}
-                      >
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2 mb-0.5">
-                            <span className="text-sm font-semibold truncate" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>{c.insuredName}</span>
-                            {c.status === "pending" && (
-                              <Badge className="shadow-none text-[10px] px-1.5 py-0 border-transparent" style={{ backgroundColor: BRAND.lightPurpleGrey, color: BRAND.purple }}>Pending</Badge>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-xs" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.mono }}>{c.claimNumber}</span>
-                            {c.carrier && <span className="text-xs" style={{ color: BRAND.purpleSecondary }}>· {c.carrier}</span>}
-                            {c.lossType && <span className="text-xs" style={{ color: BRAND.purpleSecondary }}>· {c.lossType}</span>}
-                          </div>
-                        </div>
+            <div className="px-5 py-3 flex flex-wrap items-center gap-2" style={{ borderBottom: `1px solid ${BRAND.greyLavender}`, backgroundColor: BRAND.offWhite }}>
+              <FilterSelect
+                label="Status"
+                value={statusFilter}
+                onChange={(v) => { setStatusFilter(v); setPage(1) }}
+                options={[
+                  { value: "all", label: "All" },
+                  { value: "analyzed", label: "Ready For Review" },
+                  { value: "pending", label: "Pending" },
+                ]}
+              />
+              <FilterSelect
+                label="Carrier"
+                value={carrierFilter}
+                onChange={(v) => { setCarrierFilter(v); setPage(1) }}
+                options={[
+                  { value: "all", label: "All" },
+                  ...uniqueCarriers.map((c) => ({ value: c, label: c })),
+                ]}
+              />
+              <div className="flex items-center gap-1.5 border rounded-lg px-3 py-1.5 ml-auto" style={{ borderColor: BRAND.greyLavender, backgroundColor: BRAND.white }}>
+                <Search width={14} height={14} style={{ color: BRAND.purpleSecondary }} />
+                <input
+                  type="text"
+                  placeholder="Search"
+                  className="text-sm outline-none bg-transparent w-28"
+                  style={{ color: BRAND.deepPurple, fontFamily: FONTS.body }}
+                  value={searchQuery}
+                  onChange={(e) => { setSearchQuery(e.target.value); setPage(1) }}
+                />
+              </div>
+            </div>
 
-                        <div className="flex items-center gap-2 shrink-0">
-                          {c.riskLevel && (
-                            <Badge className="shadow-none text-[10px] px-1.5 py-0" style={{ backgroundColor: riskStyle.bg, color: riskStyle.text, border: `1px solid ${riskStyle.border}` }}>
-                              {c.riskLevel === "LOW" ? "Low" : c.riskLevel === "MEDIUM" ? "Med" : "High"}
-                            </Badge>
-                          )}
-                          {c.overallScore !== null && (
-                            <span className="text-sm font-bold w-8 text-right" style={{ color: c.overallScore >= 80 ? "#16a34a" : c.overallScore >= 60 ? BRAND.gold : "#dc2626", fontFamily: FONTS.mono }}>
-                              {c.overallScore}
-                            </span>
-                          )}
-                          <NavArrowRight width={14} height={14} style={{ color: BRAND.purpleSecondary }} />
-                        </div>
-                      </button>
-                    )
-                  })}
+            <div className="overflow-x-auto">
+              <table className="w-full text-left" style={{ minWidth: 700 }}>
+                <thead>
+                  <tr style={{ borderBottom: `1px solid ${BRAND.greyLavender}` }}>
+                    <SortableTh label="Claim Number" sortKey="claimNumber" currentKey={sortKey} dir={sortDir} onSort={handleSort} />
+                    <SortableTh label="Insured Name" sortKey="insuredName" currentKey={sortKey} dir={sortDir} onSort={handleSort} />
+                    <SortableTh label="Carrier" sortKey="carrier" currentKey={sortKey} dir={sortDir} onSort={handleSort} />
+                    <SortableTh label="Status" sortKey="status" currentKey={sortKey} dir={sortDir} onSort={handleSort} />
+                    <SortableTh label="Date of Loss" sortKey="dateOfLoss" currentKey={sortKey} dir={sortDir} onSort={handleSort} />
+                    <SortableTh label="Received Date" sortKey="createdAt" currentKey={sortKey} dir={sortDir} onSort={handleSort} />
+                    <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.heading }}>Score</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {paginatedClaims.length > 0 ? paginatedClaims.map((c) => (
+                    <tr
+                      key={c.id}
+                      className="cursor-pointer transition-colors hover:bg-black/[0.02]"
+                      style={{ borderBottom: `1px solid ${BRAND.greyLavender}` }}
+                      onClick={() => setLocation(`/claims/${c.id}`)}
+                    >
+                      <td className="px-4 py-3">
+                        <span className="text-sm font-medium" style={{ color: BRAND.purple, fontFamily: FONTS.mono }}>{c.claimNumber}</span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="text-sm" style={{ color: BRAND.deepPurple }}>{c.insuredName}</span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="text-sm" style={{ color: BRAND.deepPurple }}>{c.carrier || "—"}</span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <StatusBadge status={c.status} />
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="text-sm" style={{ color: BRAND.deepPurple }}>{formatDate(c.dateOfLoss)}</span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="text-sm" style={{ color: BRAND.deepPurple }}>{formatDate(c.createdAt)}</span>
+                      </td>
+                      <td className="px-4 py-3">
+                        {c.overallScore !== null ? (
+                          <span className="text-sm font-bold" style={{
+                            color: c.overallScore >= 80 ? "#16a34a" : c.overallScore >= 60 ? BRAND.gold : "#dc2626",
+                            fontFamily: FONTS.mono,
+                          }}>
+                            {c.overallScore}
+                          </span>
+                        ) : (
+                          <span className="text-sm" style={{ color: BRAND.purpleSecondary }}>—</span>
+                        )}
+                      </td>
+                    </tr>
+                  )) : (
+                    <tr>
+                      <td colSpan={7} className="px-4 py-12 text-center">
+                        <p className="text-sm" style={{ color: BRAND.purpleSecondary }}>
+                          {data.recentClaims.length === 0 ? "No claims yet. Upload a claim PDF to get started." : "No claims match your filters."}
+                        </p>
+                        {data.recentClaims.length === 0 && (
+                          <Button
+                            className="gap-2 text-white mt-3"
+                            style={{ backgroundColor: BRAND.purple, fontFamily: FONTS.heading, fontWeight: 600 }}
+                            onClick={() => setLocation("/claims")}
+                          >
+                            <Plus width={16} height={16} />
+                            Upload First Claim
+                          </Button>
+                        )}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {filteredClaims.length > 0 && (
+              <div className="px-5 py-3 flex items-center justify-between text-sm" style={{ borderTop: `1px solid ${BRAND.greyLavender}`, backgroundColor: BRAND.offWhite }}>
+                <span style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.body }}>
+                  {(page - 1) * perPage + 1}–{Math.min(page * perPage, filteredClaims.length)} of {filteredClaims.length}
+                </span>
+                <div className="flex items-center gap-1">
+                  <PagButton onClick={() => setPage(1)} disabled={page === 1}>«</PagButton>
+                  <PagButton onClick={() => setPage(page - 1)} disabled={page === 1}><NavArrowLeft width={14} height={14} /></PagButton>
+                  <PagButton onClick={() => setPage(page + 1)} disabled={page === totalPages}><NavArrowRight width={14} height={14} /></PagButton>
+                  <PagButton onClick={() => setPage(totalPages)} disabled={page === totalPages}>»</PagButton>
                 </div>
-              ) : (
-                <div className="text-center py-8">
-                  <UploadIcon width={32} height={32} className="mx-auto mb-3" style={{ color: BRAND.purpleSecondary }} />
-                  <p className="text-sm font-semibold mb-1" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>No Claims Yet</p>
-                  <p className="text-xs mb-4" style={{ color: BRAND.purpleSecondary }}>Upload a claim PDF to get started with AI-powered auditing.</p>
-                  <Button
-                    size="sm"
-                    className="gap-2 text-white"
-                    style={{ backgroundColor: BRAND.purple, fontFamily: FONTS.heading, fontWeight: 600 }}
-                    onClick={() => setLocation("/claims")}
-                  >
-                    <UploadIcon width={16} height={16} />
-                    Upload First Claim
-                  </Button>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </main>
   )
 }
 
-function StatCard({ label, value, icon, color, isScore, accent, onClick }: {
-  label: string
-  value: number | string
-  icon: React.ReactNode
-  color: string
-  isScore?: boolean
-  accent?: boolean
-  onClick?: () => void
+function StatusCard({ label, description, count, borderColor, countColor }: {
+  label: string; description: string; count: number; borderColor: string; countColor: string
 }) {
-  const Tag = onClick ? "button" : "div" as any
   return (
-    <Tag
-      className={`p-4 md:p-5 rounded-lg border text-left ${onClick ? "cursor-pointer hover:shadow-md transition-all active:scale-[0.98]" : ""}`}
-      style={{ backgroundColor: BRAND.white, borderColor: accent ? BRAND.goldLight : BRAND.greyLavender }}
-      onClick={onClick}
+    <div
+      className="rounded-xl border p-4 md:p-5 flex items-center justify-between"
+      style={{ backgroundColor: BRAND.white, borderColor: BRAND.greyLavender, borderLeftWidth: 4, borderLeftColor: borderColor }}
     >
-      <div className="flex items-center justify-between mb-2">
-        <p className="text-[10px] md:text-xs uppercase tracking-wider font-bold" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.heading }}>{label}</p>
-        <div className="p-1 rounded" style={{ backgroundColor: `${color}15`, color }}>{icon}</div>
+      <div>
+        <p className="text-sm font-bold mb-0.5" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>{label}</p>
+        <p className="text-xs" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.body }}>{description}</p>
       </div>
-      <p className="text-2xl md:text-3xl font-bold" style={{ color: BRAND.deepPurple, fontFamily: FONTS.mono }}>
-        {value}
-      </p>
-      {onClick && (
-        <p className="text-[10px] mt-1 flex items-center gap-0.5" style={{ color: BRAND.purple }}>View all <NavArrowRight width={10} height={10} /></p>
-      )}
-    </Tag>
+      <span className="text-3xl md:text-4xl font-bold" style={{ color: countColor, fontFamily: FONTS.mono }}>{count}</span>
+    </div>
+  )
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const styles: Record<string, { bg: string; text: string }> = {
+    analyzed: { bg: "#e8f5e9", text: "#2e7d32" },
+    pending: { bg: "#fef9ec", text: BRAND.gold },
+    approved: { bg: "#e3f2fd", text: "#1565c0" },
+    denied: { bg: "#fef2f2", text: "#dc2626" },
+  }
+  const s = styles[status] || { bg: BRAND.lightPurpleGrey, text: BRAND.purple }
+  const labelMap: Record<string, string> = {
+    analyzed: "Ready For Review",
+    pending: "In Progress",
+    approved: "Approved",
+    denied: "Denied",
+  }
+  return (
+    <span className="inline-block text-xs font-semibold px-2.5 py-1 rounded-md" style={{ backgroundColor: s.bg, color: s.text, fontFamily: FONTS.heading }}>
+      {labelMap[status] || status.charAt(0).toUpperCase() + status.slice(1)}
+    </span>
+  )
+}
+
+function FilterSelect({ label, value, onChange, options }: {
+  label: string; value: string; onChange: (v: string) => void; options: { value: string; label: string }[]
+}) {
+  return (
+    <div className="flex items-center gap-1.5 border rounded-lg px-3 py-1.5" style={{ borderColor: BRAND.greyLavender, backgroundColor: BRAND.white }}>
+      <span className="text-xs font-semibold" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>{label}</span>
+      <select
+        className="text-xs outline-none bg-transparent cursor-pointer"
+        style={{ color: BRAND.purple, fontFamily: FONTS.body }}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      >
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>{o.label}</option>
+        ))}
+      </select>
+    </div>
+  )
+}
+
+function SortableTh({ label, sortKey, currentKey, dir, onSort }: {
+  label: string; sortKey: SortKey; currentKey: SortKey; dir: SortDir; onSort: (k: SortKey) => void
+}) {
+  const isActive = sortKey === currentKey
+  return (
+    <th
+      className="px-4 py-3 text-xs font-semibold uppercase tracking-wider cursor-pointer select-none hover:bg-black/[0.02] transition-colors whitespace-nowrap"
+      style={{ color: isActive ? BRAND.deepPurple : BRAND.purpleSecondary, fontFamily: FONTS.heading }}
+      onClick={() => onSort(sortKey)}
+    >
+      <span className="inline-flex items-center gap-1">
+        {label}
+        {isActive ? (
+          dir === "asc" ? <SortUp width={12} height={12} /> : <SortDown width={12} height={12} />
+        ) : (
+          <span className="w-3" />
+        )}
+      </span>
+    </th>
+  )
+}
+
+function PagButton({ children, onClick, disabled }: { children: React.ReactNode; onClick: () => void; disabled: boolean }) {
+  return (
+    <button
+      className="w-8 h-8 flex items-center justify-center rounded-md border text-xs font-medium transition-colors disabled:opacity-40"
+      style={{ borderColor: BRAND.greyLavender, color: BRAND.deepPurple, backgroundColor: BRAND.white }}
+      onClick={onClick}
+      disabled={disabled}
+    >
+      {children}
+    </button>
   )
 }

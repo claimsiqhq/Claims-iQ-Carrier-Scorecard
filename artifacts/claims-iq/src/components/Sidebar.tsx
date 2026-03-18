@@ -9,6 +9,7 @@ import {
   LogOut,
   NavArrowLeft,
   NavArrowRight,
+  MoreHoriz,
 } from "iconoir-react"
 import { BRAND, FONTS } from "@/lib/brand"
 import { useLocation } from "wouter"
@@ -56,26 +57,6 @@ export function Sidebar({ claims, selectedClaimId, onSelectClaim }: SidebarProps
         <SidebarItem icon={<PageEdit width={20} height={20} />} label="Claims" active={location.startsWith("/claims")} onClick={() => setLocation("/claims")} />
         <SidebarItem icon={<ClipboardCheck width={20} height={20} />} label="Audit Results" active={location === "/audit-results"} onClick={() => setLocation("/audit-results")} />
         <SidebarItem icon={<SettingsIcon width={20} height={20} />} label="Settings" active={location === "/settings"} onClick={() => setLocation("/settings")} />
-        {claims && claims.length > 0 && (
-          <div className="pt-4">
-            <p className="text-xs uppercase tracking-wider px-3 mb-2" style={{ color: "rgba(255,255,255,0.3)", fontFamily: FONTS.heading }}>
-              Recent Claims
-            </p>
-            {claims.slice(0, 5).map((c) => (
-              <button
-                key={c.id}
-                className="w-full text-left flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors"
-                style={{
-                  backgroundColor: selectedClaimId === c.id ? "rgba(119, 99, 183, 0.15)" : "transparent",
-                  color: selectedClaimId === c.id ? BRAND.purpleLight : "rgba(255,255,255,0.5)",
-                }}
-                onClick={() => onSelectClaim?.(c.id)}
-              >
-                <span className="text-xs truncate" style={{ fontFamily: FONTS.mono }}>{c.claimNumber}</span>
-              </button>
-            ))}
-          </div>
-        )}
       </>
     )
 
@@ -83,43 +64,43 @@ export function Sidebar({ claims, selectedClaimId, onSelectClaim }: SidebarProps
       <>
         <div
           className="fixed top-0 left-0 right-0 z-40 h-14 flex items-center px-4 gap-3"
-          style={{ backgroundColor: BRAND.deepPurple, paddingTop: "env(safe-area-inset-top)" }}
+          style={{ backgroundColor: BRAND.white, borderBottom: `1px solid ${BRAND.greyLavender}`, paddingTop: "env(safe-area-inset-top)" }}
         >
           <button
             onClick={() => setOpen(!open)}
             className="p-2 -ml-2 rounded-lg transition-colors"
-            style={{ color: "#FFFFFF" }}
+            style={{ color: BRAND.deepPurple }}
             aria-label="Toggle navigation menu"
           >
             {open ? <Xmark width={24} height={24} /> : <Menu width={24} height={24} />}
           </button>
           <img src={`${import.meta.env.BASE_URL}images/claims-iq-logo.png`} alt="Claims iQ" className="h-7 w-7" />
-          <span className="text-white text-base tracking-tight" style={{ fontFamily: FONTS.heading, fontWeight: 700 }}>
-            Claims iQ
+          <span className="text-base tracking-tight" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading, fontWeight: 700 }}>
+            Claims<span style={{ color: BRAND.purple }}>iQ</span>
           </span>
         </div>
 
         {open && (
           <div className="fixed inset-0 z-30" onClick={() => setOpen(false)}>
-            <div className="absolute inset-0 bg-black/40" />
+            <div className="absolute inset-0 bg-black/20" />
             <div
-              className="absolute top-14 left-0 bottom-0 w-64 overflow-y-auto"
-              style={{ backgroundColor: BRAND.deepPurple, paddingTop: "env(safe-area-inset-top)" }}
+              className="absolute top-14 left-0 bottom-0 w-64 overflow-y-auto shadow-xl"
+              style={{ backgroundColor: BRAND.white, paddingTop: "env(safe-area-inset-top)" }}
               onClick={(e) => e.stopPropagation()}
             >
               <nav className="py-4 px-3 space-y-1">
                 {nav}
               </nav>
-              <div className="p-4" style={{ borderTop: "1px solid rgba(255,255,255,0.1)" }}>
+              <div className="p-4" style={{ borderTop: `1px solid ${BRAND.greyLavender}` }}>
                 <div className="flex items-center gap-3">
                   <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold text-white" style={{ backgroundColor: BRAND.purple }}>
                     {user?.firstName?.[0] ?? "U"}
                   </div>
                   <div className="flex-1 overflow-hidden">
-                    <p className="text-sm font-semibold text-white truncate" style={{ fontFamily: FONTS.heading }}>{user?.firstName ?? "User"}</p>
+                    <p className="text-sm font-semibold truncate" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>{user?.firstName ?? "User"}</p>
                     <p className="text-xs truncate" style={{ color: BRAND.purpleSecondary }}>{user?.email ?? ""}</p>
                   </div>
-                  <button onClick={logout} className="p-1.5 rounded-lg transition-colors" style={{ color: "rgba(255,255,255,0.4)" }} aria-label="Sign out">
+                  <button onClick={logout} className="p-1.5 rounded-lg transition-colors" style={{ color: BRAND.purpleSecondary }} aria-label="Sign out">
                     <LogOut width={18} height={18} />
                   </button>
                 </div>
@@ -135,17 +116,18 @@ export function Sidebar({ claims, selectedClaimId, onSelectClaim }: SidebarProps
     <aside
       className="flex flex-col shrink-0 overflow-hidden"
       style={{
-        backgroundColor: BRAND.deepPurple,
-        width: collapsed ? 64 : 256,
+        backgroundColor: BRAND.white,
+        width: collapsed ? 64 : 240,
         transition: "width 200ms ease",
+        borderRight: `1px solid ${BRAND.greyLavender}`,
       }}
     >
       <div
         className="h-16 flex items-center shrink-0"
         style={{
-          borderBottom: "1px solid rgba(255,255,255,0.1)",
+          borderBottom: `1px solid ${BRAND.greyLavender}`,
           padding: collapsed ? "0 0 0 16px" : "0 20px",
-          gap: collapsed ? 0 : 12,
+          gap: collapsed ? 0 : 10,
         }}
       >
         <img
@@ -156,43 +138,22 @@ export function Sidebar({ claims, selectedClaimId, onSelectClaim }: SidebarProps
           title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         />
         {!collapsed && (
-          <span className="text-white text-lg tracking-tight whitespace-nowrap" style={{ fontFamily: FONTS.heading, fontWeight: 700 }}>
-            Claims iQ
+          <span className="text-lg tracking-tight whitespace-nowrap" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading, fontWeight: 700 }}>
+            Claims<span style={{ color: BRAND.purple }}>iQ</span>
           </span>
         )}
       </div>
 
-      <nav className="flex-1 py-4 overflow-y-auto overflow-x-hidden" style={{ padding: collapsed ? "16px 8px" : "24px 12px" }}>
+      <nav className="flex-1 overflow-y-auto overflow-x-hidden" style={{ padding: collapsed ? "16px 8px" : "16px 12px" }}>
         <div className="space-y-1">
           <SidebarItem icon={<DashboardDots width={20} height={20} />} label="Dashboard" active={location === "/"} onClick={() => setLocation("/")} collapsed={collapsed} />
           <SidebarItem icon={<PageEdit width={20} height={20} />} label="Claims" active={location.startsWith("/claims")} onClick={() => setLocation("/claims")} collapsed={collapsed} />
           <SidebarItem icon={<ClipboardCheck width={20} height={20} />} label="Audit Results" active={location === "/audit-results"} onClick={() => setLocation("/audit-results")} collapsed={collapsed} />
           <SidebarItem icon={<SettingsIcon width={20} height={20} />} label="Settings" active={location === "/settings"} onClick={() => setLocation("/settings")} collapsed={collapsed} />
         </div>
-
-        {!collapsed && claims && claims.length > 0 && (
-          <div className="pt-4">
-            <p className="text-xs uppercase tracking-wider px-3 mb-2" style={{ color: "rgba(255,255,255,0.3)", fontFamily: FONTS.heading }}>
-              Recent Claims
-            </p>
-            {claims.slice(0, 5).map((c) => (
-              <button
-                key={c.id}
-                className="w-full text-left flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors"
-                style={{
-                  backgroundColor: selectedClaimId === c.id ? "rgba(119, 99, 183, 0.15)" : "transparent",
-                  color: selectedClaimId === c.id ? BRAND.purpleLight : "rgba(255,255,255,0.5)",
-                }}
-                onClick={() => onSelectClaim?.(c.id)}
-              >
-                <span className="text-xs truncate" style={{ fontFamily: FONTS.mono }}>{c.claimNumber}</span>
-              </button>
-            ))}
-          </div>
-        )}
       </nav>
 
-      <div style={{ borderTop: "1px solid rgba(255,255,255,0.1)" }}>
+      <div style={{ borderTop: `1px solid ${BRAND.greyLavender}` }}>
         {collapsed ? (
           <div className="flex flex-col items-center gap-2 py-3">
             <div
@@ -205,17 +166,17 @@ export function Sidebar({ claims, selectedClaimId, onSelectClaim }: SidebarProps
             </div>
           </div>
         ) : (
-          <div className="p-4">
+          <div className="p-3">
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold text-white shrink-0" style={{ backgroundColor: BRAND.purple }}>
+              <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-semibold text-white shrink-0" style={{ backgroundColor: BRAND.purple }}>
                 {user?.firstName?.[0] ?? "U"}
               </div>
               <div className="flex-1 overflow-hidden">
-                <p className="text-sm font-semibold text-white truncate" style={{ fontFamily: FONTS.heading }}>{user?.firstName ?? "User"}</p>
+                <p className="text-sm font-semibold truncate" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>{user?.firstName ?? "User"}</p>
                 <p className="text-xs truncate" style={{ color: BRAND.purpleSecondary }}>{user?.email ?? ""}</p>
               </div>
-              <button onClick={logout} className="p-1.5 rounded-lg transition-colors" style={{ color: "rgba(255,255,255,0.4)" }} aria-label="Sign out">
-                <LogOut width={18} height={18} />
+              <button onClick={logout} className="p-1.5 rounded-lg transition-colors hover:bg-black/5" style={{ color: BRAND.purpleSecondary }} aria-label="Sign out" title="Sign out">
+                <MoreHoriz width={18} height={18} />
               </button>
             </div>
           </div>
@@ -223,8 +184,8 @@ export function Sidebar({ claims, selectedClaimId, onSelectClaim }: SidebarProps
 
         <button
           onClick={toggleCollapsed}
-          className="w-full flex items-center justify-center py-2 transition-colors hover:bg-white/5"
-          style={{ color: "rgba(255,255,255,0.4)", borderTop: "1px solid rgba(255,255,255,0.05)" }}
+          className="w-full flex items-center justify-center py-2.5 transition-colors hover:bg-black/[0.03]"
+          style={{ color: BRAND.purpleSecondary, borderTop: `1px solid ${BRAND.greyLavender}` }}
           aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
@@ -238,20 +199,20 @@ export function Sidebar({ claims, selectedClaimId, onSelectClaim }: SidebarProps
 function SidebarItem({ icon, label, active = false, onClick, collapsed = false }: { icon: React.ReactNode; label: string; active?: boolean; onClick?: () => void; collapsed?: boolean }) {
   return (
     <div
-      className="flex items-center rounded-lg cursor-pointer transition-colors active:opacity-80"
+      className="flex items-center rounded-lg cursor-pointer transition-all active:opacity-80"
       style={{
-        backgroundColor: active ? "rgba(119, 99, 183, 0.15)" : "transparent",
-        color: active ? BRAND.purpleLight : "rgba(255,255,255,0.5)",
+        backgroundColor: active ? BRAND.lightPurpleGrey : "transparent",
         padding: collapsed ? "10px 0" : "10px 12px",
         gap: collapsed ? 0 : 12,
         justifyContent: collapsed ? "center" : "flex-start",
+        borderLeft: active && !collapsed ? `3px solid ${BRAND.purple}` : active && collapsed ? "none" : "3px solid transparent",
       }}
       onClick={onClick}
       title={collapsed ? label : undefined}
     >
-      <div className="shrink-0" style={{ color: active ? BRAND.purpleLight : "rgba(255,255,255,0.4)" }}>{icon}</div>
+      <div className="shrink-0" style={{ color: active ? BRAND.purple : BRAND.purpleSecondary }}>{icon}</div>
       {!collapsed && (
-        <span className="text-sm whitespace-nowrap overflow-hidden" style={{ fontFamily: FONTS.body, fontWeight: active ? 600 : 400 }}>{label}</span>
+        <span className="text-sm whitespace-nowrap overflow-hidden" style={{ color: active ? BRAND.deepPurple : BRAND.purpleSecondary, fontFamily: FONTS.body, fontWeight: active ? 600 : 400 }}>{label}</span>
       )}
     </div>
   )
