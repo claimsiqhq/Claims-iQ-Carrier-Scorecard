@@ -72,6 +72,30 @@ export function normalizeAuditResponse(data: any): void {
   if (converted > 0) {
     logger.warn({ convertedCount: converted }, "Normalized section_scores from objects to numbers");
   }
+
+  const arrayFields = [
+    "critical_failures", "key_defects", "presentation_issues",
+    "carrier_questions", "deferred_items", "invoice_adjustments",
+    "scope_deviations", "unknowns",
+  ] as const;
+  for (const field of arrayFields) {
+    if (Array.isArray(data[field])) {
+      data[field] = data[field].map((entry: unknown) => {
+        if (typeof entry === "string") return entry;
+        if (entry && typeof entry === "object") {
+          const obj = entry as Record<string, unknown>;
+          const parts: string[] = [];
+          if (typeof obj.item === "string") parts.push(obj.item);
+          else if (typeof obj.title === "string") parts.push(obj.title);
+          if (typeof obj.reason === "string") parts.push(obj.reason);
+          if (typeof obj.next_step === "string") parts.push(`Next: ${obj.next_step}`);
+          if (typeof obj.description === "string" && !parts.includes(obj.description)) parts.push(obj.description);
+          return parts.length > 0 ? parts.join(" — ") : String(entry);
+        }
+        return String(entry);
+      });
+    }
+  }
 }
 
 export function validateAuditResult(data: any): data is AuditResponse {
