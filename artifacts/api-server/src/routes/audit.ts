@@ -19,6 +19,23 @@ import logger from "../lib/logger";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+function extractFindingText(item: unknown): { title: string; description: string } {
+  if (typeof item === "string") return { title: item, description: item };
+  if (item && typeof item === "object") {
+    const obj = item as Record<string, unknown>;
+    const parts: string[] = [];
+    if (typeof obj.item === "string") parts.push(obj.item);
+    else if (typeof obj.title === "string") parts.push(obj.title);
+    if (typeof obj.reason === "string") parts.push(obj.reason);
+    if (typeof obj.next_step === "string") parts.push(`Next: ${obj.next_step}`);
+    if (typeof obj.description === "string" && !parts.includes(obj.description as string)) parts.push(obj.description as string);
+    const text = parts.length > 0 ? parts.join(" — ") : JSON.stringify(item);
+    const title = (typeof obj.title === "string" ? obj.title : typeof obj.item === "string" ? obj.item : text).substring(0, 200);
+    return { title, description: text };
+  }
+  return { title: String(item), description: String(item) };
+}
+
 const auditLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
@@ -144,8 +161,7 @@ router.post("/claims/:id/audit", requireAuth, auditLimiter, async (req, res) => 
 
       for (const group of findingGroups) {
         for (const item of group.items) {
-          const title = typeof item === "string" ? item : (item as any)?.title ?? String(item);
-          const description = typeof item === "string" ? item : (item as any)?.description ?? String(item);
+          const { title, description } = extractFindingText(item);
           allFindings.push({ type: group.type, severity: group.severity, title: title.substring(0, 200), description });
         }
       }
@@ -157,8 +173,7 @@ router.post("/claims/:id/audit", requireAuth, auditLimiter, async (req, res) => 
       ];
 
       for (const rf of riskItems) {
-        const title = typeof rf.item === "string" ? rf.item : (rf.item as any)?.title ?? String(rf.item);
-        const description = typeof rf.item === "string" ? rf.item : (rf.item as any)?.description ?? String(rf.item);
+        const { title, description } = extractFindingText(rf.item);
         allFindings.push({ type: rf.type, severity: rf.severity, title: title.substring(0, 200), description });
       }
 
