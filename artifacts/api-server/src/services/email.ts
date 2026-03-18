@@ -1,4 +1,6 @@
 import type { AuditResponse } from "./audit";
+import type { CarrierScorecardAuditResult } from "./carrierScorecardAudit";
+import { sendEmail } from "./sendgrid";
 import logger from "../lib/logger";
 
 interface EmailData {
@@ -152,4 +154,102 @@ export function renderAuditEmail(data: EmailData): string {
   </div>
 </body>
 </html>`;
+}
+
+interface CarrierScorecardEmailData {
+  audit: CarrierScorecardAuditResult;
+}
+
+function renderCarrierCategoryRows(audit: CarrierScorecardAuditResult): string {
+  return audit.categories.map((category) => {
+    return `<tr>
+      <td style="padding:10px;border-bottom:1px solid #e5e7eb;font-size:13px;color:#374151;">${escapeHtml(category.label)}</td>
+      <td style="padding:10px;border-bottom:1px solid #e5e7eb;text-align:center;font-size:13px;color:#111827;font-weight:600;">${category.score}/${category.max_score}</td>
+      <td style="padding:10px;border-bottom:1px solid #e5e7eb;font-size:12px;color:#6b7280;">${escapeHtml(category.finding)}</td>
+    </tr>`;
+  }).join("");
+}
+
+function renderCarrierIssues(audit: CarrierScorecardAuditResult): string {
+  if (audit.issues.length === 0) {
+    return `<p style="font-size:13px;color:#6b7280;margin:0;">No issues reported.</p>`;
+  }
+  return `<ul style="margin:0;padding-left:18px;">
+    ${audit.issues.map((issue) => `<li style="font-size:13px;color:#374151;margin-bottom:6px;">
+      <strong>${escapeHtml(issue.severity.toUpperCase())}</strong>: ${escapeHtml(issue.title)} - ${escapeHtml(issue.description)}
+    </li>`).join("")}
+  </ul>`;
+}
+
+export function renderCarrierScorecardEmail(data: CarrierScorecardEmailData): string {
+  const { audit } = data;
+
+  return `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background-color:#f3f4f6;font-family:Arial,Helvetica,sans-serif;">
+  <div style="max-width:680px;margin:0 auto;background-color:#ffffff;">
+    <div style="padding:20px 24px;background-color:#342A4F;">
+      <h1 style="margin:0;color:#ffffff;font-size:22px;line-height:1.3;">Carrier Scorecard Audit</h1>
+      <p style="margin:8px 0 0 0;color:#d1c8ee;font-size:13px;">Version ${escapeHtml(audit.version)}</p>
+    </div>
+    <div style="padding:20px 24px;">
+      <table style="width:100%;border-collapse:collapse;margin-bottom:18px;">
+        <tr>
+          <td style="padding:10px;border:1px solid #e5e7eb;text-align:center;">
+            <div style="font-size:24px;font-weight:700;color:#111827;">${audit.overall.total_score}/${audit.overall.max_score}</div>
+            <div style="font-size:11px;color:#6b7280;text-transform:uppercase;">Total Score</div>
+          </td>
+          <td style="padding:10px;border:1px solid #e5e7eb;text-align:center;">
+            <div style="font-size:24px;font-weight:700;color:#111827;">${audit.overall.percent}%</div>
+            <div style="font-size:11px;color:#6b7280;text-transform:uppercase;">Percent</div>
+          </td>
+          <td style="padding:10px;border:1px solid #e5e7eb;text-align:center;">
+            <div style="font-size:24px;font-weight:700;color:#111827;">${escapeHtml(audit.overall.grade)}</div>
+            <div style="font-size:11px;color:#6b7280;text-transform:uppercase;">Grade</div>
+          </td>
+        </tr>
+      </table>
+
+      <div style="margin-bottom:20px;">
+        <h3 style="margin:0 0 8px 0;font-size:15px;color:#111827;">Summary</h3>
+        <p style="margin:0;font-size:14px;color:#374151;line-height:1.6;">${escapeHtml(audit.overall.summary)}</p>
+      </div>
+
+      <div style="margin-bottom:20px;overflow-x:auto;">
+        <h3 style="margin:0 0 8px 0;font-size:15px;color:#111827;">Category Scores</h3>
+        <table style="width:100%;border-collapse:collapse;min-width:520px;">
+          <thead>
+            <tr style="background-color:#f9fafb;">
+              <th style="padding:10px;text-align:left;border-bottom:1px solid #e5e7eb;font-size:12px;text-transform:uppercase;color:#6b7280;">Category</th>
+              <th style="padding:10px;text-align:center;border-bottom:1px solid #e5e7eb;font-size:12px;text-transform:uppercase;color:#6b7280;">Score</th>
+              <th style="padding:10px;text-align:left;border-bottom:1px solid #e5e7eb;font-size:12px;text-transform:uppercase;color:#6b7280;">Finding</th>
+            </tr>
+          </thead>
+          <tbody>${renderCarrierCategoryRows(audit)}</tbody>
+        </table>
+      </div>
+
+      <div style="margin-bottom:12px;">
+        <h3 style="margin:0 0 8px 0;font-size:15px;color:#111827;">Issues</h3>
+        ${renderCarrierIssues(audit)}
+      </div>
+    </div>
+  </div>
+</body>
+</html>`;
+}
+
+export async function sendCarrierScorecardEmail(input: {
+  to: string;
+  subject: string;
+  audit: CarrierScorecardAuditResult;
+}): Promise<void> {
+  const html = renderCarrierScorecardEmail({ audit: input.audit });
+  await sendEmail({
+    to: input.to,
+    subject: input.subject,
+    html,
+  });
+  logger.info({ sendgrid: "success" }, "Carrier scorecard email sent");
 }

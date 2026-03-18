@@ -1,6 +1,7 @@
 import app from "./app";
 import { pool } from "@workspace/db";
 import logger from "./lib/logger";
+import { env } from "./env";
 
 const rawPort = process.env["PORT"];
 
@@ -23,6 +24,7 @@ const requiredEnvVars = [
 
 const optionalButWarnEnvVars = [
   { key: "SENDGRID_API_KEY", feature: "email sending" },
+  { key: "SENDGRID_INBOUND_PARSE_TOKEN", feature: "SendGrid inbound parse webhook" },
 ];
 
 for (const key of requiredEnvVars) {
@@ -36,6 +38,8 @@ for (const { key, feature } of optionalButWarnEnvVars) {
     logger.warn(`${key} is not set — ${feature} will not work.`);
   }
 }
+
+logger.info({ carrierAuditModel: env.OPENAI_CARRIER_AUDIT_MODEL }, "Carrier audit model configured");
 
 const server = app.listen(port, () => {
   logger.info({ port }, `Server listening on port ${port}`);

@@ -8,6 +8,7 @@ import { auditLog } from "./middlewares/auditLog";
 import { requestMetrics } from "./middlewares/requestMetrics";
 import logger from "./lib/logger";
 import router from "./routes";
+import emailInboundRouter from "./routes/emailInbound";
 
 const app: Express = express();
 
@@ -42,6 +43,7 @@ app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 app.use(authMiddleware);
 app.use(requestMetrics);
 app.use(auditLog);
+app.use(emailInboundRouter);
 
 app.use((req: Request, res: Response, next: NextFunction) => {
   if (["POST", "PUT", "DELETE"].includes(req.method) && !req.path.includes("/auth/login") && !req.path.includes("/auth/logout")) {
