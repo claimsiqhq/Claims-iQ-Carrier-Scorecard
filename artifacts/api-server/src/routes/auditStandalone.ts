@@ -1,7 +1,6 @@
 import { Router, type IRouter, type Request } from "express";
 import multer from "multer";
 import { randomUUID } from "crypto";
-import { createRequire } from "module";
 import { requireAuth } from "../middlewares/requireAuth";
 import logger from "../lib/logger";
 import {
@@ -9,9 +8,7 @@ import {
   runCarrierScorecardAudit,
 } from "../services/carrierScorecardAudit";
 import { sendCarrierScorecardEmail } from "../services/email";
-
-const require = createRequire(import.meta.url);
-const pdfParse = require("pdf-parse") as (buffer: Buffer) => Promise<{ text: string }>;
+import { extractAndPersistFinalReport } from "../services/finalReportIngestion";
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -25,32 +22,21 @@ function getRequestId(req: Request): string {
   return typeof header === "string" && header.trim().length > 0 ? header : randomUUID();
 }
 
-async function extractStandaloneReportText(req: Request): Promise<string> {
-  const bodyText = typeof req.body?.reportText === "string" ? req.body.reportText.trim() : "";
-  if (bodyText.length > 0) return bodyText;
-
-  const file = req.file;
-  if (!file) return "";
-
-  if (file.mimetype === "application/pdf" || file.originalname.toLowerCase().endsWith(".pdf")) {
-    try {
-      const parsed = await pdfParse(file.buffer);
-      return parsed.text?.trim() ?? "";
-    } catch {
-      return "";
-    }
-  }
-
-  return file.buffer.toString("utf-8").trim();
-}
-
 const router: IRouter = Router();
 
 router.post("/audit/standalone", requireAuth, upload.single("file"), async (req, res) => {
   const requestId = getRequestId(req);
 
   try {
-    const reportText = await extractStandaloneReportText(req);
+    const persisted = await extractAndPersistFinalReport({
+      source: "standalone_ui",
+      requestId,
+      uploaderUserId: req.user?.id,
+      file: req.file ?? undefined,
+      reportText: typeof req.body?.reportText === "string" ? req.body.reportText : undefined,
+    });
+
+    const reportText = persisted.reportText;
     if (!reportText) {
       res.status(400).json({ error: "Provide reportText or upload one PDF file." });
       return;

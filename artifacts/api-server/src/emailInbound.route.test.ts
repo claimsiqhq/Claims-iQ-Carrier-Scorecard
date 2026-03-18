@@ -43,6 +43,9 @@ test("inbound email route returns 200 immediately and schedules processing", asy
 
   const app = express();
   app.use(createEmailInboundRouter({
+    extractReport: async () => ({
+      reportText: "Final report body text for standalone processing.",
+    }),
     runAudit: async () => {
       runCalled = true;
       await new Promise((resolve) => setTimeout(resolve, 10));

@@ -1,13 +1,10 @@
 import { Router, type IRouter, type Request } from "express";
 import multer from "multer";
 import { randomUUID } from "crypto";
-import { createRequire } from "module";
 import logger from "../lib/logger";
 import { runCarrierScorecardAudit, type CarrierScorecardAuditResult } from "../services/carrierScorecardAudit";
 import { sendCarrierScorecardEmail } from "../services/email";
-
-const require = createRequire(import.meta.url);
-const pdfParse = require("pdf-parse") as (buffer: Buffer) => Promise<{ text: string }>;
+import { extractAndPersistFinalReport } from "../services/finalReportIngestion";
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -38,33 +35,22 @@ function maskEmail(email: string): string {
   return `${prefix}***@${domain}`;
 }
 
-async function extractInboundReportText(req: Request): Promise<string> {
-  const files = (req.files as Express.Multer.File[] | undefined) ?? [];
-  const pdf = files.find((f) => {
-    const mime = (f.mimetype || "").toLowerCase();
-    return mime === "application/pdf" || f.originalname.toLowerCase().endsWith(".pdf");
-  });
-
-  if (pdf) {
-    const parsed = await pdfParse(pdf.buffer);
-    return parsed.text?.trim() ?? "";
-  }
-
-  const bodyText = typeof req.body?.text === "string" ? req.body.text.trim() : "";
-  if (bodyText.length > 0) return bodyText;
-
-  const html = typeof req.body?.html === "string" ? req.body.html : "";
-  return html ? stripHtml(html) : "";
-}
-
 interface InboundRouteDeps {
   runAudit: (input: { reportText: string; requestId: string }) => Promise<CarrierScorecardAuditResult>;
   sendAuditEmail: (input: { to: string; subject: string; audit: CarrierScorecardAuditResult }) => Promise<void>;
+  extractReport: (input: {
+    source: "sendgrid_inbound";
+    requestId: string;
+    senderEmail?: string;
+    file?: Express.Multer.File;
+    reportText?: string;
+  }) => Promise<{ reportText: string }>;
 }
 
 const defaultDeps: InboundRouteDeps = {
   runAudit: runCarrierScorecardAudit,
   sendAuditEmail: sendCarrierScorecardEmail,
+  extractReport: extractAndPersistFinalReport,
 };
 
 export function createEmailInboundRouter(deps: InboundRouteDeps = defaultDeps): IRouter {
@@ -100,7 +86,24 @@ export function createEmailInboundRouter(deps: InboundRouteDeps = defaultDeps): 
           return;
         }
 
-        const reportText = await extractInboundReportText(req);
+        const files = (req.files as Express.Multer.File[] | undefined) ?? [];
+        const pdf = files.find((f) => {
+          const mime = (f.mimetype || "").toLowerCase();
+          return mime === "application/pdf" || f.originalname.toLowerCase().endsWith(".pdf");
+        });
+
+        const bodyText = typeof req.body?.text === "string" ? req.body.text.trim() : "";
+        const html = typeof req.body?.html === "string" ? req.body.html : "";
+        const fallbackText = bodyText.length > 0 ? bodyText : (html ? stripHtml(html) : "");
+
+        const extracted = await deps.extractReport({
+          source: "sendgrid_inbound",
+          requestId,
+          senderEmail: sender,
+          file: pdf,
+          reportText: fallbackText,
+        });
+        const reportText = extracted.reportText;
         if (!reportText) {
           logger.error({
             requestId,
