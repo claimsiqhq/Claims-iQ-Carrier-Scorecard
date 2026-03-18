@@ -8,11 +8,13 @@ import emailRouter from "./email";
 import storageRouter from "./storage";
 import documentsRouter from "./documents";
 import ingestRouter from "./ingest";
+import dashboardRouter from "./dashboard";
 
 const router: IRouter = Router();
 
 router.use(healthRouter);
 router.use(authRouter);
+router.use(dashboardRouter);
 router.use(claimsRouter);
 router.use(auditRouter);
 router.use(settingsRouter);
