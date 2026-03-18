@@ -44,14 +44,16 @@ app.use(requestMetrics);
 app.use(auditLog);
 
 app.use((req: Request, res: Response, next: NextFunction) => {
-  if (["POST", "PUT", "DELETE"].includes(req.method) && !req.path.includes("/auth") && !req.path.includes("/login") && !req.path.includes("/callback") && !req.path.includes("/logout")) {
+  if (["POST", "PUT", "DELETE"].includes(req.method) && !req.path.includes("/auth") && !req.path.includes("/login") && !req.path.includes("/callback") && !req.path.includes("/logout") && !req.path.includes("/mobile-auth")) {
     const origin = req.headers.origin;
     const referer = req.headers.referer;
     if (origin || referer) {
       const host = req.headers.host;
       const requestOrigin = origin || (referer ? new URL(referer).origin : "");
       if (host && requestOrigin && !requestOrigin.includes(host.split(":")[0])) {
-        logger.warn({ origin: requestOrigin, host }, "CSRF: Origin mismatch");
+        logger.warn({ origin: requestOrigin, host }, "CSRF: Origin mismatch — blocked");
+        res.status(403).json({ error: "Forbidden: origin mismatch" });
+        return;
       }
     }
   }

@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import { pool } from "@workspace/db";
 import { getMetrics } from "../middlewares/requestMetrics";
+import { requireAuth } from "../middlewares/requireAuth";
 
 const router: IRouter = Router();
 
@@ -23,7 +24,7 @@ router.get("/healthz", async (_req, res) => {
   res.status(allOk ? 200 : 503).json({ status: allOk ? "ok" : "degraded", checks });
 });
 
-router.get("/metrics", async (_req, res) => {
+router.get("/metrics", requireAuth, async (_req, res) => {
   res.json(getMetrics());
 });
 
