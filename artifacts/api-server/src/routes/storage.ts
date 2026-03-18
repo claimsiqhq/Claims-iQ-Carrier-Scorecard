@@ -10,6 +10,8 @@ import { requireAuth } from "../middlewares/requireAuth";
 import logger from "../lib/logger";
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024;
+const wildcardParam = (value: string | string[] | undefined): string =>
+  Array.isArray(value) ? value.join("/") : (value ?? "");
 
 const router: IRouter = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_FILE_SIZE } });
@@ -51,7 +53,7 @@ router.post("/storage/upload", requireAuth, upload.single("file"), async (req: R
 
 router.get("/storage/download/*storagePath", requireAuth, async (req: Request, res: Response) => {
   try {
-    const storagePath = req.params.storagePath;
+    const storagePath = wildcardParam(req.params.storagePath);
     if (!storagePath) {
       res.status(400).json({ error: "Path is required" });
       return;
@@ -72,7 +74,7 @@ router.get("/storage/download/*storagePath", requireAuth, async (req: Request, r
 
 router.get("/storage/signed-url/*storagePath", requireAuth, async (req: Request, res: Response) => {
   try {
-    const storagePath = req.params.storagePath;
+    const storagePath = wildcardParam(req.params.storagePath);
     if (!storagePath) {
       res.status(400).json({ error: "Path is required" });
       return;

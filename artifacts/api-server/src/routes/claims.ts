@@ -10,6 +10,8 @@ import { requireAuth } from "../middlewares/requireAuth";
 import logger from "../lib/logger";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const firstParam = (value: string | string[] | undefined): string =>
+  Array.isArray(value) ? (value[0] ?? "") : (value ?? "");
 
 function mapClaim(c: any) {
   return {
@@ -72,7 +74,7 @@ router.get("/claims", requireAuth, async (req, res) => {
 
 router.get("/claims/:id", requireAuth, async (req, res) => {
   try {
-    const { id } = req.params;
+    const id = firstParam(req.params.id);
 
     if (!UUID_RE.test(id)) {
       res.status(400).json({ error: "Invalid claim ID format" });
@@ -151,7 +153,7 @@ router.get("/claims/:id", requireAuth, async (req, res) => {
 
 router.delete("/claims/:id", requireAuth, async (req, res) => {
   try {
-    const { id } = req.params;
+    const id = firstParam(req.params.id);
 
     if (!UUID_RE.test(id)) {
       res.status(400).json({ error: "Invalid claim ID format" });

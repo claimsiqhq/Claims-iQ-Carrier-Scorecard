@@ -13,10 +13,12 @@ import logger from "../lib/logger";
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_PDF_SIZE = 100 * 1024 * 1024;
 const router: IRouter = Router();
+const firstParam = (value: string | string[] | undefined): string =>
+  Array.isArray(value) ? (value[0] ?? "") : (value ?? "");
 
 router.post("/claims/:id/documents", requireAuth, async (req, res) => {
   try {
-    const { id } = req.params;
+    const id = firstParam(req.params.id);
     if (!UUID_RE.test(id)) {
       res.status(400).json({ error: "Invalid claim ID format" });
       return;
@@ -71,7 +73,8 @@ router.post("/claims/:id/documents", requireAuth, async (req, res) => {
 
 router.delete("/claims/:id/documents/:docId", requireAuth, async (req, res) => {
   try {
-    const { id, docId } = req.params;
+    const id = firstParam(req.params.id);
+    const docId = firstParam(req.params.docId);
     if (!UUID_RE.test(id) || !UUID_RE.test(docId)) {
       res.status(400).json({ error: "Invalid ID format" });
       return;
@@ -96,7 +99,8 @@ router.delete("/claims/:id/documents/:docId", requireAuth, async (req, res) => {
 
 router.post("/claims/:id/documents/:docId/extract", requireAuth, async (req, res) => {
   try {
-    const { id, docId } = req.params;
+    const id = firstParam(req.params.id);
+    const docId = firstParam(req.params.docId);
     if (!UUID_RE.test(id) || !UUID_RE.test(docId)) {
       res.status(400).json({ error: "Invalid ID format" });
       return;

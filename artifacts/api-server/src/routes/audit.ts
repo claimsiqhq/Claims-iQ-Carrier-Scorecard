@@ -28,10 +28,12 @@ const auditLimiter = rateLimit({
 });
 
 const router: IRouter = Router();
+const firstParam = (value: string | string[] | undefined): string =>
+  Array.isArray(value) ? (value[0] ?? "") : (value ?? "");
 
 router.post("/claims/:id/audit", requireAuth, auditLimiter, async (req, res) => {
   try {
-    const { id } = req.params;
+    const id = firstParam(req.params.id);
 
     if (!UUID_RE.test(id)) {
       res.status(400).json({ error: "Invalid claim ID format" });

@@ -224,8 +224,8 @@ export async function runFinalAudit(reportText: string): Promise<AuditResponse> 
   ss.fa_report_quality = ss.fa_report_quality ?? 0;
   ss.policy_provisions = ss.policy_provisions ?? 0;
 
-  const sr = parsed.section_reasoning && typeof parsed.section_reasoning === "object"
-    ? parsed.section_reasoning
+  const sr: Record<string, unknown> = parsed.section_reasoning && typeof parsed.section_reasoning === "object"
+    ? (parsed.section_reasoning as Record<string, unknown>)
     : {};
   parsed.section_reasoning = {
     coverage_clarity: typeof sr.coverage_clarity === "string" ? sr.coverage_clarity : "",

@@ -22,7 +22,7 @@ function getClient() {
   return createClient(url, key);
 }
 
-let _client: ReturnType<typeof createClient> | null = null;
+let _client: any = null;
 function supabase() {
   if (!_client) {
     _client = getClient();

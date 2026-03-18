@@ -190,6 +190,7 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
   }
 
   const { claim, documents: docs, audit } = data
+  const claimDetails = claim as unknown as Record<string, string | undefined>
   const overallScore = audit?.overallScore ?? 0
   const technicalScore = audit?.technicalScore ?? 0
   const presentationScore = audit?.presentationScore ?? 0
@@ -267,16 +268,16 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
                 <DetailItem label="Insured" value={claim.insuredName} />
                 <DetailItem label="Date of Loss" value={claim.dateOfLoss ?? "N/A"} />
                 <DetailItem label="Carrier" value={claim.carrier ?? "N/A"} />
-                {claim.policyNumber && <DetailItem label="Policy Number" value={claim.policyNumber} mono />}
-                {claim.lossType && <DetailItem label="Loss Type" value={claim.lossType} />}
-                {claim.propertyAddress && <DetailItem label="Property Address" value={claim.propertyAddress} />}
-                {claim.adjuster && <DetailItem label="Adjuster" value={claim.adjuster} />}
-                {claim.totalClaimAmount && <DetailItem label="Total Claim Amount" value={claim.totalClaimAmount} mono />}
-                {claim.deductible && <DetailItem label="Deductible" value={claim.deductible} mono />}
-                {claim.summary && (
+                {claimDetails.policyNumber && <DetailItem label="Policy Number" value={claimDetails.policyNumber} mono />}
+                {claimDetails.lossType && <DetailItem label="Loss Type" value={claimDetails.lossType} />}
+                {claimDetails.propertyAddress && <DetailItem label="Property Address" value={claimDetails.propertyAddress} />}
+                {claimDetails.adjuster && <DetailItem label="Adjuster" value={claimDetails.adjuster} />}
+                {claimDetails.totalClaimAmount && <DetailItem label="Total Claim Amount" value={claimDetails.totalClaimAmount} mono />}
+                {claimDetails.deductible && <DetailItem label="Deductible" value={claimDetails.deductible} mono />}
+                {claimDetails.summary && (
                   <div className="flex flex-col gap-1">
                     <span className="text-xs font-medium uppercase tracking-wider" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.body }}>Summary</span>
-                    <span className="text-xs leading-relaxed" style={{ color: BRAND.deepPurple, fontFamily: FONTS.body }}>{claim.summary}</span>
+                    <span className="text-xs leading-relaxed" style={{ color: BRAND.deepPurple, fontFamily: FONTS.body }}>{claimDetails.summary}</span>
                   </div>
                 )}
               </div>
@@ -442,16 +443,16 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
                   <DetailItem label="Insured" value={claim.insuredName} />
                   <DetailItem label="Date of Loss" value={claim.dateOfLoss ?? "N/A"} />
                   <DetailItem label="Carrier" value={claim.carrier ?? "N/A"} />
-                  {claim.policyNumber && <DetailItem label="Policy Number" value={claim.policyNumber} mono />}
-                  {claim.lossType && <DetailItem label="Loss Type" value={claim.lossType} />}
-                  {claim.propertyAddress && <DetailItem label="Property Address" value={claim.propertyAddress} />}
-                  {claim.adjuster && <DetailItem label="Adjuster" value={claim.adjuster} />}
-                  {claim.totalClaimAmount && <DetailItem label="Total Claim Amount" value={claim.totalClaimAmount} mono />}
-                  {claim.deductible && <DetailItem label="Deductible" value={claim.deductible} mono />}
-                  {claim.summary && (
+                  {claimDetails.policyNumber && <DetailItem label="Policy Number" value={claimDetails.policyNumber} mono />}
+                  {claimDetails.lossType && <DetailItem label="Loss Type" value={claimDetails.lossType} />}
+                  {claimDetails.propertyAddress && <DetailItem label="Property Address" value={claimDetails.propertyAddress} />}
+                  {claimDetails.adjuster && <DetailItem label="Adjuster" value={claimDetails.adjuster} />}
+                  {claimDetails.totalClaimAmount && <DetailItem label="Total Claim Amount" value={claimDetails.totalClaimAmount} mono />}
+                  {claimDetails.deductible && <DetailItem label="Deductible" value={claimDetails.deductible} mono />}
+                  {claimDetails.summary && (
                     <div className="flex flex-col gap-1">
                       <span className="text-xs font-medium uppercase tracking-wider" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.body }}>Summary</span>
-                      <span className="text-xs leading-relaxed" style={{ color: BRAND.deepPurple, fontFamily: FONTS.body }}>{claim.summary}</span>
+                      <span className="text-xs leading-relaxed" style={{ color: BRAND.deepPurple, fontFamily: FONTS.body }}>{claimDetails.summary}</span>
                     </div>
                   )}
                   {claimFile && (

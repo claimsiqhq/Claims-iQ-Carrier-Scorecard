@@ -70,9 +70,10 @@ async function renderPdfToPngPages(pdfBuffer: Buffer): Promise<RenderedPage[]> {
     const canvas = createCanvas(width, height);
     const context = canvas.getContext("2d");
 
-    await page.render({
-      canvasContext: context as unknown as CanvasRenderingContext2D,
+    await (page as any).render({
+      canvasContext: context,
       viewport,
+      canvas,
     }).promise;
 
     pages.push({

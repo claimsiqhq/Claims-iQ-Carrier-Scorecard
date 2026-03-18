@@ -11,6 +11,8 @@ import type { AuditResponse } from "../services/audit";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const firstParam = (value: string | string[] | undefined): string =>
+  Array.isArray(value) ? (value[0] ?? "") : (value ?? "");
 
 const emailSendLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
@@ -54,7 +56,7 @@ function getAuditHtml(claim: any, audit: any): string {
 
 router.get("/claims/:id/email", requireAuth, async (req, res) => {
   try {
-    const { id } = req.params;
+    const id = firstParam(req.params.id);
     if (!UUID_RE.test(id)) {
       res.status(400).json({ error: "Invalid claim ID format" });
       return;
@@ -82,7 +84,7 @@ router.get("/claims/:id/email", requireAuth, async (req, res) => {
 
 router.post("/claims/:id/email/send", requireAuth, emailSendLimiter, async (req, res) => {
   try {
-    const { id } = req.params;
+    const id = firstParam(req.params.id);
     if (!UUID_RE.test(id)) {
       res.status(400).json({ error: "Invalid claim ID format" });
       return;
