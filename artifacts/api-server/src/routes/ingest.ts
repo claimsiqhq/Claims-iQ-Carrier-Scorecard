@@ -47,7 +47,8 @@ router.post("/ingest", requireAuth, upload.single("file"), async (req, res) => {
         extractionMeta = { extractionDocument: vision.extractionDocument };
       } catch (pdfErr) {
         logger.error({ err: pdfErr }, "PDF vision extraction failed");
-        res.status(422).json({ error: "Could not extract text from the PDF using Vision extraction." });
+        const reason = pdfErr instanceof Error ? pdfErr.message : "Vision extraction failed";
+        res.status(422).json({ error: `Could not extract text from the PDF using Vision extraction: ${reason}` });
         return;
       }
     } else {

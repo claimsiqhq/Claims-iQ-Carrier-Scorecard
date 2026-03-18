@@ -28,13 +28,21 @@ router.post("/audit/standalone", requireAuth, upload.single("file"), async (req,
   const requestId = getRequestId(req);
 
   try {
-    const persisted = await extractAndPersistFinalReport({
-      source: "standalone_ui",
-      requestId,
-      uploaderUserId: req.user?.id,
-      file: req.file ?? undefined,
-      reportText: typeof req.body?.reportText === "string" ? req.body.reportText : undefined,
-    });
+    let persisted;
+    try {
+      persisted = await extractAndPersistFinalReport({
+        source: "standalone_ui",
+        requestId,
+        uploaderUserId: req.user?.id,
+        file: req.file ?? undefined,
+        reportText: typeof req.body?.reportText === "string" ? req.body.reportText : undefined,
+      });
+    } catch (extractErr) {
+      const reason = extractErr instanceof Error ? extractErr.message : "Vision extraction failed";
+      logger.error({ err: extractErr, requestId }, "Standalone extraction failed");
+      res.status(422).json({ error: `Could not extract text from the PDF using Vision extraction: ${reason}` });
+      return;
+    }
 
     const reportText = persisted.reportText;
     if (!reportText) {

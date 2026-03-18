@@ -32,7 +32,6 @@ const pageExtractionSchema = z.object({
   text: z.string(),
 }).strict();
 
-const MAX_PDF_PAGES = 80;
 const TARGET_RENDER_WIDTH = 1400;
 
 type RenderedPage = {
@@ -53,8 +52,8 @@ async function renderPdfToPngPages(pdfBuffer: Buffer): Promise<RenderedPage[]> {
   });
   const pdf = await loadingTask.promise;
 
-  if (pdf.numPages > MAX_PDF_PAGES) {
-    throw new Error(`PDF has ${pdf.numPages} pages; limit is ${MAX_PDF_PAGES}.`);
+  if (pdf.numPages > env.OPENAI_VISION_MAX_PDF_PAGES) {
+    throw new Error(`PDF has ${pdf.numPages} pages; configured limit is ${env.OPENAI_VISION_MAX_PDF_PAGES}.`);
   }
 
   const pages: RenderedPage[] = [];
