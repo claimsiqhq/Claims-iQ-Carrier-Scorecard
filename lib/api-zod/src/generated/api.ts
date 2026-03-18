@@ -86,6 +86,7 @@ export const GetClaimDetailResponse = zod.object({
           auditId: zod.string(),
           section: zod.string(),
           score: zod.number(),
+          reasoning: zod.string().optional(),
         }),
       ),
       findings: zod.array(

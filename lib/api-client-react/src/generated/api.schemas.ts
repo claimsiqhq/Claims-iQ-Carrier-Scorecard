@@ -75,6 +75,7 @@ export interface AuditSection {
   auditId: string;
   section: string;
   score: number;
+  reasoning?: string;
 }
 
 export interface AuditFinding {
