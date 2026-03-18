@@ -51,6 +51,7 @@ async function renderPdfToPngPages(pdfBuffer: Buffer): Promise<RenderedPage[]> {
     disableFontFace: true,
   });
   const pdf = await loadingTask.promise;
+  logger.info({ total_pages: pdf.numPages }, "PDF loaded for page rendering");
 
   if (pdf.numPages > env.OPENAI_VISION_MAX_PDF_PAGES) {
     throw new Error(`PDF has ${pdf.numPages} pages; configured limit is ${env.OPENAI_VISION_MAX_PDF_PAGES}.`);
@@ -81,6 +82,10 @@ async function renderPdfToPngPages(pdfBuffer: Buffer): Promise<RenderedPage[]> {
       pngBuffer: canvas.toBuffer("image/png"),
     });
 
+    if (pageNumber === 1 || pageNumber === pdf.numPages || pageNumber % 10 === 0) {
+      logger.info({ page_number: pageNumber, total_pages: pdf.numPages }, "PDF page rendered to PNG");
+    }
+
     page.cleanup();
   }
 
@@ -94,6 +99,13 @@ async function extractSinglePageTextWithVision(params: {
 }): Promise<string> {
   const { openai } = await import("@workspace/integrations-openai-ai-server");
   const imageDataUrl = `data:image/png;base64,${params.page.pngBuffer.toString("base64")}`;
+
+  logger.info({
+    requestId: params.requestId,
+    page_number: params.page.pageNumber,
+    page_width: params.page.width,
+    page_height: params.page.height,
+  }, "Starting OpenAI Vision extraction for page");
 
   const response = await openai.chat.completions.create({
     model: env.OPENAI_CARRIER_AUDIT_MODEL,
@@ -169,7 +181,19 @@ export async function extractPdfTextWithVisionPages(params: {
     }>;
   };
 }> {
+  logger.info({
+    requestId: params.requestId,
+    file_name: params.fileName,
+    pdf_bytes: params.pdfBuffer.length,
+    model: env.OPENAI_CARRIER_AUDIT_MODEL,
+  }, "Starting page-by-page PDF vision extraction");
+
   const pages = await renderPdfToPngPages(params.pdfBuffer);
+  logger.info({
+    requestId: params.requestId,
+    file_name: params.fileName,
+    page_count: pages.length,
+  }, "PNG page conversion complete");
   const extractedPages: Array<{
     page_number: number;
     width: number;
@@ -190,6 +214,15 @@ export async function extractPdfTextWithVisionPages(params: {
       extracted_text: extractedText,
       char_count: extractedText.length,
     });
+
+    if (page.pageNumber === 1 || page.pageNumber === pages.length || page.pageNumber % 10 === 0) {
+      logger.info({
+        requestId: params.requestId,
+        page_number: page.pageNumber,
+        total_pages: pages.length,
+        extracted_chars: extractedText.length,
+      }, "Vision extraction completed for page");
+    }
   }
 
   const text = extractedPages
@@ -246,6 +279,15 @@ async function persistDocumentRecord(params: {
       },
     }).returning({ id: documents.id });
 
+    logger.info({
+      requestId: params.requestId,
+      documentId: saved?.id,
+      source: params.source,
+      extraction_method: params.extractionMethod,
+      has_storage_path: Boolean(params.storagePath),
+      extracted_chars: params.extractedText.length,
+    }, "Standalone extraction record persisted");
+
     return saved?.id;
   } catch (err) {
     logger.error({ err, requestId: params.requestId }, "Failed to persist standalone extraction record");
@@ -265,6 +307,13 @@ export async function extractAndPersistFinalReport(input: PersistedReportInput):
   }
 
   if (!file) {
+    logger.info({
+      requestId: input.requestId,
+      source: input.source,
+      extraction_method: "plain_text",
+      text_chars: reportTextBody.length,
+    }, "Using pasted/plain text input");
+
     const documentId = await persistDocumentRecord({
       source: input.source,
       requestId: input.requestId,
@@ -283,10 +332,31 @@ export async function extractAndPersistFinalReport(input: PersistedReportInput):
 
   const fileName = safeFileName(file.originalname || "final_report.pdf");
   const contentType = file.mimetype || "application/pdf";
+  logger.info({
+    requestId: input.requestId,
+    source: input.source,
+    file_name: fileName,
+    content_type: contentType,
+    file_bytes: file.buffer.length,
+  }, "Received uploaded file for standalone processing");
+
   const storagePath = await uploadFile(file.buffer, fileName, contentType);
+  logger.info({
+    requestId: input.requestId,
+    source: input.source,
+    file_name: fileName,
+    storagePath,
+  }, "Uploaded source file to Supabase storage");
 
   const isPdf = contentType.toLowerCase() === "application/pdf" || fileName.toLowerCase().endsWith(".pdf");
   if (!isPdf) {
+    logger.info({
+      requestId: input.requestId,
+      source: input.source,
+      file_name: fileName,
+      extraction_method: "plain_text",
+    }, "Non-PDF upload detected; using UTF-8 text extraction");
+
     const text = file.buffer.toString("utf-8").trim();
     const documentId = await persistDocumentRecord({
       source: input.source,

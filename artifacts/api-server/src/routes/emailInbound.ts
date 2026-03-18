@@ -113,6 +113,13 @@ export function createEmailInboundRouter(deps: InboundRouteDeps = defaultDeps): 
           return;
         }
 
+        logger.info({
+          requestId,
+          sender: senderMasked,
+          report_chars: reportText.length,
+          has_pdf_attachment: Boolean(pdf),
+        }, "Inbound extraction complete; starting carrier scorecard audit");
+
         const audit = await deps.runAudit({ reportText, requestId });
         await deps.sendAuditEmail({
           to: sender,

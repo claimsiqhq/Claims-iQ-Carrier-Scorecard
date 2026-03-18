@@ -50,6 +50,14 @@ router.post("/audit/standalone", requireAuth, upload.single("file"), async (req,
       return;
     }
 
+    logger.info({
+      requestId,
+      extraction_method: persisted.extractionMethod,
+      report_chars: reportText.length,
+      document_id: persisted.documentId,
+      storage_path: persisted.storagePath,
+    }, "Extraction complete; starting carrier scorecard audit");
+
     const audit = await runCarrierScorecardAudit({
       reportText,
       requestId,
