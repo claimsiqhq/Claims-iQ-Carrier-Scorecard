@@ -1,0 +1,90 @@
+-- WARNING: This schema is for context only and is not meant to be run.
+-- Table order and constraints may not be valid for execution.
+
+CREATE TABLE public.audit_findings (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  audit_id uuid,
+  type text,
+  severity text,
+  title text,
+  description text,
+  source_document_id uuid,
+  metadata jsonb,
+  created_at timestamp without time zone DEFAULT now(),
+  CONSTRAINT audit_findings_pkey PRIMARY KEY (id),
+  CONSTRAINT audit_findings_audit_id_audits_id_fk FOREIGN KEY (audit_id) REFERENCES public.audits(id),
+  CONSTRAINT audit_findings_source_document_id_documents_id_fk FOREIGN KEY (source_document_id) REFERENCES public.documents(id)
+);
+CREATE TABLE public.audit_sections (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  audit_id uuid,
+  section text,
+  score numeric,
+  created_at timestamp without time zone DEFAULT now(),
+  CONSTRAINT audit_sections_pkey PRIMARY KEY (id),
+  CONSTRAINT audit_sections_audit_id_audits_id_fk FOREIGN KEY (audit_id) REFERENCES public.audits(id)
+);
+CREATE TABLE public.audit_structured (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  audit_id uuid,
+  deferred_items jsonb,
+  invoice_adjustments jsonb,
+  scope_deviations jsonb,
+  unknowns jsonb,
+  carrier_questions jsonb,
+  created_at timestamp without time zone DEFAULT now(),
+  CONSTRAINT audit_structured_pkey PRIMARY KEY (id),
+  CONSTRAINT audit_structured_audit_id_audits_id_fk FOREIGN KEY (audit_id) REFERENCES public.audits(id)
+);
+CREATE TABLE public.audit_versions (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  claim_id uuid,
+  audit_id uuid,
+  version_number integer,
+  created_at timestamp without time zone DEFAULT now(),
+  CONSTRAINT audit_versions_pkey PRIMARY KEY (id),
+  CONSTRAINT audit_versions_claim_id_claims_id_fk FOREIGN KEY (claim_id) REFERENCES public.claims(id),
+  CONSTRAINT audit_versions_audit_id_audits_id_fk FOREIGN KEY (audit_id) REFERENCES public.audits(id)
+);
+CREATE TABLE public.audits (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  claim_id uuid,
+  overall_score numeric,
+  risk_level text,
+  approval_status text,
+  executive_summary text,
+  raw_response jsonb,
+  created_at timestamp without time zone DEFAULT now(),
+  technical_score numeric,
+  presentation_score numeric,
+  CONSTRAINT audits_pkey PRIMARY KEY (id),
+  CONSTRAINT audits_claim_id_claims_id_fk FOREIGN KEY (claim_id) REFERENCES public.claims(id)
+);
+CREATE TABLE public.claims (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  claim_number text,
+  insured_name text,
+  carrier text,
+  date_of_loss date,
+  status text DEFAULT 'pending'::text,
+  created_at timestamp without time zone DEFAULT now(),
+  CONSTRAINT claims_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.documents (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  claim_id uuid,
+  type text,
+  file_url text,
+  extracted_text text,
+  metadata jsonb,
+  created_at timestamp without time zone DEFAULT now(),
+  CONSTRAINT documents_pkey PRIMARY KEY (id),
+  CONSTRAINT documents_claim_id_claims_id_fk FOREIGN KEY (claim_id) REFERENCES public.claims(id)
+);
+CREATE TABLE public.prompt_settings (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  key text NOT NULL UNIQUE,
+  value text NOT NULL,
+  updated_at timestamp without time zone DEFAULT now(),
+  CONSTRAINT prompt_settings_pkey PRIMARY KEY (id)
+);
