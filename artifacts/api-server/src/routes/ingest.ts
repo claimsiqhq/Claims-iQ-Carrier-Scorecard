@@ -2,50 +2,49 @@ import { Router, type IRouter } from "express";
 import { createRequire } from "module";
 import { db } from "@workspace/db";
 import { claims, documents } from "@workspace/db";
-import { ObjectStorageService } from "../lib/objectStorage";
+import { uploadFile, downloadFile } from "../lib/supabaseStorage";
 import { parseClaimFromText } from "../services/ingest";
+import multer from "multer";
 
 const require = createRequire(import.meta.url);
 const pdfParse = require("pdf-parse");
 
 const router: IRouter = Router();
-const objectStorageService = new ObjectStorageService();
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
-router.post("/ingest", async (req, res) => {
+router.post("/ingest", upload.single("file"), async (req, res) => {
   try {
-    const { objectPath, fileName, contentType } = req.body;
-    if (!objectPath || !fileName) {
-      res.status(400).json({ error: "objectPath and fileName are required" });
+    let fileBuffer: Buffer;
+    let fileName: string;
+    let contentType: string;
+
+    if (req.file) {
+      fileBuffer = req.file.buffer;
+      fileName = req.file.originalname;
+      contentType = req.file.mimetype;
+    } else if (req.body.storagePath && req.body.fileName) {
+      const { storagePath, fileName: fn, contentType: ct } = req.body;
+      fileBuffer = await downloadFile(storagePath);
+      fileName = fn;
+      contentType = ct || "application/pdf";
+    } else {
+      res.status(400).json({ error: "Provide a file upload or storagePath + fileName" });
+      return;
+    }
+
+    const isPdf = contentType === "application/pdf" || fileName.toLowerCase().endsWith(".pdf");
+    if (!isPdf) {
+      res.status(400).json({ error: "Only PDF files are supported for ingest." });
       return;
     }
 
     let extractedText = "";
-    const isPdf = contentType === "application/pdf" || fileName.toLowerCase().endsWith(".pdf");
-
-    if (isPdf && objectPath) {
-      try {
-        const objectFile = await objectStorageService.getObjectEntityFile(objectPath);
-        const downloadResponse = await objectStorageService.downloadObject(objectFile);
-
-        if (downloadResponse.body) {
-          const chunks: Uint8Array[] = [];
-          const reader = (downloadResponse.body as ReadableStream<Uint8Array>).getReader();
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            if (value) chunks.push(value);
-          }
-          const buffer = Buffer.concat(chunks);
-          const pdfData = await pdfParse(buffer);
-          extractedText = pdfData.text;
-        }
-      } catch (pdfErr) {
-        console.error("PDF extraction failed during ingest:", pdfErr);
-        res.status(422).json({ error: "Failed to extract text from PDF. Please ensure the file is a valid PDF." });
-        return;
-      }
-    } else {
-      res.status(400).json({ error: "Only PDF files are supported for ingest." });
+    try {
+      const pdfData = await pdfParse(fileBuffer);
+      extractedText = pdfData.text;
+    } catch (pdfErr) {
+      console.error("PDF extraction failed during ingest:", pdfErr);
+      res.status(422).json({ error: "Failed to extract text from PDF. Please ensure the file is a valid PDF." });
       return;
     }
 
@@ -55,6 +54,8 @@ router.post("/ingest", async (req, res) => {
     }
 
     console.log(`Ingest: extracted ${extractedText.length} chars from ${fileName}, sending to OpenAI for parsing...`);
+
+    const storagePath = await uploadFile(fileBuffer, fileName, contentType);
 
     const parsedData = await parseClaimFromText(extractedText);
 
@@ -79,17 +80,17 @@ router.post("/ingest", async (req, res) => {
     const [doc] = await db.insert(documents).values({
       claimId: newClaim.id,
       type: "claim_file",
-      fileUrl: objectPath,
+      fileUrl: storagePath,
       extractedText,
       metadata: {
         fileName,
-        contentType: contentType || "application/pdf",
-        objectPath,
+        contentType,
+        storagePath,
         parsedData,
       },
     }).returning();
 
-    console.log(`Ingest complete: claim ${newClaim.id} (${claimNumber}) created with document ${doc.id}`);
+    console.log(`Ingest complete: claim ${newClaim.id} (${claimNumber}) created with document ${doc.id}, file stored at ${storagePath}`);
 
     res.status(201).json({
       claim: {
@@ -99,12 +100,12 @@ router.post("/ingest", async (req, res) => {
         carrier: newClaim.carrier ?? "",
         dateOfLoss: newClaim.dateOfLoss ?? "",
         status: newClaim.status ?? "pending",
-        createdAt: newClaim.createdAt?.toISOString() ?? "",
       },
       document: {
         id: doc.id,
         fileName,
         extractedLength: extractedText.length,
+        storagePath,
       },
       parsedData,
     });

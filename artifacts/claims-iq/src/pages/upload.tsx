@@ -3,7 +3,6 @@ import { useLocation } from "wouter"
 import { BRAND, FONTS } from "@/lib/brand"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { useUpload } from "@workspace/object-storage-web"
 import {
   CloudUpload,
   CheckCircle,
@@ -31,7 +30,7 @@ interface ParsedClaimData {
 
 interface IngestResult {
   claim: { id: string; claimNumber: string; insuredName: string; carrier: string; dateOfLoss: string; status: string }
-  document: { id: string; fileName: string; extractedLength: number }
+  document: { id: string; fileName: string; extractedLength: number; storagePath: string }
   parsedData: ParsedClaimData
 }
 
@@ -44,11 +43,6 @@ export default function UploadPage() {
   const [dragOver, setDragOver] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const baseUrl = import.meta.env.VITE_API_URL || "/api"
-
-  const { uploadFile } = useUpload({
-    basePath: `${baseUrl}/storage`,
-    onError: (err) => console.error("Upload error:", err),
-  })
 
   const handleFile = useCallback(async (file: File) => {
     if (!file.name.toLowerCase().endsWith(".pdf") && file.type !== "application/pdf") {
@@ -63,19 +57,14 @@ export default function UploadPage() {
     setResult(null)
 
     try {
-      const uploadResult = await uploadFile(file)
-      if (!uploadResult) throw new Error("Upload to storage failed")
-
       setStatus("extracting")
+
+      const formData = new FormData()
+      formData.append("file", file)
 
       const ingestRes = await fetch(`${baseUrl}/ingest`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          objectPath: uploadResult.objectPath,
-          fileName: file.name,
-          contentType: file.type || "application/pdf",
-        }),
+        body: formData,
       })
 
       if (!ingestRes.ok) {
@@ -91,7 +80,7 @@ export default function UploadPage() {
       setStatus("error")
       setError(err.message || "Failed to process file")
     }
-  }, [uploadFile, baseUrl])
+  }, [baseUrl])
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault()
