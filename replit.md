@@ -38,7 +38,7 @@ The project is a pnpm workspace monorepo using Node.js v24 and TypeScript v5.9.
 ### Feature Specifications
 - **Claims Management**: CRUD operations for claims, including associated documents and audit data.
 - **Document Processing**: Upload, text extraction (from PDFs up to 100MB), and storage of claim documents.
-- **Audit Generation**: AI-driven generation of audit reports based on configurable prompts, providing technical and presentation scores, findings, and an executive summary. Audit results are stored transactionally.
+- **Audit Generation**: AI-driven generation of audit reports based on configurable prompts, providing technical and presentation scores, per-section reasoning justifications, findings, and an executive summary. Audit results are stored transactionally. Each of the 13 scored categories includes a brief AI-generated reasoning explaining why the score was given.
 - **Email Communication**: Preview and send comprehensive audit reports via email.
 - **Settings Management**: UI for editing AI prompt settings, with persistence to the database.
 - **Data Retention**: GDPR-compliant data deletion with cascading deletes for claims and associated PII.
