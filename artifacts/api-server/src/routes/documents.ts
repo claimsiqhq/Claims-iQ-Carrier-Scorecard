@@ -1,16 +1,14 @@
 import { Router, type IRouter } from "express";
-import { createRequire } from "module";
+import { randomUUID } from "crypto";
 import { db, pool } from "@workspace/db";
 import { claims, documents } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import * as schema from "@workspace/db/schema";
 import { downloadFile } from "../lib/supabaseStorage";
+import { extractPdfTextWithVisionPages } from "../services/finalReportIngestion";
 import { requireAuth } from "../middlewares/requireAuth";
 import logger from "../lib/logger";
-
-const require = createRequire(import.meta.url);
-const pdfParse = require("pdf-parse");
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_PDF_SIZE = 100 * 1024 * 1024;
@@ -126,10 +124,17 @@ router.post("/claims/:id/documents/:docId/extract", requireAuth, async (req, res
           res.status(413).json({ error: `File too large for text extraction (${MAX_PDF_SIZE / 1024 / 1024}MB limit)` });
           return;
         }
-        const pdfData = await pdfParse(buffer);
-        extractedText = pdfData.text;
+        const requestId = typeof req.headers["x-request-id"] === "string"
+          ? req.headers["x-request-id"]
+          : randomUUID();
+        const vision = await extractPdfTextWithVisionPages({
+          pdfBuffer: buffer,
+          fileName: typeof meta?.fileName === "string" ? meta.fileName : "document.pdf",
+          requestId,
+        });
+        extractedText = vision.text;
       } catch (pdfErr) {
-        logger.error({ err: pdfErr }, "PDF extraction failed");
+        logger.error({ err: pdfErr }, "Vision PDF extraction failed");
         extractedText = "[PDF extraction failed]";
       }
     } else if (contentType?.startsWith("text/") && storagePath) {

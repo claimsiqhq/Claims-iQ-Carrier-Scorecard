@@ -2,6 +2,7 @@ import path from "node:path";
 import { uploadFile } from "../lib/supabaseStorage";
 import logger from "../lib/logger";
 import { env } from "../env";
+import { z } from "zod";
 
 type SourceKind = "standalone_ui" | "sendgrid_inbound";
 
@@ -18,7 +19,7 @@ export interface PersistedReportResult {
   reportText: string;
   documentId?: string;
   storagePath?: string;
-  extractionMethod: "openai_vision_pdf" | "plain_text";
+  extractionMethod: "openai_vision_pages" | "plain_text";
 }
 
 function safeFileName(originalName: string): string {
@@ -26,71 +27,192 @@ function safeFileName(originalName: string): string {
   return base.replace(/[^\w.\-]/g, "_");
 }
 
-async function extractPdfTextWithVision(params: {
+const pageExtractionSchema = z.object({
+  page_number: z.number().int().positive(),
+  text: z.string(),
+}).strict();
+
+const MAX_PDF_PAGES = 80;
+const TARGET_RENDER_WIDTH = 1400;
+
+type RenderedPage = {
+  pageNumber: number;
+  width: number;
+  height: number;
+  pngBuffer: Buffer;
+};
+
+async function renderPdfToPngPages(pdfBuffer: Buffer): Promise<RenderedPage[]> {
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const { createCanvas } = await import("@napi-rs/canvas");
+
+  const loadingTask = pdfjs.getDocument({
+    data: new Uint8Array(pdfBuffer),
+    useSystemFonts: true,
+    disableFontFace: true,
+  });
+  const pdf = await loadingTask.promise;
+
+  if (pdf.numPages > MAX_PDF_PAGES) {
+    throw new Error(`PDF has ${pdf.numPages} pages; limit is ${MAX_PDF_PAGES}.`);
+  }
+
+  const pages: RenderedPage[] = [];
+
+  for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+    const page = await pdf.getPage(pageNumber);
+    const baseViewport = page.getViewport({ scale: 1 });
+    const scale = TARGET_RENDER_WIDTH / Math.max(1, baseViewport.width);
+    const viewport = page.getViewport({ scale });
+
+    const width = Math.max(1, Math.floor(viewport.width));
+    const height = Math.max(1, Math.floor(viewport.height));
+    const canvas = createCanvas(width, height);
+    const context = canvas.getContext("2d");
+
+    await page.render({
+      canvasContext: context as unknown as CanvasRenderingContext2D,
+      viewport,
+    }).promise;
+
+    pages.push({
+      pageNumber,
+      width,
+      height,
+      pngBuffer: canvas.toBuffer("image/png"),
+    });
+
+    page.cleanup();
+  }
+
+  await loadingTask.destroy();
+  return pages;
+}
+
+async function extractSinglePageTextWithVision(params: {
+  page: RenderedPage;
+  requestId: string;
+}): Promise<string> {
+  const { openai } = await import("@workspace/integrations-openai-ai-server");
+  const imageDataUrl = `data:image/png;base64,${params.page.pngBuffer.toString("base64")}`;
+
+  const response = await openai.chat.completions.create({
+    model: env.OPENAI_CARRIER_AUDIT_MODEL,
+    temperature: 0,
+    response_format: { type: "json_object" },
+    messages: [
+      {
+        role: "system",
+        content: [
+          "You are an extraction assistant.",
+          "Return JSON only in this exact shape:",
+          '{"page_number":1,"text":"<full extracted page text>"}',
+          "Extract all visible text from the page in reading order.",
+          "Do not summarize.",
+          "Do not omit tables, headers, footers, or labels.",
+        ].join(" "),
+      },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: `Extract page ${params.page.pageNumber}.` },
+          { type: "image_url", image_url: { url: imageDataUrl } },
+        ] as unknown as string,
+      },
+    ],
+  }, { signal: AbortSignal.timeout(120_000) });
+
+  const content = response.choices[0]?.message?.content;
+  if (!content) {
+    throw new Error(`Page ${params.page.pageNumber} extraction returned empty content.`);
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    throw new Error(`Page ${params.page.pageNumber} extraction returned invalid JSON.`);
+  }
+
+  const validated = pageExtractionSchema.safeParse(parsed);
+  if (!validated.success) {
+    throw new Error(`Page ${params.page.pageNumber} extraction failed schema validation.`);
+  }
+
+  logger.info({
+    requestId: params.requestId,
+    page_number: params.page.pageNumber,
+    openai_request_id: response.id,
+    model: env.OPENAI_CARRIER_AUDIT_MODEL,
+  }, "Vision page extraction completed");
+
+  return validated.data.text.trim();
+}
+
+export async function extractPdfTextWithVisionPages(params: {
   pdfBuffer: Buffer;
   fileName: string;
   requestId: string;
-}): Promise<{ text: string; openaiFileId?: string; openaiRequestId?: string }> {
-  const { openai } = await import("@workspace/integrations-openai-ai-server");
-  const { toFile } = await import("openai/uploads");
+}): Promise<{
+  text: string;
+  extractionDocument: {
+    version: "final_report_extraction_v1";
+    source: "openai_vision_page_by_page";
+    model: string;
+    file_name: string;
+    page_count: number;
+    pages: Array<{
+      page_number: number;
+      width: number;
+      height: number;
+      extracted_text: string;
+      char_count: number;
+    }>;
+  };
+}> {
+  const pages = await renderPdfToPngPages(params.pdfBuffer);
+  const extractedPages: Array<{
+    page_number: number;
+    width: number;
+    height: number;
+    extracted_text: string;
+    char_count: number;
+  }> = [];
 
-  const uploaded = await openai.files.create({
-    purpose: "user_data",
-    file: await toFile(params.pdfBuffer, params.fileName, { type: "application/pdf" }),
-  });
-
-  try {
-    const response = await openai.responses.create({
-      model: env.OPENAI_CARRIER_AUDIT_MODEL,
-      input: [
-        {
-          role: "user",
-          content: [
-            { type: "input_file", file_id: uploaded.id },
-            {
-              type: "input_text",
-              text: [
-                "Extract the complete report text from every page in reading order.",
-                "Return plain text only.",
-                "Do not summarize.",
-                "Do not omit sections, tables, headers, or footers.",
-                "Preserve page order and meaningful line breaks.",
-              ].join(" "),
-            },
-          ],
-        },
-      ],
+  for (const page of pages) {
+    const extractedText = await extractSinglePageTextWithVision({
+      page,
+      requestId: params.requestId,
     });
-
-    const directText = typeof response.output_text === "string" ? response.output_text.trim() : "";
-    if (directText.length > 0) {
-      return { text: directText, openaiFileId: uploaded.id, openaiRequestId: response.id };
-    }
-
-    let fallbackText = "";
-    const output = (response as unknown as { output?: Array<{ content?: Array<{ text?: string }> }> }).output ?? [];
-    for (const item of output) {
-      const content = item.content ?? [];
-      for (const chunk of content) {
-        if (typeof chunk.text === "string" && chunk.text.trim().length > 0) {
-          fallbackText += `${chunk.text}\n`;
-        }
-      }
-    }
-
-    const text = fallbackText.trim();
-    if (!text) {
-      throw new Error("Vision extraction returned empty text.");
-    }
-
-    return { text, openaiFileId: uploaded.id, openaiRequestId: response.id };
-  } finally {
-    try {
-      await openai.files.del(uploaded.id);
-    } catch (err) {
-      logger.warn({ err, requestId: params.requestId, fileId: uploaded.id }, "Failed to delete uploaded OpenAI file");
-    }
+    extractedPages.push({
+      page_number: page.pageNumber,
+      width: page.width,
+      height: page.height,
+      extracted_text: extractedText,
+      char_count: extractedText.length,
+    });
   }
+
+  const text = extractedPages
+    .map((page) => `=== Page ${page.page_number} ===\n${page.extracted_text}`)
+    .join("\n\n")
+    .trim();
+
+  if (!text) {
+    throw new Error("Vision extraction returned empty text.");
+  }
+
+  return {
+    text,
+    extractionDocument: {
+      version: "final_report_extraction_v1",
+      source: "openai_vision_page_by_page",
+      model: env.OPENAI_CARRIER_AUDIT_MODEL,
+      file_name: params.fileName,
+      page_count: extractedPages.length,
+      pages: extractedPages,
+    },
+  };
 }
 
 async function persistDocumentRecord(params: {
@@ -102,7 +224,7 @@ async function persistDocumentRecord(params: {
   contentType?: string;
   storagePath?: string;
   extractedText: string;
-  extractionMethod: "openai_vision_pdf" | "plain_text";
+  extractionMethod: "openai_vision_pages" | "plain_text";
   extractionMeta?: Record<string, unknown>;
 }): Promise<string | undefined> {
   try {
@@ -187,7 +309,7 @@ export async function extractAndPersistFinalReport(input: PersistedReportInput):
     };
   }
 
-  const vision = await extractPdfTextWithVision({
+  const vision = await extractPdfTextWithVisionPages({
     pdfBuffer: file.buffer,
     fileName,
     requestId: input.requestId,
@@ -202,26 +324,26 @@ export async function extractAndPersistFinalReport(input: PersistedReportInput):
     contentType,
     storagePath,
     extractedText: vision.text,
-    extractionMethod: "openai_vision_pdf",
+    extractionMethod: "openai_vision_pages",
     extractionMeta: {
       model: env.OPENAI_CARRIER_AUDIT_MODEL,
-      openaiFileId: vision.openaiFileId,
-      openaiRequestId: vision.openaiRequestId,
+      extractionDocument: vision.extractionDocument,
     },
   });
 
   logger.info({
     requestId: input.requestId,
     model: env.OPENAI_CARRIER_AUDIT_MODEL,
-    extraction_method: "openai_vision_pdf",
+    extraction_method: "openai_vision_pages",
     storagePath,
     extracted_chars: vision.text.length,
+    page_count: vision.extractionDocument.page_count,
   }, "Final report extracted with OpenAI vision and persisted");
 
   return {
     reportText: vision.text,
     storagePath,
-    extractionMethod: "openai_vision_pdf",
+    extractionMethod: "openai_vision_pages",
     documentId,
   };
 }

@@ -1,15 +1,13 @@
 import { Router, type IRouter } from "express";
-import { createRequire } from "module";
+import { randomUUID } from "crypto";
 import { db } from "@workspace/db";
 import { claims, documents } from "@workspace/db";
 import { uploadFile } from "../lib/supabaseStorage";
 import { parseClaimFromText } from "../services/ingest";
+import { extractPdfTextWithVisionPages } from "../services/finalReportIngestion";
 import { requireAuth } from "../middlewares/requireAuth";
 import logger from "../lib/logger";
 import multer from "multer";
-
-const require = createRequire(import.meta.url);
-const pdfParse = require("pdf-parse");
 
 const MAX_PDF_SIZE = 100 * 1024 * 1024;
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
@@ -34,13 +32,22 @@ router.post("/ingest", requireAuth, upload.single("file"), async (req, res) => {
     }
 
     let extractedText = "";
+    let extractionMeta: Record<string, unknown> | undefined;
     if (contentType === "application/pdf") {
       try {
-        const pdfData = await pdfParse(fileBuffer);
-        extractedText = pdfData.text;
+        const requestId = typeof req.headers["x-request-id"] === "string"
+          ? req.headers["x-request-id"]
+          : randomUUID();
+        const vision = await extractPdfTextWithVisionPages({
+          pdfBuffer: fileBuffer,
+          fileName,
+          requestId,
+        });
+        extractedText = vision.text;
+        extractionMeta = { extractionDocument: vision.extractionDocument };
       } catch (pdfErr) {
-        logger.error({ err: pdfErr }, "PDF parsing failed");
-        res.status(422).json({ error: "Could not extract text from the PDF. The file may be image-only or corrupted." });
+        logger.error({ err: pdfErr }, "PDF vision extraction failed");
+        res.status(422).json({ error: "Could not extract text from the PDF using Vision extraction." });
         return;
       }
     } else {
@@ -86,6 +93,7 @@ router.post("/ingest", requireAuth, upload.single("file"), async (req, res) => {
         contentType,
         storagePath,
         parsedData,
+        ...(extractionMeta ? extractionMeta : {}),
       },
     }).returning();
 
