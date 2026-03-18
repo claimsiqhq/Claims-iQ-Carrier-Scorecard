@@ -1,8 +1,6 @@
 import React, { useState, useEffect } from "react"
 import {
   DashboardDots,
-  PageEdit,
-  ClipboardCheck,
   Settings as SettingsIcon,
   Menu,
   Xmark,
@@ -15,17 +13,10 @@ import { BRAND, FONTS } from "@/lib/brand"
 import { useLocation } from "wouter"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { useAuth } from "@/lib/auth-context"
-import type { Claim } from "@workspace/api-client-react"
 
 const STORAGE_KEY = "sidebar-collapsed"
 
-interface SidebarProps {
-  claims?: Claim[]
-  selectedClaimId?: string
-  onSelectClaim?: (id: string) => void
-}
-
-export function Sidebar({ claims, selectedClaimId, onSelectClaim }: SidebarProps) {
+export function Sidebar() {
   const [location, setLocation] = useLocation()
   const isMobile = useIsMobile()
   const [open, setOpen] = useState(false)
@@ -53,9 +44,7 @@ export function Sidebar({ claims, selectedClaimId, onSelectClaim }: SidebarProps
   if (isMobile) {
     const nav = (
       <>
-        <SidebarItem icon={<DashboardDots width={20} height={20} />} label="Dashboard" active={location === "/"} onClick={() => setLocation("/")} />
-        <SidebarItem icon={<PageEdit width={20} height={20} />} label="Claims" active={location.startsWith("/claims")} onClick={() => setLocation("/claims")} />
-        <SidebarItem icon={<ClipboardCheck width={20} height={20} />} label="Audit Results" active={location === "/audit-results"} onClick={() => setLocation("/audit-results")} />
+        <SidebarItem icon={<DashboardDots width={20} height={20} />} label="Dashboard" active={location === "/" || location.startsWith("/claims")} onClick={() => setLocation("/")} />
         <SidebarItem icon={<SettingsIcon width={20} height={20} />} label="Settings" active={location === "/settings"} onClick={() => setLocation("/settings")} />
       </>
     )
@@ -146,9 +135,7 @@ export function Sidebar({ claims, selectedClaimId, onSelectClaim }: SidebarProps
 
       <nav className="flex-1 overflow-y-auto overflow-x-hidden" style={{ padding: collapsed ? "16px 8px" : "16px 12px" }}>
         <div className="space-y-1">
-          <SidebarItem icon={<DashboardDots width={20} height={20} />} label="Dashboard" active={location === "/"} onClick={() => setLocation("/")} collapsed={collapsed} />
-          <SidebarItem icon={<PageEdit width={20} height={20} />} label="Claims" active={location.startsWith("/claims")} onClick={() => setLocation("/claims")} collapsed={collapsed} />
-          <SidebarItem icon={<ClipboardCheck width={20} height={20} />} label="Audit Results" active={location === "/audit-results"} onClick={() => setLocation("/audit-results")} collapsed={collapsed} />
+          <SidebarItem icon={<DashboardDots width={20} height={20} />} label="Dashboard" active={location === "/" || location.startsWith("/claims")} onClick={() => setLocation("/")} collapsed={collapsed} />
           <SidebarItem icon={<SettingsIcon width={20} height={20} />} label="Settings" active={location === "/settings"} onClick={() => setLocation("/settings")} collapsed={collapsed} />
         </div>
       </nav>

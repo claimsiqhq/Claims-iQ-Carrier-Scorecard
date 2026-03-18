@@ -7,11 +7,8 @@ import { Sidebar } from "@/components/Sidebar";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
 import LoginPage from "@/pages/login";
 import DashboardPage from "@/pages/dashboard";
-import ClaimsListPage from "@/pages/claims-list";
 import ClaimDetailPage from "@/pages/claim-detail";
-import AuditResultsPage from "@/pages/audit-results";
 import SettingsPage from "@/pages/settings";
-import { useListClaims } from "@workspace/api-client-react";
 import { useLocation } from "wouter";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { BRAND, FONTS } from "@/lib/brand";
@@ -35,9 +32,9 @@ function AuthGate() {
 
   if (loading) {
     return (
-      <div className="h-[100dvh] flex items-center justify-center" style={{ backgroundColor: BRAND.deepPurple }}>
+      <div className="h-[100dvh] flex items-center justify-center" style={{ backgroundColor: BRAND.offWhite }}>
         <div className="text-center">
-          <div className="w-8 h-8 border-2 border-white border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+          <div className="w-8 h-8 border-2 border-t-transparent rounded-full animate-spin mx-auto mb-3" style={{ borderColor: BRAND.purple, borderTopColor: "transparent" }} />
           <p className="text-sm" style={{ color: BRAND.purpleSecondary }}>Loading...</p>
         </div>
       </div>
@@ -52,7 +49,6 @@ function AuthGate() {
 }
 
 function AppLayout() {
-  const { data: claims } = useListClaims();
   const [, setLocation] = useLocation();
   const isMobile = useIsMobile();
 
@@ -61,17 +57,14 @@ function AppLayout() {
       className="h-[100dvh] flex flex-col md:flex-row overflow-hidden"
       style={{ backgroundColor: BRAND.offWhite, fontFamily: FONTS.body, color: BRAND.deepPurple }}
     >
-      <Sidebar
-        claims={claims}
-        onSelectClaim={(id) => setLocation(`/claims/${id}`)}
-      />
+      <Sidebar />
       <div className={`flex-1 flex flex-col min-w-0 overflow-hidden ${isMobile ? "pt-14" : ""}`}>
         <Switch>
           <Route path="/" component={DashboardPage} />
-          <Route path="/claims" component={ClaimsListPage} />
+          <Route path="/claims">{() => { setLocation("/"); return null; }}</Route>
           <Route path="/claims/:id">{(params) => <ClaimDetailWrapper params={params} />}</Route>
-          <Route path="/upload">{() => { setLocation("/claims"); return null; }}</Route>
-          <Route path="/audit-results" component={AuditResultsPage} />
+          <Route path="/upload">{() => { setLocation("/"); return null; }}</Route>
+          <Route path="/audit-results">{() => { setLocation("/"); return null; }}</Route>
           <Route path="/settings" component={SettingsPage} />
           <Route>
             <main className="flex-1 flex items-center justify-center" style={{ backgroundColor: BRAND.offWhite }}>

@@ -1,7 +1,8 @@
-import { useState, useEffect, useMemo } from "react"
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import { useLocation } from "wouter"
 import { BRAND, FONTS } from "@/lib/brand"
 import { Button } from "@/components/ui/button"
+import { Card, CardContent } from "@/components/ui/card"
 import {
   NavArrowRight,
   NavArrowLeft,
@@ -9,6 +10,11 @@ import {
   SortDown,
   SortUp,
   Plus,
+  CloudUpload,
+  CheckCircle,
+  Page,
+  RefreshDouble,
+  ArrowRight,
 } from "iconoir-react"
 
 interface DashboardData {
@@ -40,6 +46,29 @@ interface DashboardData {
 type SortKey = "claimNumber" | "insuredName" | "carrier" | "status" | "dateOfLoss" | "createdAt"
 type SortDir = "asc" | "desc"
 
+type IngestStatus = "idle" | "uploading" | "extracting" | "parsing" | "complete" | "error"
+
+interface ParsedClaimData {
+  claimNumber: string
+  insuredName: string
+  carrier: string
+  dateOfLoss: string
+  policyNumber: string
+  lossType: string
+  propertyAddress: string
+  adjusterName: string
+  adjusterCompany: string
+  totalClaimAmount: string
+  deductible: string
+  summary: string
+}
+
+interface IngestResult {
+  claim: { id: string; claimNumber: string; insuredName: string; carrier: string; dateOfLoss: string; status: string }
+  document: { id: string; fileName: string; extractedLength: number; storagePath: string }
+  parsedData: ParsedClaimData
+}
+
 function formatDate(iso: string | null) {
   if (!iso) return "—"
   const d = new Date(iso)
@@ -48,6 +77,7 @@ function formatDate(iso: string | null) {
 
 export default function DashboardPage() {
   const [, setLocation] = useLocation()
+  const baseUrl = import.meta.env.VITE_API_URL || "/api"
   const [data, setData] = useState<DashboardData | null>(null)
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
@@ -58,14 +88,91 @@ export default function DashboardPage() {
   const [page, setPage] = useState(1)
   const perPage = 10
 
-  useEffect(() => {
-    const baseUrl = import.meta.env.VITE_API_URL || "/api"
+  const [ingestStatus, setIngestStatus] = useState<IngestStatus>("idle")
+  const [ingestFileName, setIngestFileName] = useState("")
+  const [ingestError, setIngestError] = useState<string | null>(null)
+  const [ingestResult, setIngestResult] = useState<IngestResult | null>(null)
+  const [dragOver, setDragOver] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const fetchDashboard = useCallback(() => {
     fetch(`${baseUrl}/dashboard`, { credentials: "include" })
       .then((r) => r.json())
       .then((d) => setData(d))
       .catch(() => {})
       .finally(() => setLoading(false))
+  }, [baseUrl])
+
+  useEffect(() => { fetchDashboard() }, [fetchDashboard])
+
+  const handleFile = useCallback(async (file: File) => {
+    if (!file.name.toLowerCase().endsWith(".pdf") && file.type !== "application/pdf") {
+      setIngestError("Please upload a PDF file.")
+      setIngestStatus("error")
+      return
+    }
+
+    setIngestStatus("uploading")
+    setIngestError(null)
+    setIngestFileName(file.name)
+    setIngestResult(null)
+
+    try {
+      setIngestStatus("extracting")
+      const formData = new FormData()
+      formData.append("file", file)
+
+      const ingestRes = await fetch(`${baseUrl}/ingest`, {
+        method: "POST",
+        body: formData,
+      })
+
+      if (!ingestRes.ok) {
+        const errBody = await ingestRes.json().catch(() => ({ error: "Processing failed" }))
+        throw new Error(errBody.error || "Processing failed")
+      }
+
+      setIngestStatus("parsing")
+      const result: IngestResult = await ingestRes.json()
+      setIngestResult(result)
+      setIngestStatus("complete")
+      fetchDashboard()
+    } catch (err: any) {
+      setIngestStatus("error")
+      setIngestError(err.message || "Failed to process file")
+    }
+  }, [baseUrl, fetchDashboard])
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    setDragOver(false)
+    const file = e.dataTransfer.files[0]
+    if (file) handleFile(file)
+  }, [handleFile])
+
+  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) handleFile(file)
+    if (e.target) e.target.value = ""
+  }, [handleFile])
+
+  const handleResetIngest = useCallback(() => {
+    setIngestStatus("idle")
+    setIngestFileName("")
+    setIngestError(null)
+    setIngestResult(null)
   }, [])
+
+  const isBusy = ingestStatus === "uploading" || ingestStatus === "extracting" || ingestStatus === "parsing"
+
+  const statusLabels: Record<IngestStatus, string> = {
+    idle: "",
+    uploading: "Uploading file...",
+    extracting: "Extracting text from PDF...",
+    parsing: "AI is analyzing the claim...",
+    complete: "Claim processed successfully",
+    error: ingestError || "Processing failed",
+  }
 
   const filteredClaims = useMemo(() => {
     if (!data) return []
@@ -147,6 +254,14 @@ export default function DashboardPage() {
 
   return (
     <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".pdf,application/pdf"
+        className="hidden"
+        onChange={handleInputChange}
+      />
+
       <div className="flex-1 overflow-y-auto" style={{ backgroundColor: BRAND.offWhite }}>
         <div className="px-6 md:px-8 py-6 md:py-8 max-w-[1200px]">
 
@@ -162,12 +277,120 @@ export default function DashboardPage() {
             <Button
               className="gap-2 text-white shrink-0 px-5 py-2.5 text-sm"
               style={{ backgroundColor: "#16a34a", fontFamily: FONTS.heading, fontWeight: 600, borderRadius: 8 }}
-              onClick={() => setLocation("/claims")}
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isBusy}
             >
               <Plus width={16} height={16} strokeWidth={2.5} />
               Create new claim
             </Button>
           </div>
+
+          {isBusy && (
+            <Card className="shadow-sm mb-6" style={{ borderColor: BRAND.greyLavender, backgroundColor: BRAND.white }}>
+              <CardContent className="p-6">
+                <div className="flex flex-col items-center py-4">
+                  <div className="w-10 h-10 border-3 border-t-transparent rounded-full animate-spin mb-4" style={{ borderColor: BRAND.purple, borderTopColor: "transparent" }} />
+                  <p className="text-sm font-bold" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
+                    {statusLabels[ingestStatus]}
+                  </p>
+                  <div className="flex items-center gap-2 mt-1.5">
+                    <Page width={14} height={14} style={{ color: BRAND.purpleSecondary }} />
+                    <span className="text-xs" style={{ color: BRAND.purpleSecondary }}>{ingestFileName}</span>
+                  </div>
+                  <div className="flex items-center gap-3 mt-5 w-full max-w-xs">
+                    {["uploading", "extracting", "parsing"].map((step, i) => {
+                      const steps = ["uploading", "extracting", "parsing"]
+                      const currentIdx = steps.indexOf(ingestStatus)
+                      const isDone = i < currentIdx
+                      const isActive = i === currentIdx
+                      return (
+                        <div key={step} className="flex-1">
+                          <div className="h-1.5 rounded-full" style={{
+                            backgroundColor: isDone ? BRAND.purple : isActive ? BRAND.purpleLight : BRAND.greyLavender,
+                          }}>
+                            {isActive && (
+                              <div className="h-full rounded-full animate-pulse" style={{ backgroundColor: BRAND.purple, width: "60%" }} />
+                            )}
+                          </div>
+                          <p className="text-[10px] mt-1 text-center" style={{
+                            color: isDone || isActive ? BRAND.deepPurple : BRAND.purpleSecondary,
+                            fontFamily: FONTS.heading,
+                            fontWeight: isActive ? 700 : 400,
+                          }}>
+                            {step === "uploading" ? "Upload" : step === "extracting" ? "Extract" : "Parse"}
+                          </p>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {ingestStatus === "complete" && ingestResult && (
+            <Card className="shadow-sm mb-6" style={{ borderColor: "#bbf7d0", backgroundColor: BRAND.white }}>
+              <CardContent className="p-5">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-9 h-9 rounded-full flex items-center justify-center" style={{ backgroundColor: "#e8f5e9" }}>
+                    <CheckCircle width={20} height={20} style={{ color: "#16a34a" }} />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-bold" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
+                      Claim Created — {ingestResult.parsedData.claimNumber || ingestResult.claim.claimNumber}
+                    </p>
+                    <p className="text-xs" style={{ color: BRAND.purpleSecondary }}>
+                      {ingestResult.document.extractedLength.toLocaleString()} characters extracted from {ingestResult.document.fileName}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-4">
+                  <DataField label="Insured" value={ingestResult.parsedData.insuredName} />
+                  <DataField label="Carrier" value={ingestResult.parsedData.carrier} />
+                  <DataField label="Date of Loss" value={ingestResult.parsedData.dateOfLoss} mono />
+                  <DataField label="Loss Type" value={ingestResult.parsedData.lossType} />
+                  <DataField label="Total Claim" value={ingestResult.parsedData.totalClaimAmount} mono />
+                  <DataField label="Deductible" value={ingestResult.parsedData.deductible} mono />
+                </div>
+
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                  <Button
+                    className="flex-1 gap-2 text-white"
+                    style={{ backgroundColor: BRAND.purple, fontFamily: FONTS.heading, fontWeight: 600 }}
+                    onClick={() => setLocation(`/claims/${ingestResult.claim.id}`)}
+                  >
+                    View Claim & Run Audit
+                    <ArrowRight width={16} height={16} />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="gap-2"
+                    style={{ borderColor: BRAND.greyLavender, color: BRAND.deepPurple, fontFamily: FONTS.heading, fontWeight: 600 }}
+                    onClick={handleResetIngest}
+                  >
+                    <RefreshDouble width={14} height={14} />
+                    Upload Another
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {ingestStatus === "error" && ingestError && (
+            <Card className="shadow-sm mb-6" style={{ borderColor: "#fca5a5", backgroundColor: BRAND.white }}>
+              <CardContent className="p-4 flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-semibold" style={{ color: "#dc2626" }}>{ingestError}</p>
+                  <p className="text-xs mt-0.5" style={{ color: BRAND.purpleSecondary }}>{ingestFileName}</p>
+                </div>
+                <Button variant="outline" size="sm" className="gap-1.5" onClick={handleResetIngest} style={{ borderColor: BRAND.greyLavender, color: BRAND.deepPurple }}>
+                  <RefreshDouble width={14} height={14} />
+                  Dismiss
+                </Button>
+              </CardContent>
+            </Card>
+          )}
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
             <StatusCard
@@ -193,7 +416,20 @@ export default function DashboardPage() {
             />
           </div>
 
-          <div className="rounded-xl border overflow-hidden" style={{ backgroundColor: BRAND.white, borderColor: BRAND.greyLavender }}>
+          <div
+            className="rounded-xl border overflow-hidden"
+            style={{ backgroundColor: BRAND.white, borderColor: BRAND.greyLavender }}
+            onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={handleDrop}
+          >
+            {dragOver && (
+              <div className="px-5 py-4 flex items-center justify-center gap-2" style={{ backgroundColor: BRAND.lightPurpleGrey, borderBottom: `1px solid ${BRAND.greyLavender}` }}>
+                <CloudUpload width={18} height={18} style={{ color: BRAND.purple }} />
+                <p className="text-sm font-semibold" style={{ color: BRAND.purple }}>Drop PDF here to create a new claim</p>
+              </div>
+            )}
+
             <div className="px-5 pt-5 pb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3" style={{ borderBottom: `1px solid ${BRAND.greyLavender}` }}>
               <div>
                 <h2 className="text-lg font-bold" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>My Claims</h2>
@@ -297,9 +533,9 @@ export default function DashboardPage() {
                           <Button
                             className="gap-2 text-white mt-3"
                             style={{ backgroundColor: BRAND.purple, fontFamily: FONTS.heading, fontWeight: 600 }}
-                            onClick={() => setLocation("/claims")}
+                            onClick={() => fileInputRef.current?.click()}
                           >
-                            <Plus width={16} height={16} />
+                            <CloudUpload width={16} height={16} />
                             Upload First Claim
                           </Button>
                         )}
@@ -327,6 +563,16 @@ export default function DashboardPage() {
         </div>
       </div>
     </main>
+  )
+}
+
+function DataField({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+  if (!value) return null
+  return (
+    <div>
+      <p className="text-[10px] font-bold uppercase tracking-wider mb-0.5" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.heading }}>{label}</p>
+      <p className="text-sm" style={{ color: BRAND.deepPurple, fontFamily: mono ? FONTS.mono : FONTS.body }}>{value}</p>
+    </div>
   )
 }
 
