@@ -49,7 +49,7 @@ export async function parseClaimFromText(extractedText: string): Promise<ParsedC
       { role: "system", content: PARSE_SYSTEM_PROMPT },
       { role: "user", content: `Extract structured claim metadata from this document text:\n\n${truncated}` },
     ],
-  });
+  }, { signal: AbortSignal.timeout(60_000) });
 
   const content = response.choices[0]?.message?.content;
   if (!content) {

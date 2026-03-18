@@ -1,4 +1,5 @@
 import { Router, type IRouter } from "express";
+import rateLimit from "express-rate-limit";
 import { db } from "@workspace/db";
 import { claims, audits } from "@workspace/db";
 import { eq } from "drizzle-orm";
@@ -7,6 +8,15 @@ import { sendEmail } from "../services/sendgrid";
 import type { AuditResponse } from "../services/audit";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+const emailSendLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Email rate limit exceeded. Try again later." },
+});
 
 const router: IRouter = Router();
 
@@ -54,7 +64,7 @@ router.get("/claims/:id/email", async (req, res) => {
   }
 });
 
-router.post("/claims/:id/email/send", async (req, res) => {
+router.post("/claims/:id/email/send", emailSendLimiter, async (req, res) => {
   try {
     const { id } = req.params;
     if (!UUID_RE.test(id)) {
@@ -63,8 +73,13 @@ router.post("/claims/:id/email/send", async (req, res) => {
     }
 
     const { to, subject } = req.body;
-    if (!to) {
+    if (!to || typeof to !== "string") {
       res.status(400).json({ error: "Recipient email (to) is required" });
+      return;
+    }
+
+    if (!EMAIL_RE.test(to.trim())) {
+      res.status(400).json({ error: "Invalid email address format" });
       return;
     }
 
@@ -83,16 +98,16 @@ router.post("/claims/:id/email/send", async (req, res) => {
     const html = getAuditHtml(claim, audit);
     const emailSubject = subject || `Claims iQ Audit — ${claim.claimNumber} — ${claim.insuredName}`;
 
-    await sendEmail({ to, subject: emailSubject, html });
+    await sendEmail({ to: to.trim(), subject: emailSubject, html });
 
-    console.log(`Audit email sent for claim ${claim.claimNumber} to ${to}`);
-    res.json({ success: true, message: `Email sent to ${to}` });
+    console.log(`Audit email sent for claim ${claim.id}`);
+    res.json({ success: true, message: "Email sent successfully" });
   } catch (err: any) {
     console.error("Error sending email:", err);
     if (err.message?.includes("SENDGRID_API_KEY")) {
-      res.status(500).json({ error: "SendGrid API key is not configured. Add SENDGRID_API_KEY to Replit Secrets." });
+      res.status(500).json({ error: "Email service is not configured." });
     } else {
-      res.status(500).json({ error: err.message || "Failed to send email" });
+      res.status(500).json({ error: "Failed to send email" });
     }
   }
 });

@@ -29,7 +29,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { BRAND, FONTS } from "@/lib/brand"
-import { useGetClaimDetail } from "@workspace/api-client-react"
+import { useGetClaimDetail, getListClaimsQueryKey, getGetClaimDetailQueryKey } from "@workspace/api-client-react"
+import { useQueryClient } from "@tanstack/react-query"
 import { useLocation } from "wouter"
 
 interface ScorecardRow {
@@ -79,6 +80,7 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
+  const queryClient = useQueryClient()
   const { data, isLoading, error, refetch } = useGetClaimDetail(claimId)
 
   const handleRunAudit = useCallback(async () => {
@@ -92,12 +94,13 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
         throw new Error(body.error || "Audit failed")
       }
       await refetch()
+      queryClient.invalidateQueries({ queryKey: getListClaimsQueryKey() })
     } catch (err: any) {
       setAuditError(err.message || "Failed to run audit")
     } finally {
       setAuditing(false)
     }
-  }, [claimId, refetch])
+  }, [claimId, refetch, queryClient])
 
   const handleDeleteClaim = useCallback(async () => {
     setDeleting(true)
@@ -108,13 +111,14 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
         const body = await res.json().catch(() => ({}))
         throw new Error(body.error || "Delete failed")
       }
+      queryClient.invalidateQueries({ queryKey: getListClaimsQueryKey() })
       setLocation("/claims")
     } catch (err: any) {
       console.error("Delete failed:", err)
       setDeleting(false)
       setShowDeleteConfirm(false)
     }
-  }, [claimId, setLocation])
+  }, [claimId, setLocation, queryClient])
 
   const handlePreviewEmail = useCallback(async () => {
     setEmailLoading(true)
@@ -238,10 +242,6 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
               </Button>
             </>
           )}
-          <Button size="sm" className="gap-2 text-white border-transparent" style={{ backgroundColor: BRAND.purple, fontFamily: FONTS.heading, fontWeight: 600 }}>
-            <CheckCircle width={16} height={16} />
-            Mark Ready for Submission
-          </Button>
         </div>
       </header>
 

@@ -149,7 +149,7 @@ export async function runFinalAudit(reportText: string): Promise<AuditResponse> 
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt },
     ],
-  });
+  }, { signal: AbortSignal.timeout(120_000) });
 
   const content = response.choices[0]?.message?.content;
   if (!content) {

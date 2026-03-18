@@ -1,16 +1,17 @@
 import { Router, type IRouter } from "express";
 import { createRequire } from "module";
-import { db } from "@workspace/db";
+import { db, pool } from "@workspace/db";
 import { claims, documents } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
-import { ObjectStorageService } from "../lib/objectStorage";
+import { drizzle } from "drizzle-orm/node-postgres";
+import * as schema from "@workspace/db/schema";
+import { downloadFile } from "../lib/supabaseStorage";
 
 const require = createRequire(import.meta.url);
 const pdfParse = require("pdf-parse");
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const router: IRouter = Router();
-const objectStorageService = new ObjectStorageService();
 
 router.post("/claims/:id/documents", async (req, res) => {
   try {
@@ -26,28 +27,41 @@ router.post("/claims/:id/documents", async (req, res) => {
       return;
     }
 
-    const { type, objectPath, fileName, contentType } = req.body;
-    if (!objectPath || !fileName) {
-      res.status(400).json({ error: "objectPath and fileName are required" });
+    const { type, storagePath, fileName, contentType } = req.body;
+    if (!storagePath || !fileName) {
+      res.status(400).json({ error: "storagePath and fileName are required" });
       return;
     }
 
-    await db.delete(documents).where(eq(documents.claimId, id));
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const txDb = drizzle(client, { schema });
 
-    const [doc] = await db.insert(documents).values({
-      claimId: id,
-      type: type || "claim_file",
-      fileUrl: objectPath,
-      metadata: { fileName, contentType: contentType || "application/octet-stream", objectPath },
-    }).returning();
+      await txDb.delete(documents).where(eq(documents.claimId, id));
 
-    res.status(201).json({
-      id: doc.id,
-      claimId: doc.claimId ?? "",
-      type: doc.type ?? "",
-      fileUrl: doc.fileUrl ?? undefined,
-      createdAt: doc.createdAt?.toISOString() ?? undefined,
-    });
+      const [doc] = await txDb.insert(documents).values({
+        claimId: id,
+        type: type || "claim_file",
+        fileUrl: storagePath,
+        metadata: { fileName, contentType: contentType || "application/octet-stream", storagePath },
+      }).returning();
+
+      await client.query("COMMIT");
+
+      res.status(201).json({
+        id: doc.id,
+        claimId: doc.claimId ?? "",
+        type: doc.type ?? "",
+        fileUrl: doc.fileUrl ?? undefined,
+        createdAt: doc.createdAt?.toISOString() ?? undefined,
+      });
+    } catch (txErr) {
+      await client.query("ROLLBACK");
+      throw txErr;
+    } finally {
+      client.release();
+    }
   } catch (err) {
     console.error("Error creating document:", err);
     res.status(500).json({ error: "Failed to create document" });
@@ -97,46 +111,28 @@ router.post("/claims/:id/documents/:docId/extract", async (req, res) => {
     }
 
     const meta = doc.metadata as Record<string, unknown> | null;
-    const objectPath = (meta?.objectPath as string) || doc.fileUrl || "";
+    const storagePath = (meta?.storagePath as string) || doc.fileUrl || "";
     const contentType = (meta?.contentType as string) || "";
 
     let extractedText = "";
 
-    if (contentType === "application/pdf" && objectPath) {
+    if (contentType === "application/pdf" && storagePath) {
       try {
-        const objectFile = await objectStorageService.getObjectEntityFile(objectPath);
-        const downloadResponse = await objectStorageService.downloadObject(objectFile);
-
-        if (downloadResponse.body) {
-          const chunks: Uint8Array[] = [];
-          const reader = (downloadResponse.body as ReadableStream<Uint8Array>).getReader();
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            if (value) chunks.push(value);
-          }
-          const buffer = Buffer.concat(chunks);
-          const pdfData = await pdfParse(buffer);
-          extractedText = pdfData.text;
+        const buffer = await downloadFile(storagePath);
+        if (buffer.length > 100 * 1024 * 1024) {
+          res.status(413).json({ error: "File too large for text extraction (100MB limit)" });
+          return;
         }
+        const pdfData = await pdfParse(buffer);
+        extractedText = pdfData.text;
       } catch (pdfErr) {
         console.error("PDF extraction failed:", pdfErr);
         extractedText = "[PDF extraction failed]";
       }
-    } else if (contentType?.startsWith("text/")) {
+    } else if (contentType?.startsWith("text/") && storagePath) {
       try {
-        const objectFile = await objectStorageService.getObjectEntityFile(objectPath);
-        const downloadResponse = await objectStorageService.downloadObject(objectFile);
-        if (downloadResponse.body) {
-          const chunks: Uint8Array[] = [];
-          const reader = (downloadResponse.body as ReadableStream<Uint8Array>).getReader();
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            if (value) chunks.push(value);
-          }
-          extractedText = Buffer.concat(chunks).toString("utf-8");
-        }
+        const buffer = await downloadFile(storagePath);
+        extractedText = buffer.toString("utf-8");
       } catch (txtErr) {
         console.error("Text extraction failed:", txtErr);
         extractedText = "[Text extraction failed]";

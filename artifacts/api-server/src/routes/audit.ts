@@ -1,4 +1,5 @@
 import { Router, type IRouter } from "express";
+import rateLimit from "express-rate-limit";
 import { db, pool } from "@workspace/db";
 import {
   claims,
@@ -16,9 +17,17 @@ import { runFinalAudit, type AuditResponse } from "../services/audit";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+const auditLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Audit rate limit exceeded. Try again later." },
+});
+
 const router: IRouter = Router();
 
-router.post("/claims/:id/audit", async (req, res) => {
+router.post("/claims/:id/audit", auditLimiter, async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -100,7 +109,7 @@ router.post("/claims/:id/audit", async (req, res) => {
         })
         .returning();
 
-      const sectionEntries: { section: string; score: number }[] = [
+      const sectionEntries = [
         { section: "coverage_clarity", score: auditResult.section_scores.coverage_clarity },
         { section: "scope_completeness", score: auditResult.section_scores.scope_completeness },
         { section: "estimate_accuracy", score: auditResult.section_scores.estimate_accuracy },
@@ -116,15 +125,17 @@ router.post("/claims/:id/audit", async (req, res) => {
         { section: "policy_provisions", score: auditResult.section_scores.policy_provisions },
       ];
 
-      for (const entry of sectionEntries) {
-        await txDb.insert(auditSections).values({
+      await txDb.insert(auditSections).values(
+        sectionEntries.map((entry) => ({
           auditId: newAudit.id,
           section: entry.section,
           score: String(entry.score),
-        });
-      }
+        }))
+      );
 
-      const findingGroups: { type: string; severity: string; items: string[] }[] = [
+      const allFindings: { type: string; severity: string; title: string; description: string }[] = [];
+
+      const findingGroups = [
         { type: "defect", severity: "critical", items: auditResult.critical_failures || [] },
         { type: "defect", severity: "warning", items: auditResult.key_defects || [] },
         { type: "presentation_issue", severity: "warning", items: auditResult.presentation_issues || [] },
@@ -136,46 +147,33 @@ router.post("/claims/:id/audit", async (req, res) => {
         for (const item of group.items) {
           const title = typeof item === "string" ? item : (item as any)?.title ?? String(item);
           const description = typeof item === "string" ? item : (item as any)?.description ?? String(item);
-          await txDb.insert(auditFindings).values({
-            auditId: newAudit.id,
-            type: group.type,
-            severity: group.severity,
-            title: title.substring(0, 200),
-            description,
-            metadata: { category: group.type },
-          });
+          allFindings.push({ type: group.type, severity: group.severity, title: title.substring(0, 200), description });
         }
       }
 
-      const riskFindings = [
-        ...(auditResult.scope_deviations || []).map((item) => ({
-          type: "risk" as const,
-          severity: "warning" as const,
-          item,
-        })),
-        ...(auditResult.unknowns || []).map((item) => ({
-          type: "risk" as const,
-          severity: "info" as const,
-          item,
-        })),
-        ...(auditResult.invoice_adjustments || []).map((item) => ({
-          type: "risk" as const,
-          severity: "warning" as const,
-          item,
-        })),
+      const riskItems = [
+        ...(auditResult.scope_deviations || []).map((item) => ({ type: "risk", severity: "warning", item })),
+        ...(auditResult.unknowns || []).map((item) => ({ type: "risk", severity: "info", item })),
+        ...(auditResult.invoice_adjustments || []).map((item) => ({ type: "risk", severity: "warning", item })),
       ];
 
-      for (const rf of riskFindings) {
+      for (const rf of riskItems) {
         const title = typeof rf.item === "string" ? rf.item : (rf.item as any)?.title ?? String(rf.item);
         const description = typeof rf.item === "string" ? rf.item : (rf.item as any)?.description ?? String(rf.item);
-        await txDb.insert(auditFindings).values({
-          auditId: newAudit.id,
-          type: rf.type,
-          severity: rf.severity,
-          title: title.substring(0, 200),
-          description,
-          metadata: { category: rf.type },
-        });
+        allFindings.push({ type: rf.type, severity: rf.severity, title: title.substring(0, 200), description });
+      }
+
+      if (allFindings.length > 0) {
+        await txDb.insert(auditFindings).values(
+          allFindings.map((f) => ({
+            auditId: newAudit.id,
+            type: f.type,
+            severity: f.severity,
+            title: f.title,
+            description: f.description,
+            metadata: { category: f.type },
+          }))
+        );
       }
 
       await txDb.insert(auditStructured).values({
@@ -200,7 +198,7 @@ router.post("/claims/:id/audit", async (req, res) => {
 
       await client.query("COMMIT");
 
-      console.log("Audit saved to database");
+      console.log(`Audit saved for claim ${id}`);
 
       res.json({
         success: true,

@@ -1,13 +1,13 @@
-import { pgTable, text, uuid, date, timestamp, numeric, integer, jsonb, index } from "drizzle-orm/pg-core";
+import { pgTable, text, uuid, date, timestamp, numeric, integer, jsonb, index, unique } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 
 export const claims = pgTable("claims", {
   id: uuid("id").primaryKey().defaultRandom(),
-  claimNumber: text("claim_number"),
-  insuredName: text("insured_name"),
+  claimNumber: text("claim_number").notNull(),
+  insuredName: text("insured_name").notNull(),
   carrier: text("carrier"),
   dateOfLoss: date("date_of_loss"),
-  status: text("status").default("pending"),
+  status: text("status").notNull().default("pending"),
   policyNumber: text("policy_number"),
   lossType: text("loss_type"),
   propertyAddress: text("property_address"),
@@ -58,6 +58,7 @@ export const audits = pgTable("audits", {
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
   index("idx_audits_claim_id").on(table.claimId),
+  unique("uq_audits_claim_id").on(table.claimId),
 ]);
 
 export const auditsRelations = relations(audits, ({ one, many }) => ({
@@ -75,7 +76,9 @@ export const auditSections = pgTable("audit_sections", {
   section: text("section"),
   score: numeric("score"),
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, (table) => [
+  index("idx_sections_audit_id").on(table.auditId),
+]);
 
 export const auditSectionsRelations = relations(auditSections, ({ one }) => ({
   audit: one(audits, { fields: [auditSections.auditId], references: [audits.id] }),
@@ -123,8 +126,8 @@ export type AuditStructured = typeof auditStructured.$inferSelect;
 
 export const auditVersions = pgTable("audit_versions", {
   id: uuid("id").primaryKey().defaultRandom(),
-  claimId: uuid("claim_id").references(() => claims.id),
-  auditId: uuid("audit_id").references(() => audits.id),
+  claimId: uuid("claim_id").references(() => claims.id, { onDelete: "cascade" }),
+  auditId: uuid("audit_id").references(() => audits.id, { onDelete: "cascade" }),
   versionNumber: integer("version_number"),
   createdAt: timestamp("created_at").defaultNow(),
 });

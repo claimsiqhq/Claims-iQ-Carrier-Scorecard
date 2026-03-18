@@ -17,6 +17,8 @@ const isSupabase = connectionString.includes("supabase");
 const poolConfig: pg.PoolConfig = {
   connectionString,
   connectionTimeoutMillis: 10000,
+  max: 20,
+  idleTimeoutMillis: 30000,
 };
 
 if (isSupabase) {

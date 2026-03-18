@@ -53,7 +53,7 @@ router.post("/ingest", upload.single("file"), async (req, res) => {
       return;
     }
 
-    console.log(`Ingest: extracted ${extractedText.length} chars from ${fileName}, sending to OpenAI for parsing...`);
+    console.log(`Ingest: extracted ${extractedText.length} chars, sending to OpenAI for parsing...`);
 
     const storagePath = await uploadFile(fileBuffer, fileName, contentType);
 
@@ -90,7 +90,7 @@ router.post("/ingest", upload.single("file"), async (req, res) => {
       },
     }).returning();
 
-    console.log(`Ingest complete: claim ${newClaim.id} (${claimNumber}) created with document ${doc.id}, file stored at ${storagePath}`);
+    console.log(`Ingest complete: claim ${newClaim.id} created with document ${doc.id}`);
 
     res.status(201).json({
       claim: {

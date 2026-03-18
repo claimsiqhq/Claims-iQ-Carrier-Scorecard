@@ -98,10 +98,36 @@ Uses Replit AI Integrations for OpenAI access (no API key needed, billed to Repl
 - **Response format**: Structured JSON with overall/technical/presentation scores, 13 section scores, findings (including presentation_issues), risk level, approval status, executive summary
 - **Env vars**: `AI_INTEGRATIONS_OPENAI_BASE_URL`, `AI_INTEGRATIONS_OPENAI_API_KEY` (auto-provisioned)
 
+## Security & Reliability
+
+- **Helmet**: Security headers (CSP disabled for inline styles, COEP disabled for iframe compat)
+- **CORS**: Configurable via `ALLOWED_ORIGINS` env var (comma-separated). Falls back to open CORS in dev.
+- **Rate limiting**: Global (200 req/15min), audit endpoint (10 req/15min), email send (10 req/hr)
+- **Body size limits**: 50MB for JSON and URL-encoded
+- **Error sanitization**: All 500 errors return generic messages, no stack traces or internals exposed
+- **PII logging**: Removed PII (file names, claim numbers) from server logs
+- **OpenAI timeouts**: 60s for ingest parsing, 120s for audit analysis (via AbortSignal.timeout)
+- **Graceful shutdown**: SIGTERM/SIGINT handlers close HTTP server and DB pool (30s forced kill timeout)
+- **Env validation**: Required env vars checked at startup (SUPABASE_DATABASE_URL, SUPABASE_SERVICE_ROLE)
+- **DB pool config**: max=20, connectionTimeout=10s, idleTimeout=30s
+- **Error Boundary**: Global React error boundary wraps the entire app
+- **QueryClient defaults**: staleTime=30s, retry=2, refetchOnWindowFocus=false
+- **Cache invalidation**: Mutations (audit, delete) invalidate relevant query caches
+- **Email validation**: Recipient email format validated server-side before sending
+
+## Database Constraints
+
+- `claims.claim_number`, `claims.insured_name`, `claims.status` — NOT NULL
+- `audits.claim_id` — UNIQUE constraint (one audit per claim, re-auditing replaces)
+- `audit_sections.audit_id` — indexed for fast lookups
+- All child tables use ON DELETE CASCADE for FKs (documents, audits, audit_sections, audit_findings, audit_structured, audit_versions)
+- Audit route uses DB transactions (BEGIN/COMMIT/ROLLBACK) for atomicity
+- Batch inserts for audit sections and findings (single INSERT per type)
+
 ## API Routes
 
 All routes prefixed with `/api`:
-- `GET /api/healthz` — Health check
+- `GET /api/healthz` — Deep health check (verifies DB connectivity)
 - `GET /api/claims` — List all claims (includes all 13 claim fields)
 - `GET /api/claims/:id` — Get claim detail with documents, audit, sections, findings
 - `DELETE /api/claims/:id` — Delete claim + all related data (transactional)
