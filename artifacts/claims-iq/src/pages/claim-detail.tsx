@@ -68,7 +68,13 @@ function getScoreColor(score: number, max: number): { text: string; bg: string; 
 }
 
 export default function ClaimDetailPage({ claimId }: { claimId: string }) {
-  const [activeTab, setActiveTab] = useState("defects")
+  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
+    defects: true,
+    presentation: false,
+    questions: false,
+    risks: false,
+    deferred: false,
+  })
   const [, setLocation] = useLocation()
   const [auditing, setAuditing] = useState(false)
   const [auditError, setAuditError] = useState<string | null>(null)

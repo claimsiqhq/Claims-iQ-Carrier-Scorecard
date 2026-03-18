@@ -202,6 +202,8 @@ export async function extractPdfTextWithVisionPages(params: {
       extracted_text: string;
       char_count: number;
     }>;
+    filteredPages: Array<{ page_number: number; reason: string }>;
+    failedPages: Array<{ page_number: number; reason: string }>;
   };
 }> {
   logger.info({
