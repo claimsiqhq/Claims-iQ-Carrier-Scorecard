@@ -11,6 +11,7 @@ export default function AuditResultsPage() {
   const { data: claims, isLoading } = useListClaims()
   const [, setLocation] = useLocation()
   const [reportText, setReportText] = useState("")
+  const [reportPdfFile, setReportPdfFile] = useState<File | null>(null)
   const [runningStandaloneAudit, setRunningStandaloneAudit] = useState(false)
   const [standaloneAuditError, setStandaloneAuditError] = useState<string | null>(null)
   const [standaloneAudit, setStandaloneAudit] = useState<CarrierScorecardResult | null>(null)
@@ -22,23 +23,39 @@ export default function AuditResultsPage() {
   const pendingClaims = claims?.filter((c) => c.status === "pending") ?? []
 
   const handleRunStandaloneAudit = async () => {
-    if (!reportText.trim()) {
-      setStandaloneAuditError("Paste final report text before running the standalone audit.")
+    if (!reportText.trim() && !reportPdfFile) {
+      setStandaloneAuditError("Paste final report text or upload a PDF before running the standalone audit.")
       return
     }
 
     setRunningStandaloneAudit(true)
     setStandaloneAuditError(null)
     setStandaloneEmailStatus(null)
+    setStandaloneAudit(null)
 
     try {
       const baseUrl = import.meta.env.VITE_API_URL || "/api"
-      const response = await fetch(`${baseUrl}/audit/standalone`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reportText }),
-      })
+      let response: Response
+
+      if (reportPdfFile) {
+        const formData = new FormData()
+        formData.append("file", reportPdfFile)
+        if (reportText.trim()) {
+          formData.append("reportText", reportText.trim())
+        }
+        response = await fetch(`${baseUrl}/audit/standalone`, {
+          method: "POST",
+          credentials: "include",
+          body: formData,
+        })
+      } else {
+        response = await fetch(`${baseUrl}/audit/standalone`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reportText }),
+        })
+      }
 
       const body = await response.json().catch(() => ({}))
       if (!response.ok) {
@@ -112,13 +129,34 @@ export default function AuditResultsPage() {
               Standalone Carrier Scorecard Audit
             </h2>
             <p className="text-xs leading-relaxed" style={{ color: BRAND.purpleSecondary }}>
-              Paste final report package text to run a strict standalone carrier scorecard audit.
+              Paste final report package text or upload one PDF to run a strict standalone carrier scorecard audit.
             </p>
+
+            <div className="space-y-2">
+              <label className="text-xs font-semibold uppercase tracking-wider block" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
+                Optional PDF Upload
+              </label>
+              <input
+                type="file"
+                accept="application/pdf,.pdf"
+                onChange={(event) => {
+                  const file = event.target.files?.[0] ?? null
+                  setReportPdfFile(file)
+                }}
+                className="w-full rounded-lg border p-2 text-xs"
+                style={{ borderColor: BRAND.greyLavender, color: BRAND.deepPurple, fontFamily: FONTS.body }}
+              />
+              {reportPdfFile && (
+                <p className="text-xs" style={{ color: BRAND.purpleSecondary }}>
+                  Selected PDF: {reportPdfFile.name}
+                </p>
+              )}
+            </div>
 
             <textarea
               value={reportText}
               onChange={(event) => setReportText(event.target.value)}
-              placeholder="Paste final report text here..."
+              placeholder="Paste final report text here (optional if a PDF is uploaded)..."
               className="w-full min-h-[160px] rounded-lg border p-3 text-sm outline-none"
               style={{ borderColor: BRAND.greyLavender, color: BRAND.deepPurple, fontFamily: FONTS.body }}
             />
