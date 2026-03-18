@@ -23,16 +23,27 @@ const emailSendLimiter = rateLimit({
 const router: IRouter = Router();
 
 function getAuditHtml(claim: any, audit: any): string {
-  const auditResult = audit.rawResponse as unknown as AuditResponse;
-  auditResult.technical_score = auditResult.technical_score ?? 0;
-  auditResult.presentation_score = auditResult.presentation_score ?? 0;
-  auditResult.presentation_issues = auditResult.presentation_issues ?? [];
-  if (!auditResult.section_scores) {
-    auditResult.section_scores = {} as any;
-  }
-  if (!auditResult.section_reasoning) {
-    auditResult.section_reasoning = {} as any;
-  }
+  const raw = audit.rawResponse as Record<string, unknown>;
+  const sectionScores = (raw.section_scores ?? {}) as AuditResponse["section_scores"];
+  const sectionReasoning = (raw.section_reasoning ?? {}) as AuditResponse["section_reasoning"];
+  const auditResult: AuditResponse = {
+    overall_score: Number(raw.overall_score ?? 0),
+    technical_score: Number(raw.technical_score ?? 0),
+    presentation_score: Number(raw.presentation_score ?? 0),
+    section_scores: sectionScores,
+    section_reasoning: sectionReasoning,
+    risk_level: String(raw.risk_level ?? ""),
+    approval_status: String(raw.approval_status ?? ""),
+    critical_failures: Array.isArray(raw.critical_failures) ? raw.critical_failures : [],
+    key_defects: Array.isArray(raw.key_defects) ? raw.key_defects : [],
+    presentation_issues: Array.isArray(raw.presentation_issues) ? raw.presentation_issues : [],
+    carrier_questions: Array.isArray(raw.carrier_questions) ? raw.carrier_questions : [],
+    deferred_items: Array.isArray(raw.deferred_items) ? raw.deferred_items : [],
+    invoice_adjustments: Array.isArray(raw.invoice_adjustments) ? raw.invoice_adjustments : [],
+    scope_deviations: Array.isArray(raw.scope_deviations) ? raw.scope_deviations : [],
+    unknowns: Array.isArray(raw.unknowns) ? raw.unknowns : [],
+    executive_summary: String(raw.executive_summary ?? ""),
+  };
   return renderAuditEmail({
     claimNumber: claim.claimNumber ?? "",
     insuredName: claim.insuredName ?? "",
