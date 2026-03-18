@@ -7,6 +7,7 @@ import {
   DollarCircle,
   WarningTriangle,
   NavArrowRight,
+  NavArrowDown,
   Download,
   Mail,
   Sparks,
@@ -21,6 +22,7 @@ import {
   SendMail,
   Eye,
   Xmark,
+  Trash,
 } from "iconoir-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -80,6 +82,8 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
   const [emailError, setEmailError] = useState<string | null>(null)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [mobileDetailsOpen, setMobileDetailsOpen] = useState(false)
+  const [mobileDocOpen, setMobileDocOpen] = useState(false)
 
   const queryClient = useQueryClient()
   const { data, isLoading, error, refetch } = useGetClaimDetail(claimId)
@@ -373,7 +377,129 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
                   Email
                 </Button>
               )}
+              {!showDeleteConfirm ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1 text-sm"
+                  style={{ borderColor: "#fca5a5", color: "#dc2626" }}
+                  onClick={() => setShowDeleteConfirm(true)}
+                >
+                  <Trash width={16} height={16} />
+                </Button>
+              ) : (
+                <Button
+                  size="sm"
+                  className="gap-1 text-sm text-white"
+                  style={{ backgroundColor: deleting ? BRAND.purpleSecondary : "#dc2626" }}
+                  onClick={handleDeleteClaim}
+                  disabled={deleting}
+                >
+                  {deleting ? "..." : "Confirm"}
+                </Button>
+              )}
             </div>
+
+            {showDeleteConfirm && (
+              <div className="md:hidden flex items-center gap-2 p-3 rounded-lg" style={{ backgroundColor: "#fef2f2", border: "1px solid #fca5a5" }}>
+                <WarningTriangle width={16} height={16} style={{ color: "#dc2626" }} className="shrink-0" />
+                <p className="text-xs flex-1" style={{ color: "#dc2626" }}>This will permanently delete the claim, documents, and audit data.</p>
+                <button
+                  className="text-xs font-semibold shrink-0 underline"
+                  style={{ color: BRAND.purpleSecondary }}
+                  onClick={() => setShowDeleteConfirm(false)}
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+
+            <Card className="md:hidden shadow-sm" style={{ borderColor: BRAND.greyLavender, backgroundColor: BRAND.white }}>
+              <button
+                className="w-full flex items-center justify-between p-4"
+                onClick={() => setMobileDetailsOpen(!mobileDetailsOpen)}
+              >
+                <div className="flex items-center gap-2">
+                  <h2 className="text-xs font-bold uppercase tracking-wider" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
+                    Claim Details
+                  </h2>
+                  <Badge className="shadow-none border-transparent text-xs font-semibold" style={{ backgroundColor: claim.status === "analyzed" ? "#e8f5e9" : BRAND.lightPurpleGrey, color: claim.status === "analyzed" ? "#2e7d32" : BRAND.purple }}>
+                    {claim.status?.charAt(0).toUpperCase() + claim.status?.slice(1)}
+                  </Badge>
+                </div>
+                <NavArrowDown
+                  width={16} height={16}
+                  className={`transition-transform duration-200 ${mobileDetailsOpen ? "rotate-180" : ""}`}
+                  style={{ color: BRAND.purpleSecondary }}
+                />
+              </button>
+              {mobileDetailsOpen && (
+                <CardContent className="px-4 pb-4 pt-0 space-y-3">
+                  <Separator style={{ backgroundColor: BRAND.greyLavender }} />
+                  <DetailItem label="Claim Number" value={claim.claimNumber} mono />
+                  <DetailItem label="Insured" value={claim.insuredName} />
+                  <DetailItem label="Date of Loss" value={claim.dateOfLoss ?? "N/A"} />
+                  <DetailItem label="Carrier" value={claim.carrier ?? "N/A"} />
+                  {claim.policyNumber && <DetailItem label="Policy Number" value={claim.policyNumber} mono />}
+                  {claim.lossType && <DetailItem label="Loss Type" value={claim.lossType} />}
+                  {claim.propertyAddress && <DetailItem label="Property Address" value={claim.propertyAddress} />}
+                  {claim.adjuster && <DetailItem label="Adjuster" value={claim.adjuster} />}
+                  {claim.totalClaimAmount && <DetailItem label="Total Claim Amount" value={claim.totalClaimAmount} mono />}
+                  {claim.deductible && <DetailItem label="Deductible" value={claim.deductible} mono />}
+                  {claim.summary && (
+                    <div className="flex flex-col gap-1">
+                      <span className="text-xs font-medium uppercase tracking-wider" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.body }}>Summary</span>
+                      <span className="text-xs leading-relaxed" style={{ color: BRAND.deepPurple, fontFamily: FONTS.body }}>{claim.summary}</span>
+                    </div>
+                  )}
+                  {claimFile && (
+                    <>
+                      <Separator style={{ backgroundColor: BRAND.greyLavender }} />
+                      <div className="flex items-center gap-2 p-2 rounded-md" style={{ backgroundColor: BRAND.lightPurpleGrey, border: `1px solid ${BRAND.purpleLight}` }}>
+                        <Page width={16} height={16} style={{ color: BRAND.purple }} />
+                        <span className="text-sm truncate" style={{ color: BRAND.purple, fontWeight: 600, fontFamily: FONTS.body }}>
+                          {claimFileName}
+                        </span>
+                      </div>
+                    </>
+                  )}
+                </CardContent>
+              )}
+            </Card>
+
+            {claimFile && (
+              <Card className="md:hidden shadow-sm" style={{ borderColor: BRAND.greyLavender, backgroundColor: BRAND.white }}>
+                <button
+                  className="w-full flex items-center justify-between p-4"
+                  onClick={() => setMobileDocOpen(!mobileDocOpen)}
+                >
+                  <div className="flex items-center gap-2">
+                    <PageSearch width={16} height={16} style={{ color: BRAND.purple }} />
+                    <h2 className="text-xs font-bold uppercase tracking-wider" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
+                      Extraction Preview
+                    </h2>
+                  </div>
+                  <NavArrowDown
+                    width={16} height={16}
+                    className={`transition-transform duration-200 ${mobileDocOpen ? "rotate-180" : ""}`}
+                    style={{ color: BRAND.purpleSecondary }}
+                  />
+                </button>
+                {mobileDocOpen && (
+                  <CardContent className="px-4 pb-4 pt-0">
+                    <div className="rounded p-3 text-xs leading-relaxed whitespace-pre-wrap max-h-80 overflow-y-auto" style={{ backgroundColor: BRAND.offWhite, border: `1px solid ${BRAND.greyLavender}`, color: BRAND.deepPurple, fontFamily: FONTS.mono, fontSize: "11px" }}>
+                      {claimFile.extractedText
+                        ? claimFile.extractedText
+                        : (
+                          <p className="text-center py-6" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.body, fontSize: "13px" }}>
+                            Text not yet extracted. Run a carrier audit or re-upload the file.
+                          </p>
+                        )}
+                    </div>
+                  </CardContent>
+                )}
+              </Card>
+            )}
 
             {audit && (
               <>
