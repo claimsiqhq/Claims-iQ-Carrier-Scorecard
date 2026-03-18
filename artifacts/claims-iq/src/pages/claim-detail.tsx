@@ -20,7 +20,6 @@ import {
   BookStack,
   Lock,
   SendMail,
-  Eye,
   Xmark,
   Trash,
 } from "iconoir-react"
@@ -125,16 +124,20 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
     }
   }, [claimId, setLocation, queryClient])
 
-  const handlePreviewEmail = useCallback(async () => {
+  const handleOpenEmailModal = useCallback(async () => {
+    setShowEmailModal(true)
+    setEmailError(null)
+    setEmailSent(false)
     setEmailLoading(true)
+    setEmailPreviewHtml(null)
     try {
       const baseUrl = import.meta.env.VITE_API_URL || "/api"
       const res = await fetch(`${baseUrl}/claims/${claimId}/email`, { credentials: "include" })
-      if (!res.ok) throw new Error("Failed to generate email")
+      if (!res.ok) throw new Error("Failed to generate email preview")
       const { html } = await res.json()
       setEmailPreviewHtml(html)
     } catch (err: any) {
-      alert(err.message || "Failed to generate email")
+      setEmailError(err.message || "Failed to generate email preview")
     } finally {
       setEmailLoading(false)
     }
@@ -162,6 +165,7 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
         setShowEmailModal(false)
         setEmailSent(false)
         setEmailTo("")
+        setEmailPreviewHtml(null)
       }, 2000)
     } catch (err: any) {
       setEmailError(err.message || "Failed to send email")
@@ -225,29 +229,16 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
 
         <div className="flex items-center gap-2 md:gap-3 shrink-0">
           {audit && (
-            <>
-              <Button
-                variant="outline"
-                size="sm"
-                className="hidden lg:flex gap-2"
-                style={{ borderColor: BRAND.greyLavender, color: BRAND.deepPurple }}
-                onClick={handlePreviewEmail}
-                disabled={emailLoading}
-              >
-                <Eye width={16} height={16} />
-                {emailLoading ? "Generating..." : "Preview Email"}
-              </Button>
-              <Button
-                size="sm"
-                className="gap-1 md:gap-2 text-white border-transparent text-xs md:text-sm"
-                style={{ backgroundColor: BRAND.gold, fontFamily: FONTS.heading, fontWeight: 600 }}
-                onClick={() => { setShowEmailModal(true); setEmailError(null); setEmailSent(false) }}
-              >
-                <SendMail width={16} height={16} />
-                <span className="hidden sm:inline">Send to Carrier</span>
-                <span className="sm:hidden">Send</span>
-              </Button>
-            </>
+            <Button
+              size="sm"
+              className="gap-1 md:gap-2 text-white border-transparent text-xs md:text-sm"
+              style={{ backgroundColor: BRAND.gold, fontFamily: FONTS.heading, fontWeight: 600 }}
+              onClick={handleOpenEmailModal}
+            >
+              <SendMail width={16} height={16} />
+              <span className="hidden sm:inline">Email Scorecard</span>
+              <span className="sm:hidden">Email</span>
+            </Button>
           )}
         </div>
       </header>
@@ -369,14 +360,12 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
               </Button>
               {audit && (
                 <Button
-                  variant="outline"
                   size="sm"
-                  className="gap-1 text-sm"
-                  style={{ borderColor: BRAND.greyLavender, color: BRAND.deepPurple }}
-                  onClick={handlePreviewEmail}
-                  disabled={emailLoading}
+                  className="gap-1 text-sm text-white"
+                  style={{ backgroundColor: BRAND.gold, fontFamily: FONTS.heading, fontWeight: 600 }}
+                  onClick={handleOpenEmailModal}
                 >
-                  <Eye width={16} height={16} />
+                  <SendMail width={16} height={16} />
                   Email
                 </Button>
               )}
@@ -725,65 +714,81 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
         </div>
       </div>
 
-      {emailPreviewHtml && (
-        <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center" style={{ backgroundColor: "rgba(52, 42, 79, 0.5)" }} onClick={() => setEmailPreviewHtml(null)} role="dialog" aria-label="Email preview">
-          <div className="w-full md:max-w-3xl h-[90vh] md:h-[80vh] rounded-t-xl md:rounded-xl shadow-2xl flex flex-col overflow-hidden" style={{ backgroundColor: BRAND.white }} onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between p-4 shrink-0" style={{ borderBottom: `1px solid ${BRAND.greyLavender}` }}>
-              <h3 className="text-lg font-bold" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>Email Preview</h3>
-              <button onClick={() => setEmailPreviewHtml(null)} className="p-1 rounded hover:opacity-70 transition-opacity" style={{ color: BRAND.purpleSecondary }} aria-label="Close email preview">
-                <Xmark width={20} height={20} />
-              </button>
-            </div>
-            <iframe
-              srcDoc={emailPreviewHtml}
-              className="flex-1 w-full border-0"
-              title="Email preview"
-              sandbox="allow-same-origin"
-            />
-          </div>
-        </div>
-      )}
-
       {showEmailModal && (
-        <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center" style={{ backgroundColor: "rgba(52, 42, 79, 0.5)" }} onClick={() => setShowEmailModal(false)} role="dialog" aria-label="Send audit email">
-          <div className="w-full md:max-w-md rounded-t-xl md:rounded-xl shadow-2xl p-5 md:p-6" style={{ backgroundColor: BRAND.white }} onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-5">
+        <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center" style={{ backgroundColor: "rgba(52, 42, 79, 0.5)" }} onClick={() => { setShowEmailModal(false); setEmailPreviewHtml(null) }} role="dialog" aria-label="Email scorecard">
+          <div className="w-full md:max-w-3xl h-[90vh] md:h-[85vh] rounded-t-xl md:rounded-xl shadow-2xl flex flex-col overflow-hidden" style={{ backgroundColor: BRAND.white }} onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-4 shrink-0" style={{ borderBottom: `1px solid ${BRAND.greyLavender}` }}>
               <h3 className="text-lg font-bold flex items-center gap-2" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
                 <SendMail width={20} height={20} style={{ color: BRAND.gold }} />
-                Send Audit to Carrier
+                Email Scorecard
               </h3>
-              <button onClick={() => setShowEmailModal(false)} className="p-1 rounded hover:opacity-70 transition-opacity" style={{ color: BRAND.purpleSecondary }} aria-label="Close send email modal">
+              <button onClick={() => { setShowEmailModal(false); setEmailPreviewHtml(null) }} className="p-1 rounded hover:opacity-70 transition-opacity" style={{ color: BRAND.purpleSecondary }} aria-label="Close email modal">
                 <Xmark width={20} height={20} />
               </button>
             </div>
 
-            <div className="space-y-4">
-              <div>
-                <label className="text-xs font-bold uppercase tracking-wider mb-1.5 block" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
-                  Recipient Email
-                </label>
-                <input
-                  type="email"
-                  placeholder="carrier-reviewer@example.com"
-                  className="w-full rounded-lg border px-3 py-2.5 text-sm outline-none transition-colors"
-                  style={{ borderColor: BRAND.greyLavender, color: BRAND.deepPurple, fontFamily: FONTS.body }}
-                  value={emailTo}
-                  onChange={(e) => setEmailTo(e.target.value)}
-                  onFocus={(e) => (e.target.style.borderColor = BRAND.purple)}
-                  onBlur={(e) => (e.target.style.borderColor = BRAND.greyLavender)}
-                  autoFocus
-                />
+            {emailLoading && !emailPreviewHtml && (
+              <div className="flex-1 flex items-center justify-center">
+                <div className="text-center">
+                  <div className="w-8 h-8 border-2 border-t-transparent rounded-full animate-spin mx-auto mb-3" style={{ borderColor: BRAND.purple, borderTopColor: "transparent" }} />
+                  <p className="text-sm" style={{ color: BRAND.purpleSecondary }}>Generating preview...</p>
+                </div>
+              </div>
+            )}
+
+            {emailPreviewHtml && (
+              <iframe
+                srcDoc={emailPreviewHtml}
+                className="flex-1 w-full border-0 min-h-0"
+                title="Email preview"
+                sandbox="allow-same-origin"
+              />
+            )}
+
+            <div className="shrink-0 p-4 space-y-3" style={{ borderTop: `1px solid ${BRAND.greyLavender}`, backgroundColor: BRAND.offWhite }}>
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-end gap-3">
+                <div className="flex-1">
+                  <label className="text-xs font-bold uppercase tracking-wider mb-1.5 block" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
+                    Recipient Email
+                  </label>
+                  <input
+                    type="email"
+                    placeholder="carrier-reviewer@example.com"
+                    className="w-full rounded-lg border px-3 py-2.5 text-sm outline-none transition-colors"
+                    style={{ borderColor: BRAND.greyLavender, color: BRAND.deepPurple, fontFamily: FONTS.body, backgroundColor: BRAND.white }}
+                    value={emailTo}
+                    onChange={(e) => setEmailTo(e.target.value)}
+                    onFocus={(e) => (e.target.style.borderColor = BRAND.purple)}
+                    onBlur={(e) => (e.target.style.borderColor = BRAND.greyLavender)}
+                    autoFocus
+                  />
+                </div>
+                <Button
+                  className="gap-2 text-white px-6 shrink-0"
+                  style={{ backgroundColor: emailSending ? BRAND.purpleSecondary : BRAND.gold, fontFamily: FONTS.heading, fontWeight: 600 }}
+                  onClick={handleSendEmail}
+                  disabled={!emailTo || emailSending || emailSent || emailLoading}
+                >
+                  {emailSending ? (
+                    <span className="flex items-center gap-2">
+                      <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Sending...
+                    </span>
+                  ) : emailSent ? (
+                    "Sent!"
+                  ) : (
+                    <>
+                      <SendMail width={16} height={16} />
+                      Send
+                    </>
+                  )}
+                </Button>
               </div>
 
-              <div className="rounded-lg p-3" style={{ backgroundColor: BRAND.offWhite }}>
+              <div className="flex items-center justify-between">
                 <p className="text-xs" style={{ color: BRAND.purpleSecondary }}>
-                  <strong style={{ color: BRAND.deepPurple }}>From:</strong> john@claimsiq.ai
-                </p>
-                <p className="text-xs mt-1" style={{ color: BRAND.purpleSecondary }}>
-                  <strong style={{ color: BRAND.deepPurple }}>Subject:</strong> Claims iQ Audit — {claim.claimNumber} — {claim.insuredName}
-                </p>
-                <p className="text-xs mt-1" style={{ color: BRAND.purpleSecondary }}>
-                  The email includes the full carrier scorecard, findings, and executive summary.
+                  <strong style={{ color: BRAND.deepPurple }}>From:</strong> john@claimsiq.ai &nbsp;·&nbsp;
+                  <strong style={{ color: BRAND.deepPurple }}>Subject:</strong> Claims iQ Audit — {claim.claimNumber}
                 </p>
               </div>
 
@@ -796,37 +801,6 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
                   <CheckCircle width={14} height={14} /> Email sent successfully!
                 </p>
               )}
-
-              <div className="flex gap-3 pt-1">
-                <Button
-                  variant="outline"
-                  className="flex-1"
-                  style={{ borderColor: BRAND.greyLavender, color: BRAND.deepPurple }}
-                  onClick={() => setShowEmailModal(false)}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  className="flex-1 text-white gap-2"
-                  style={{ backgroundColor: emailSending ? BRAND.purpleSecondary : BRAND.gold, fontFamily: FONTS.heading, fontWeight: 600 }}
-                  onClick={handleSendEmail}
-                  disabled={!emailTo || emailSending || emailSent}
-                >
-                  {emailSending ? (
-                    <span className="flex items-center gap-2">
-                      <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                      Sending...
-                    </span>
-                  ) : emailSent ? (
-                    "Sent!"
-                  ) : (
-                    <>
-                      <SendMail width={16} height={16} />
-                      Send Email
-                    </>
-                  )}
-                </Button>
-              </div>
             </div>
           </div>
         </div>

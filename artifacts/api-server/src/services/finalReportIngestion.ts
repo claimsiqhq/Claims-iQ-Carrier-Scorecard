@@ -94,9 +94,38 @@ async function renderPdfToPngPages(pdfBuffer: Buffer): Promise<RenderedPage[]> {
   return pages;
 }
 
+const DEFAULT_SYSTEM_PROMPT = [
+  "You are an extraction assistant.",
+  "Return JSON only in this exact shape:",
+  '{"page_number":1,"text":"<full extracted page text>"}',
+  "Extract all visible text from the page in reading order.",
+  "Do not summarize.",
+  "Do not omit tables, headers, footers, or labels.",
+].join(" ");
+
+const CONTENT_FILTER_RETRY_PROMPT = [
+  "You are a professional document extraction assistant for licensed insurance adjusters.",
+  "This page is from a property insurance claim inspection report.",
+  "It may contain photographs of property damage (water damage, structural damage, mold, fire damage, etc.) with annotations, labels, dates, and descriptions.",
+  "Return JSON only in this exact shape:",
+  '{"page_number":1,"text":"<full extracted page text>"}',
+  "Extract ALL visible text from the page in reading order including headers, photo labels, photo descriptions, dates, adjuster names, claim numbers, and any annotations or red-box callouts.",
+  "Do not summarize. Do not omit any text.",
+].join(" ");
+
+function isContentFilterError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const e = err as any;
+  return (e.status === 400 && e.code === "content_filter") ||
+    (e.error?.code === "content_filter") ||
+    (e.error?.inner_error?.code === "ResponsibleAIPolicyViolation") ||
+    (e.message?.includes("content management policy"));
+}
+
 async function extractSinglePageTextWithVision(params: {
   page: RenderedPage;
   requestId: string;
+  systemPrompt?: string;
 }): Promise<string> {
   const { openai } = await import("@workspace/integrations-openai-ai-server");
   const imageDataUrl = `data:image/png;base64,${params.page.pngBuffer.toString("base64")}`;
@@ -115,14 +144,7 @@ async function extractSinglePageTextWithVision(params: {
     messages: [
       {
         role: "system",
-        content: [
-          "You are an extraction assistant.",
-          "Return JSON only in this exact shape:",
-          '{"page_number":1,"text":"<full extracted page text>"}',
-          "Extract all visible text from the page in reading order.",
-          "Do not summarize.",
-          "Do not omit tables, headers, footers, or labels.",
-        ].join(" "),
+        content: params.systemPrompt || DEFAULT_SYSTEM_PROMPT,
       },
       {
         role: "user",
@@ -202,38 +224,117 @@ export async function extractPdfTextWithVisionPages(params: {
     extracted_text: string;
     char_count: number;
   }> = [];
+  const filteredPages: Array<{ page_number: number; reason: string }> = [];
+  const failedPages: Array<{ page_number: number; reason: string }> = [];
 
   for (const page of pages) {
-    const extractedText = await extractSinglePageTextWithVision({
-      page,
-      requestId: params.requestId,
-    });
-    extractedPages.push({
-      page_number: page.pageNumber,
-      width: page.width,
-      height: page.height,
-      extracted_text: extractedText,
-      char_count: extractedText.length,
-    });
+    try {
+      const extractedText = await extractSinglePageTextWithVision({
+        page,
+        requestId: params.requestId,
+      });
+      extractedPages.push({
+        page_number: page.pageNumber,
+        width: page.width,
+        height: page.height,
+        extracted_text: extractedText,
+        char_count: extractedText.length,
+      });
+    } catch (err) {
+      if (isContentFilterError(err)) {
+        logger.warn({
+          requestId: params.requestId,
+          page_number: page.pageNumber,
+          total_pages: pages.length,
+        }, "Content filter triggered, retrying with insurance-specific prompt");
+
+        try {
+          const extractedText = await extractSinglePageTextWithVision({
+            page,
+            requestId: params.requestId,
+            systemPrompt: CONTENT_FILTER_RETRY_PROMPT,
+          });
+          extractedPages.push({
+            page_number: page.pageNumber,
+            width: page.width,
+            height: page.height,
+            extracted_text: extractedText,
+            char_count: extractedText.length,
+          });
+          logger.info({
+            requestId: params.requestId,
+            page_number: page.pageNumber,
+          }, "Content filter retry succeeded");
+        } catch (retryErr) {
+          const reason = isContentFilterError(retryErr)
+            ? "Azure content filter blocked this page (property damage photo)"
+            : (retryErr instanceof Error ? retryErr.message : "Unknown retry error");
+          logger.warn({
+            requestId: params.requestId,
+            page_number: page.pageNumber,
+            reason,
+          }, "Page extraction failed after retry, continuing with remaining pages");
+          filteredPages.push({ page_number: page.pageNumber, reason });
+          extractedPages.push({
+            page_number: page.pageNumber,
+            width: page.width,
+            height: page.height,
+            extracted_text: `[Page ${page.pageNumber}: content filter — text could not be extracted]`,
+            char_count: 0,
+          });
+        }
+      } else {
+        const reason = err instanceof Error ? err.message : "Unknown error";
+        logger.warn({
+          requestId: params.requestId,
+          page_number: page.pageNumber,
+          error: reason,
+        }, "Page extraction failed, continuing with remaining pages");
+        failedPages.push({ page_number: page.pageNumber, reason });
+        extractedPages.push({
+          page_number: page.pageNumber,
+          width: page.width,
+          height: page.height,
+          extracted_text: `[Page ${page.pageNumber}: extraction error — ${reason}]`,
+          char_count: 0,
+        });
+      }
+    }
 
     if (page.pageNumber === 1 || page.pageNumber === pages.length || page.pageNumber % 10 === 0) {
       logger.info({
         requestId: params.requestId,
         page_number: page.pageNumber,
         total_pages: pages.length,
-        extracted_chars: extractedText.length,
+        extracted_chars: extractedPages[extractedPages.length - 1]?.char_count ?? 0,
       }, "Vision extraction completed for page");
     }
+  }
+
+  if (filteredPages.length > 0 || failedPages.length > 0) {
+    logger.warn({
+      requestId: params.requestId,
+      filteredPages,
+      failedPages,
+      totalPages: pages.length,
+      successfulPages: pages.length - filteredPages.length - failedPages.length,
+    }, "Some pages could not be extracted");
+  }
+
+  const successfulText = extractedPages
+    .filter((p) => p.char_count > 0)
+    .map((page) => `=== Page ${page.page_number} ===\n${page.extracted_text}`)
+    .join("\n\n")
+    .trim();
+
+  if (!successfulText) {
+    throw new Error(`Vision extraction returned no usable text. ${filteredPages.length} pages blocked by content filter, ${failedPages.length} pages failed.`);
   }
 
   const text = extractedPages
     .map((page) => `=== Page ${page.page_number} ===\n${page.extracted_text}`)
     .join("\n\n")
     .trim();
-
-  if (!text) {
-    throw new Error("Vision extraction returned empty text.");
-  }
 
   return {
     text,
@@ -244,6 +345,8 @@ export async function extractPdfTextWithVisionPages(params: {
       file_name: params.fileName,
       page_count: extractedPages.length,
       pages: extractedPages,
+      filteredPages,
+      failedPages,
     },
   };
 }
