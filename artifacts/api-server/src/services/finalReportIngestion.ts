@@ -214,9 +214,9 @@ export async function extractPdfTextWithVisionPages(params: {
   const filteredPages: Array<{ page_number: number; reason: string }> = [];
   const failedPages: Array<{ page_number: number; reason: string }> = [];
 
-  for (let pageNumber = 1; pageNumber <= totalPages; pageNumber++) {
-    await new Promise((r) => setTimeout(r, 0));
+  const CONCURRENCY = 5;
 
+  async function processOnePage(pageNumber: number) {
     let page: RenderedPage;
     try {
       page = await renderSinglePdfPage(pdf, pageNumber, createCanvas);
@@ -224,8 +224,7 @@ export async function extractPdfTextWithVisionPages(params: {
       const reason = renderErr instanceof Error ? renderErr.message : "Render failed";
       logger.warn({ requestId: params.requestId, page_number: pageNumber, error: reason }, "Page render failed, skipping");
       failedPages.push({ page_number: pageNumber, reason });
-      extractedPages.push({ page_number: pageNumber, width: 0, height: 0, extracted_text: `[Page ${pageNumber}: render error]`, char_count: 0 });
-      continue;
+      return { page_number: pageNumber, width: 0, height: 0, extracted_text: `[Page ${pageNumber}: render error]`, char_count: 0 };
     }
 
     if (pageNumber === 1 || pageNumber === totalPages || pageNumber % 10 === 0) {
@@ -237,82 +236,39 @@ export async function extractPdfTextWithVisionPages(params: {
         page,
         requestId: params.requestId,
       });
-      extractedPages.push({
-        page_number: page.pageNumber,
-        width: page.width,
-        height: page.height,
-        extracted_text: extractedText,
-        char_count: extractedText.length,
-      });
+      if (pageNumber === 1 || pageNumber === totalPages || pageNumber % 10 === 0) {
+        logger.info({ requestId: params.requestId, page_number: pageNumber, total_pages: totalPages, extracted_chars: extractedText.length }, "Vision extraction completed for page");
+      }
+      return { page_number: page.pageNumber, width: page.width, height: page.height, extracted_text: extractedText, char_count: extractedText.length };
     } catch (err) {
       if (isContentFilterError(err)) {
-        logger.warn({
-          requestId: params.requestId,
-          page_number: page.pageNumber,
-          total_pages: totalPages,
-        }, "Content filter triggered, retrying with insurance-specific prompt");
-
+        logger.warn({ requestId: params.requestId, page_number: page.pageNumber, total_pages: totalPages }, "Content filter triggered, retrying with insurance-specific prompt");
         try {
-          const extractedText = await extractSinglePageTextWithVision({
-            page,
-            requestId: params.requestId,
-            systemPrompt: CONTENT_FILTER_RETRY_PROMPT,
-          });
-          extractedPages.push({
-            page_number: page.pageNumber,
-            width: page.width,
-            height: page.height,
-            extracted_text: extractedText,
-            char_count: extractedText.length,
-          });
-          logger.info({
-            requestId: params.requestId,
-            page_number: page.pageNumber,
-          }, "Content filter retry succeeded");
+          const extractedText = await extractSinglePageTextWithVision({ page, requestId: params.requestId, systemPrompt: CONTENT_FILTER_RETRY_PROMPT });
+          logger.info({ requestId: params.requestId, page_number: page.pageNumber }, "Content filter retry succeeded");
+          return { page_number: page.pageNumber, width: page.width, height: page.height, extracted_text: extractedText, char_count: extractedText.length };
         } catch (retryErr) {
           const reason = isContentFilterError(retryErr)
             ? "Azure content filter blocked this page (property damage photo)"
             : (retryErr instanceof Error ? retryErr.message : "Unknown retry error");
-          logger.warn({
-            requestId: params.requestId,
-            page_number: page.pageNumber,
-            reason,
-          }, "Page extraction failed after retry, continuing with remaining pages");
+          logger.warn({ requestId: params.requestId, page_number: page.pageNumber, reason }, "Page extraction failed after retry, continuing with remaining pages");
           filteredPages.push({ page_number: page.pageNumber, reason });
-          extractedPages.push({
-            page_number: page.pageNumber,
-            width: page.width,
-            height: page.height,
-            extracted_text: `[Page ${page.pageNumber}: content filter — text could not be extracted]`,
-            char_count: 0,
-          });
+          return { page_number: page.pageNumber, width: page.width, height: page.height, extracted_text: `[Page ${page.pageNumber}: content filter — text could not be extracted]`, char_count: 0 };
         }
       } else {
         const reason = err instanceof Error ? err.message : "Unknown error";
-        logger.warn({
-          requestId: params.requestId,
-          page_number: page.pageNumber,
-          error: reason,
-        }, "Page extraction failed, continuing with remaining pages");
+        logger.warn({ requestId: params.requestId, page_number: page.pageNumber, error: reason }, "Page extraction failed, continuing with remaining pages");
         failedPages.push({ page_number: page.pageNumber, reason });
-        extractedPages.push({
-          page_number: page.pageNumber,
-          width: page.width,
-          height: page.height,
-          extracted_text: `[Page ${page.pageNumber}: extraction error — ${reason}]`,
-          char_count: 0,
-        });
+        return { page_number: page.pageNumber, width: page.width, height: page.height, extracted_text: `[Page ${page.pageNumber}: extraction error — ${reason}]`, char_count: 0 };
       }
     }
+  }
 
-    if (pageNumber === 1 || pageNumber === totalPages || pageNumber % 10 === 0) {
-      logger.info({
-        requestId: params.requestId,
-        page_number: pageNumber,
-        total_pages: totalPages,
-        extracted_chars: extractedPages[extractedPages.length - 1]?.char_count ?? 0,
-      }, "Vision extraction completed for page");
-    }
+  for (let batchStart = 1; batchStart <= totalPages; batchStart += CONCURRENCY) {
+    const batchEnd = Math.min(batchStart + CONCURRENCY - 1, totalPages);
+    const batchPages = Array.from({ length: batchEnd - batchStart + 1 }, (_, i) => batchStart + i);
+    const results = await Promise.all(batchPages.map(processOnePage));
+    extractedPages.push(...results);
   }
 
   await loadingTask.destroy();

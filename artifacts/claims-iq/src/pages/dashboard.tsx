@@ -142,7 +142,7 @@ export default function DashboardPage() {
   }, [])
 
   const pollProcessingStatus = useCallback(async (claimId: string): Promise<ProcessingStatus> => {
-    const maxAttempts = 200
+    const maxAttempts = 600
     const intervalMs = 3000
     for (let i = 0; i < maxAttempts; i++) {
       await new Promise((r) => setTimeout(r, intervalMs))

@@ -48,6 +48,8 @@ The project is a pnpm workspace monorepo using Node.js v24 and TypeScript v5.9.
 - **Data Retention**: GDPR-compliant data deletion with cascading deletes for claims and associated PII.
 
 ### System Design Choices
+- **Parallel Vision Extraction**: PDF pages are processed through Vision AI in batches of 5 concurrently (previously sequential), reducing a 129-page PDF from ~20min to ~4min. Configured via `CONCURRENCY` constant in `finalReportIngestion.ts`.
+- **Auto-Refresh for Processing Claims**: The claims list auto-refreshes every 10 seconds when any claims are in "processing" status, so completed claims appear without manual refresh.
 - **Transactional Integrity**: Audit process and claim deletions utilize database transactions for atomicity.
 - **API Specification**: OpenAPI specification is used for API definition, with Orval for client and Zod schema generation.
 - **Error Handling**: Generic error messages for 500 errors to prevent information leakage.

@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef } from "react"
+import React, { useState, useCallback, useRef, useMemo } from "react"
 import { useToast } from "@/hooks/use-toast"
 import { BRAND, FONTS } from "@/lib/brand"
 import { Card, CardContent } from "@/components/ui/card"
@@ -52,7 +52,15 @@ const statusColors: Record<string, { bg: string; color: string }> = {
 }
 
 export default function ClaimsListPage() {
-  const { data: claims, isLoading } = useListClaims()
+  const { data: claims, isLoading } = useListClaims({
+    query: {
+      refetchInterval: (query) => {
+        const data = query.state.data as any[] | undefined
+        const hasProcessing = data?.some((c: any) => c.status === "processing")
+        return hasProcessing ? 10_000 : false
+      },
+    },
+  })
   const [, setLocation] = useLocation()
   const queryClient = useQueryClient()
   const { toast } = useToast()
@@ -98,7 +106,8 @@ export default function ClaimsListPage() {
       const data: IngestResult = await ingestRes.json()
 
       setStatus("extracting")
-      const maxAttempts = 200
+      const maxAttempts = 600
+      let completed = false
       for (let i = 0; i < maxAttempts; i++) {
         await new Promise((r) => setTimeout(r, 3000))
         try {
@@ -109,11 +118,19 @@ export default function ClaimsListPage() {
           if (ps.status === "ready") {
             data.claim.claimNumber = ps.claimNumber
             data.claim.insuredName = ps.insuredName
+            completed = true
             break
           }
         } catch (pollErr: any) {
           if (pollErr.message && pollErr.message !== "Failed to fetch") throw pollErr
         }
+      }
+
+      if (!completed) {
+        setStatus("complete")
+        queryClient.invalidateQueries({ queryKey: ["/claims"] })
+        toast({ title: "Still processing", description: "The PDF is large and still being analyzed. The list will update automatically when it finishes." })
+        return
       }
 
       setResult(data)
@@ -162,7 +179,7 @@ export default function ClaimsListPage() {
       }
 
       setRetryingClaims((prev) => ({ ...prev, [claimId]: "polling" }))
-      const maxAttempts = 200
+      const maxAttempts = 600
       for (let i = 0; i < maxAttempts; i++) {
         await new Promise((r) => setTimeout(r, 3000))
         try {
@@ -192,8 +209,12 @@ export default function ClaimsListPage() {
           }
         }
       }
-      setRetryingClaims((prev) => ({ ...prev, [claimId]: "Timed out waiting for processing" }))
-      toast({ title: "Retry timed out", description: "Processing is taking longer than expected. Check back later.", variant: "destructive" })
+      setRetryingClaims((prev) => {
+        const next = { ...prev }
+        delete next[claimId]
+        return next
+      })
+      toast({ title: "Still processing", description: "The PDF is large and still being analyzed. The list will update automatically when it finishes." })
     } catch (err: any) {
       const msg = err.message || "Retry failed"
       setRetryingClaims((prev) => ({ ...prev, [claimId]: msg }))
