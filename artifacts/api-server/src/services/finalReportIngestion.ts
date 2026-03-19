@@ -41,57 +41,31 @@ type RenderedPage = {
   pngBuffer: Buffer;
 };
 
-async function renderPdfToPngPages(pdfBuffer: Buffer): Promise<RenderedPage[]> {
-  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
-  const { createCanvas } = await import("@napi-rs/canvas");
+async function renderSinglePdfPage(
+  pdf: any,
+  pageNumber: number,
+  createCanvas: any,
+): Promise<RenderedPage> {
+  const page = await pdf.getPage(pageNumber);
+  const baseViewport = page.getViewport({ scale: 1 });
+  const scale = TARGET_RENDER_WIDTH / Math.max(1, baseViewport.width);
+  const viewport = page.getViewport({ scale });
 
-  const loadingTask = pdfjs.getDocument({
-    data: new Uint8Array(pdfBuffer),
-    useSystemFonts: true,
-    disableFontFace: true,
-  });
-  const pdf = await loadingTask.promise;
-  logger.info({ total_pages: pdf.numPages }, "PDF loaded for page rendering");
+  const width = Math.max(1, Math.floor(viewport.width));
+  const height = Math.max(1, Math.floor(viewport.height));
+  const canvas = createCanvas(width, height);
+  const context = canvas.getContext("2d");
 
-  if (pdf.numPages > env.OPENAI_VISION_MAX_PDF_PAGES) {
-    throw new Error(`PDF has ${pdf.numPages} pages; configured limit is ${env.OPENAI_VISION_MAX_PDF_PAGES}.`);
-  }
+  await (page as any).render({
+    canvasContext: context,
+    viewport,
+    canvas,
+  }).promise;
 
-  const pages: RenderedPage[] = [];
+  const pngBuffer = canvas.toBuffer("image/png");
+  page.cleanup();
 
-  for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
-    const page = await pdf.getPage(pageNumber);
-    const baseViewport = page.getViewport({ scale: 1 });
-    const scale = TARGET_RENDER_WIDTH / Math.max(1, baseViewport.width);
-    const viewport = page.getViewport({ scale });
-
-    const width = Math.max(1, Math.floor(viewport.width));
-    const height = Math.max(1, Math.floor(viewport.height));
-    const canvas = createCanvas(width, height);
-    const context = canvas.getContext("2d");
-
-    await (page as any).render({
-      canvasContext: context,
-      viewport,
-      canvas,
-    }).promise;
-
-    pages.push({
-      pageNumber,
-      width,
-      height,
-      pngBuffer: canvas.toBuffer("image/png"),
-    });
-
-    if (pageNumber === 1 || pageNumber === pdf.numPages || pageNumber % 10 === 0) {
-      logger.info({ page_number: pageNumber, total_pages: pdf.numPages }, "PDF page rendered to PNG");
-    }
-
-    page.cleanup();
-  }
-
-  await loadingTask.destroy();
-  return pages;
+  return { pageNumber, width, height, pngBuffer };
 }
 
 const DEFAULT_SYSTEM_PROMPT = [
@@ -206,6 +180,9 @@ export async function extractPdfTextWithVisionPages(params: {
     failedPages: Array<{ page_number: number; reason: string }>;
   };
 }> {
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const { createCanvas } = await import("@napi-rs/canvas");
+
   logger.info({
     requestId: params.requestId,
     file_name: params.fileName,
@@ -213,12 +190,20 @@ export async function extractPdfTextWithVisionPages(params: {
     model: env.OPENAI_CARRIER_AUDIT_MODEL,
   }, "Starting page-by-page PDF vision extraction");
 
-  const pages = await renderPdfToPngPages(params.pdfBuffer);
-  logger.info({
-    requestId: params.requestId,
-    file_name: params.fileName,
-    page_count: pages.length,
-  }, "PNG page conversion complete");
+  const loadingTask = pdfjs.getDocument({
+    data: new Uint8Array(params.pdfBuffer),
+    useSystemFonts: true,
+    disableFontFace: true,
+  });
+  const pdf = await loadingTask.promise;
+  const totalPages = pdf.numPages;
+  logger.info({ total_pages: totalPages }, "PDF loaded for page rendering");
+
+  if (totalPages > env.OPENAI_VISION_MAX_PDF_PAGES) {
+    await loadingTask.destroy();
+    throw new Error(`PDF has ${totalPages} pages; configured limit is ${env.OPENAI_VISION_MAX_PDF_PAGES}.`);
+  }
+
   const extractedPages: Array<{
     page_number: number;
     width: number;
@@ -229,7 +214,24 @@ export async function extractPdfTextWithVisionPages(params: {
   const filteredPages: Array<{ page_number: number; reason: string }> = [];
   const failedPages: Array<{ page_number: number; reason: string }> = [];
 
-  for (const page of pages) {
+  for (let pageNumber = 1; pageNumber <= totalPages; pageNumber++) {
+    await new Promise((r) => setTimeout(r, 0));
+
+    let page: RenderedPage;
+    try {
+      page = await renderSinglePdfPage(pdf, pageNumber, createCanvas);
+    } catch (renderErr) {
+      const reason = renderErr instanceof Error ? renderErr.message : "Render failed";
+      logger.warn({ requestId: params.requestId, page_number: pageNumber, error: reason }, "Page render failed, skipping");
+      failedPages.push({ page_number: pageNumber, reason });
+      extractedPages.push({ page_number: pageNumber, width: 0, height: 0, extracted_text: `[Page ${pageNumber}: render error]`, char_count: 0 });
+      continue;
+    }
+
+    if (pageNumber === 1 || pageNumber === totalPages || pageNumber % 10 === 0) {
+      logger.info({ page_number: pageNumber, total_pages: totalPages }, "PDF page rendered to PNG");
+    }
+
     try {
       const extractedText = await extractSinglePageTextWithVision({
         page,
@@ -247,7 +249,7 @@ export async function extractPdfTextWithVisionPages(params: {
         logger.warn({
           requestId: params.requestId,
           page_number: page.pageNumber,
-          total_pages: pages.length,
+          total_pages: totalPages,
         }, "Content filter triggered, retrying with insurance-specific prompt");
 
         try {
@@ -303,23 +305,25 @@ export async function extractPdfTextWithVisionPages(params: {
       }
     }
 
-    if (page.pageNumber === 1 || page.pageNumber === pages.length || page.pageNumber % 10 === 0) {
+    if (pageNumber === 1 || pageNumber === totalPages || pageNumber % 10 === 0) {
       logger.info({
         requestId: params.requestId,
-        page_number: page.pageNumber,
-        total_pages: pages.length,
+        page_number: pageNumber,
+        total_pages: totalPages,
         extracted_chars: extractedPages[extractedPages.length - 1]?.char_count ?? 0,
       }, "Vision extraction completed for page");
     }
   }
+
+  await loadingTask.destroy();
 
   if (filteredPages.length > 0 || failedPages.length > 0) {
     logger.warn({
       requestId: params.requestId,
       filteredPages,
       failedPages,
-      totalPages: pages.length,
-      successfulPages: pages.length - filteredPages.length - failedPages.length,
+      totalPages,
+      successfulPages: totalPages - filteredPages.length - failedPages.length,
     }, "Some pages could not be extracted");
   }
 
