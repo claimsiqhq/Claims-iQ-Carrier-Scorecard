@@ -68,6 +68,7 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
   const [deleting, setDeleting] = useState(false)
   const [mobileDetailsOpen, setMobileDetailsOpen] = useState(false)
   const [mobileDocOpen, setMobileDocOpen] = useState(false)
+  const [docPanelOpen, setDocPanelOpen] = useState(true)
 
   const queryClient = useQueryClient()
   const { data, isLoading, error, refetch } = useGetClaimDetail(claimId)
@@ -621,34 +622,60 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
           </div>
         </ScrollArea>
 
-        <div className="w-80 flex flex-col shrink-0 hidden xl:flex overflow-hidden" style={{ backgroundColor: BRAND.white, borderLeft: `1px solid ${BRAND.greyLavender}` }}>
-          <div className="p-4 shrink-0" style={{ borderBottom: `1px solid ${BRAND.greyLavender}` }}>
-            <h2 className="text-sm font-semibold" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>Document Viewer</h2>
-            {claimFileName && (
-              <p className="text-xs mt-1 truncate" style={{ color: BRAND.purpleSecondary }}>{claimFileName}</p>
-            )}
-          </div>
+        <div className="hidden xl:flex shrink-0 relative" style={{ borderLeft: `1px solid ${BRAND.greyLavender}` }}>
+          <button
+            onClick={() => setDocPanelOpen((v) => !v)}
+            className="absolute -left-3 top-4 z-10 w-6 h-6 rounded-full border flex items-center justify-center shadow-sm hover:shadow transition-all"
+            style={{ backgroundColor: BRAND.white, borderColor: BRAND.greyLavender }}
+            aria-label={docPanelOpen ? "Collapse document panel" : "Expand document panel"}
+          >
+            <NavArrowRight
+              width={14}
+              height={14}
+              style={{
+                color: BRAND.purpleSecondary,
+                transform: docPanelOpen ? "rotate(0deg)" : "rotate(180deg)",
+                transition: "transform 200ms ease",
+              }}
+            />
+          </button>
 
-          <div className="flex-1 overflow-y-auto p-4" style={{ backgroundColor: BRAND.offWhite }}>
-            {claimFile ? (
-              <div className="rounded shadow-sm w-full p-4 text-xs leading-relaxed whitespace-pre-wrap" style={{ backgroundColor: BRAND.white, border: `1px solid ${BRAND.greyLavender}`, color: BRAND.deepPurple, fontFamily: FONTS.mono, fontSize: "11px" }}>
-                {claimFile.extractedText
-                  ? claimFile.extractedText
-                  : (
-                    <p className="text-center mt-12" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.body, fontSize: "13px" }}>
-                      Text not yet extracted. Run a carrier audit or re-upload the file.
-                    </p>
-                  )}
-              </div>
-            ) : (
-              <div className="flex flex-col items-center justify-center h-full py-20">
-                <Page width={40} height={40} className="mb-3" style={{ color: BRAND.purpleSecondary }} />
-                <p className="text-sm font-semibold mb-1" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>No File Uploaded</p>
-                <p className="text-xs text-center" style={{ color: BRAND.purpleSecondary }}>
-                  Upload a claim PDF via Upload / Ingest to view it here.
-                </p>
-              </div>
-            )}
+          <div
+            className="flex flex-col overflow-hidden transition-all duration-200 ease-in-out"
+            style={{
+              width: docPanelOpen ? 320 : 0,
+              opacity: docPanelOpen ? 1 : 0,
+              backgroundColor: BRAND.white,
+            }}
+          >
+            <div className="p-4 shrink-0" style={{ borderBottom: `1px solid ${BRAND.greyLavender}`, minWidth: 320 }}>
+              <h2 className="text-sm font-semibold" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>Document Viewer</h2>
+              {claimFileName && (
+                <p className="text-xs mt-1 truncate" style={{ color: BRAND.purpleSecondary }}>{claimFileName}</p>
+              )}
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4" style={{ backgroundColor: BRAND.offWhite, minWidth: 320 }}>
+              {claimFile ? (
+                <div className="rounded shadow-sm w-full p-4 text-xs leading-relaxed whitespace-pre-wrap" style={{ backgroundColor: BRAND.white, border: `1px solid ${BRAND.greyLavender}`, color: BRAND.deepPurple, fontFamily: FONTS.mono, fontSize: "11px" }}>
+                  {claimFile.extractedText
+                    ? claimFile.extractedText
+                    : (
+                      <p className="text-center mt-12" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.body, fontSize: "13px" }}>
+                        Text not yet extracted. Run a carrier audit or re-upload the file.
+                      </p>
+                    )}
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center h-full py-20">
+                  <Page width={40} height={40} className="mb-3" style={{ color: BRAND.purpleSecondary }} />
+                  <p className="text-sm font-semibold mb-1" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>No File Uploaded</p>
+                  <p className="text-xs text-center" style={{ color: BRAND.purpleSecondary }}>
+                    Upload a claim PDF via Upload / Ingest to view it here.
+                  </p>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
