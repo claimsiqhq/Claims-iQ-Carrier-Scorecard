@@ -1,300 +1,205 @@
-import { openai } from "@workspace/integrations-openai-ai-server";
-import { db } from "@workspace/db";
-import { promptSettings } from "@workspace/db";
-import { SYSTEM_PROMPT as DEFAULT_SYSTEM, USER_PROMPT_TEMPLATE as DEFAULT_USER } from "./prompts";
 import logger from "../lib/logger";
+import { runQuestionAudit } from "./runQuestionAudit";
+import { computeScore } from "./scoringEngine";
+import { runValidation, type ValidationResult } from "./validationEngine";
+import { QUESTION_BANK, SECTION_LABELS, type QuestionResult } from "./questionBank";
 
 export interface SectionScores {
-  coverage_clarity: number;
-  scope_completeness: number;
-  estimate_accuracy: number;
-  documentation_support: number;
-  financial_accuracy: number;
-  carrier_risk: number;
-  file_stack_order: number;
-  payment_match: number;
-  estimate_operational_order: number;
-  photo_organization: number;
-  da_report_quality: number;
-  fa_report_quality: number;
-  policy_provisions: number;
+  coverage: number;
+  scope: number;
+  financial: number;
+  documentation: number;
+  presentation: number;
+  [key: string]: number;
 }
 
-export type SectionReasoning = Record<keyof SectionScores, string>;
+export interface SectionMax {
+  coverage: number;
+  scope: number;
+  financial: number;
+  documentation: number;
+  presentation: number;
+  [key: string]: number;
+}
+
+export type SectionReasoning = Record<string, string>;
 
 export interface AuditResponse {
   overall_score: number;
+  total_max: number;
+  percent: number;
   technical_score: number;
+  technical_max: number;
   presentation_score: number;
+  presentation_max: number;
   section_scores: SectionScores;
+  section_max: SectionMax;
   section_reasoning: SectionReasoning;
   risk_level: string;
   approval_status: string;
-  critical_failures: string[];
-  key_defects: string[];
-  presentation_issues: string[];
-  carrier_questions: string[];
-  deferred_items: string[];
-  invoice_adjustments: string[];
-  scope_deviations: string[];
-  unknowns: string[];
   executive_summary: string;
-}
-
-const REQUIRED_SECTIONS: (keyof SectionScores)[] = [
-  "coverage_clarity", "scope_completeness", "estimate_accuracy",
-  "documentation_support", "financial_accuracy", "carrier_risk",
-  "file_stack_order", "payment_match", "estimate_operational_order",
-  "photo_organization", "da_report_quality", "fa_report_quality",
-  "policy_provisions",
-];
-
-export function normalizeAuditResponse(data: any): void {
-  if (!data || typeof data !== "object") return;
-  if (!data.section_scores || typeof data.section_scores !== "object") return;
-
-  if (!data.section_reasoning || typeof data.section_reasoning !== "object") {
-    data.section_reasoning = {};
-  }
-
-  let converted = 0;
-  for (const key of REQUIRED_SECTIONS) {
-    const val = data.section_scores[key];
-    if (val && typeof val === "object" && typeof val.score === "number") {
-      data.section_scores[key] = val.score;
-      if (typeof val.reason === "string" && !data.section_reasoning[key]) {
-        data.section_reasoning[key] = val.reason;
-      }
-      converted++;
-    }
-  }
-
-  if (converted > 0) {
-    logger.warn({ convertedCount: converted }, "Normalized section_scores from objects to numbers");
-  }
-
-  const arrayFields = [
-    "critical_failures", "key_defects", "presentation_issues",
-    "carrier_questions", "deferred_items", "invoice_adjustments",
-    "scope_deviations", "unknowns",
-  ] as const;
-  for (const field of arrayFields) {
-    if (Array.isArray(data[field])) {
-      data[field] = data[field].map((entry: unknown) => {
-        if (typeof entry === "string") return entry;
-        if (entry && typeof entry === "object") {
-          const obj = entry as Record<string, unknown>;
-          const parts: string[] = [];
-          if (typeof obj.item === "string") parts.push(obj.item);
-          else if (typeof obj.title === "string") parts.push(obj.title);
-          if (typeof obj.reason === "string") parts.push(obj.reason);
-          if (typeof obj.next_step === "string") parts.push(`Next: ${obj.next_step}`);
-          if (typeof obj.description === "string" && !parts.includes(obj.description)) parts.push(obj.description);
-          return parts.length > 0 ? parts.join(" — ") : String(entry);
-        }
-        return String(entry);
-      });
-    }
-  }
-}
-
-export function validateAuditResult(data: any): data is AuditResponse {
-  if (!data || typeof data !== "object") return false;
-
-  const requiredFields = [
-    "overall_score",
-    "technical_score",
-    "presentation_score",
-    "section_scores",
-    "risk_level",
-    "approval_status",
-    "executive_summary",
-  ];
-
-  for (const field of requiredFields) {
-    if (!(field in data)) return false;
-  }
-
-  if (typeof data.overall_score !== "number") return false;
-  if (typeof data.technical_score !== "number") return false;
-  if (typeof data.presentation_score !== "number") return false;
-  if (typeof data.section_scores !== "object" || data.section_scores === null) return false;
-  if (typeof data.executive_summary !== "string") return false;
-
-  const validRisk = ["LOW", "MEDIUM", "HIGH"];
-  if (!validRisk.includes(data.risk_level)) return false;
-
-  const validStatus = ["APPROVE", "APPROVE WITH MINOR CHANGES", "REQUIRES REVIEW", "REJECT"];
-  if (!validStatus.includes(data.approval_status)) return false;
-
-  for (const key of REQUIRED_SECTIONS) {
-    if (!(key in data.section_scores) || typeof data.section_scores[key] !== "number") return false;
-  }
-
-  return true;
+  questions: QuestionResult[];
+  critical_failures: string[];
+  ready: boolean;
+  validation: ValidationResult;
 }
 
 export function getFallbackAudit(): AuditResponse {
-  return { ...FALLBACK_RESULT };
+  const scoring = computeScore(
+    QUESTION_BANK.map((q) => ({ id: q.id, answer: "FAIL" as const, issue: "Audit processing failed", impact: "", fix: "", location: "", confidence: 0 })),
+    QUESTION_BANK
+  );
+
+  const sectionScores: SectionScores = { coverage: 0, scope: 0, financial: 0, documentation: 0, presentation: 0 };
+  const sectionMax: SectionMax = { coverage: 0, scope: 0, financial: 0, documentation: 0, presentation: 0 };
+  for (const [key, val] of Object.entries(scoring.sections)) {
+    sectionScores[key] = val.score;
+    sectionMax[key] = val.max;
+  }
+
+  const techSections = ["coverage", "scope", "financial", "documentation"];
+  const techMax = techSections.reduce((sum, k) => sum + (sectionMax[k] || 0), 0);
+  const presMax = sectionMax.presentation || 0;
+
+  return {
+    overall_score: 0,
+    total_max: scoring.max,
+    percent: 0,
+    technical_score: 0,
+    technical_max: techMax,
+    presentation_score: 0,
+    presentation_max: presMax,
+    section_scores: sectionScores,
+    section_max: sectionMax,
+    section_reasoning: {},
+    risk_level: "HIGH",
+    approval_status: "REQUIRES REVIEW",
+    executive_summary: "The audit could not be completed successfully.",
+    questions: QUESTION_BANK.map((q) => ({ id: q.id, answer: "FAIL" as const, issue: "Audit processing failed", impact: "", fix: "", location: "", confidence: 0 })),
+    critical_failures: ["Audit processing failed"],
+    ready: false,
+    validation: { critical: [], warnings: [], info: [], ready: false },
+  };
 }
 
-const EMPTY_REASONING: SectionReasoning = {
-  coverage_clarity: "",
-  scope_completeness: "",
-  estimate_accuracy: "",
-  documentation_support: "",
-  financial_accuracy: "",
-  carrier_risk: "",
-  file_stack_order: "",
-  payment_match: "",
-  estimate_operational_order: "",
-  photo_organization: "",
-  da_report_quality: "",
-  fa_report_quality: "",
-  policy_provisions: "",
-};
+function deriveRiskLevel(percent: number, failCount: number): string {
+  if (failCount >= 3 || percent < 50) return "HIGH";
+  if (failCount >= 1 || percent < 75) return "MEDIUM";
+  return "LOW";
+}
 
-export const FALLBACK_RESULT: AuditResponse = {
-  overall_score: 0,
-  technical_score: 0,
-  presentation_score: 0,
-  section_scores: {
-    coverage_clarity: 0,
-    scope_completeness: 0,
-    estimate_accuracy: 0,
-    documentation_support: 0,
-    financial_accuracy: 0,
-    carrier_risk: 0,
-    file_stack_order: 0,
-    payment_match: 0,
-    estimate_operational_order: 0,
-    photo_organization: 0,
-    da_report_quality: 0,
-    fa_report_quality: 0,
-    policy_provisions: 0,
-  },
-  section_reasoning: { ...EMPTY_REASONING },
-  risk_level: "HIGH",
-  approval_status: "REQUIRES REVIEW",
-  critical_failures: ["Audit processing failed"],
-  key_defects: [],
-  presentation_issues: [],
-  carrier_questions: [],
-  deferred_items: [],
-  invoice_adjustments: [],
-  scope_deviations: [],
-  unknowns: [],
-  executive_summary: "The audit could not be completed successfully.",
-};
+function deriveApprovalStatus(percent: number, failCount: number): string {
+  if (failCount >= 3 || percent < 50) return "REJECT";
+  if (failCount >= 1) return "REQUIRES REVIEW";
+  if (percent < 85) return "APPROVE WITH MINOR CHANGES";
+  return "APPROVE";
+}
 
-async function getPrompts(): Promise<{ systemPrompt: string; userTemplate: string }> {
-  try {
-    const rows = await db.select().from(promptSettings);
-    const systemRow = rows.find((r) => r.key === "system_prompt");
-    const userRow = rows.find((r) => r.key === "user_prompt_template");
+function buildExecutiveSummary(questionResults: QuestionResult[], percent: number, validation: ValidationResult): string {
+  const fails = questionResults.filter((q) => q.answer === "FAIL");
+  const partials = questionResults.filter((q) => q.answer === "PARTIAL");
 
-    const userTemplate = userRow?.value ?? DEFAULT_USER;
+  const parts: string[] = [];
+  parts.push(`The claim file scored ${percent}% overall.`);
 
-    return {
-      systemPrompt: systemRow?.value ?? DEFAULT_SYSTEM,
-      userTemplate: userTemplate.includes("{{REPORT}}") ? userTemplate : DEFAULT_USER,
-    };
-  } catch {
-    return {
-      systemPrompt: DEFAULT_SYSTEM,
-      userTemplate: DEFAULT_USER,
-    };
+  if (validation.ready && fails.length === 0) {
+    parts.push("No critical failures were identified — the file appears ready for carrier submission.");
+  } else {
+    parts.push(`${fails.length} question(s) failed audit.`);
   }
+
+  if (partials.length > 0) {
+    parts.push(`${partials.length} question(s) received partial credit.`);
+  }
+
+  if (fails.length > 0) {
+    parts.push("Failed items: " + fails.map((f) => {
+      const q = QUESTION_BANK.find((qb) => qb.id === f.id);
+      return q ? q.text : f.id;
+    }).join("; ") + ".");
+  }
+
+  if (validation.warnings.length > 0) {
+    parts.push(`Validation flagged ${validation.warnings.length} warning(s): ${validation.warnings.map((w) => w.message).join("; ")}.`);
+  }
+
+  return parts.join(" ");
 }
 
 export async function runFinalAudit(reportText: string): Promise<AuditResponse> {
-  logger.info("Audit started");
+  logger.info("Question-level audit started");
 
-  const { systemPrompt, userTemplate } = await getPrompts();
-  const userPrompt = userTemplate.replace("{{REPORT}}", reportText);
+  const validation = runValidation(reportText);
+  const questionResults = await runQuestionAudit(reportText);
+  const scoring = computeScore(questionResults, QUESTION_BANK);
 
-  const response = await openai.chat.completions.create({
-    model: "gpt-4o",
-    max_completion_tokens: 8192,
-    messages: [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: userPrompt },
-    ],
-  }, { signal: AbortSignal.timeout(120_000) });
+  const sectionScores: SectionScores = { coverage: 0, scope: 0, financial: 0, documentation: 0, presentation: 0 };
+  const sectionMax: SectionMax = { coverage: 0, scope: 0, financial: 0, documentation: 0, presentation: 0 };
+  const sectionReasoning: SectionReasoning = {};
 
-  const content = response.choices[0]?.message?.content;
-  if (!content) {
-    logger.error("Empty AI response — returning fallback");
-    return getFallbackAudit();
+  for (const [key, val] of Object.entries(scoring.sections)) {
+    sectionScores[key] = val.score;
+    sectionMax[key] = val.max;
+
+    const sectionQuestions = questionResults.filter((q) => {
+      const qDef = QUESTION_BANK.find((qb) => qb.id === q.id);
+      return qDef?.section === key;
+    });
+    const reasonParts = sectionQuestions
+      .filter((q) => q.issue || q.fix)
+      .map((q) => {
+        const qDef = QUESTION_BANK.find((qb) => qb.id === q.id);
+        const icon = q.answer === "PASS" ? "✔" : q.answer === "PARTIAL" ? "◐" : "✖";
+        const detail = q.answer === "PASS" ? (q.issue || "OK") : `${q.issue}${q.fix ? ` → Fix: ${q.fix}` : ""}`;
+        return `${icon} ${qDef?.text || q.id}: ${detail}`;
+      });
+    sectionReasoning[key] = reasonParts.join("\n");
   }
 
-  const cleaned = content
-    .replace(/```(?:json)?\s*/g, "")
-    .replace(/```\s*/g, "")
-    .trim();
+  const criticalFailures = questionResults
+    .filter((q) => q.answer === "FAIL")
+    .map((q) => {
+      const qDef = QUESTION_BANK.find((qb) => qb.id === q.id);
+      return `${qDef?.text || q.id} — ${q.issue}${q.fix ? ` (Fix: ${q.fix})` : ""}`;
+    });
 
-  let parsed: any;
-  try {
-    parsed = JSON.parse(cleaned);
-  } catch (e) {
-    logger.error({ contentPreview: content?.substring(0, 200) }, "Raw AI response (not valid JSON)");
-    return getFallbackAudit();
-  }
+  const ready = criticalFailures.length === 0 && validation.ready;
+  const riskLevel = deriveRiskLevel(scoring.percent, criticalFailures.length);
+  const approvalStatus = deriveApprovalStatus(scoring.percent, criticalFailures.length);
+  const executiveSummary = buildExecutiveSummary(questionResults, scoring.percent, validation);
 
-  normalizeAuditResponse(parsed);
+  logger.info({
+    percent: scoring.percent,
+    total: scoring.total,
+    max: scoring.max,
+    fails: criticalFailures.length,
+    validationReady: validation.ready,
+    ready,
+  }, "Question-level audit completed");
 
-  if (!validateAuditResult(parsed)) {
-    logger.error({ parsedPreview: JSON.stringify(parsed).substring(0, 200) }, "Invalid audit structure");
-    return getFallbackAudit();
-  }
+  const techSections = ["coverage", "scope", "financial", "documentation"];
+  const technicalScore = techSections.reduce((sum, k) => sum + (sectionScores[k] || 0), 0);
+  const technicalMax = techSections.reduce((sum, k) => sum + (sectionMax[k] || 0), 0);
+  const presentationScoreVal = sectionScores.presentation || 0;
+  const presentationMaxVal = sectionMax.presentation || 0;
 
-  parsed.technical_score = parsed.technical_score ?? 0;
-  parsed.presentation_score = parsed.presentation_score ?? 0;
-  parsed.overall_score = parsed.technical_score + parsed.presentation_score;
-
-  parsed.critical_failures = Array.isArray(parsed.critical_failures) ? parsed.critical_failures : [];
-  parsed.key_defects = Array.isArray(parsed.key_defects) ? parsed.key_defects : [];
-  parsed.presentation_issues = Array.isArray(parsed.presentation_issues) ? parsed.presentation_issues : [];
-  parsed.carrier_questions = Array.isArray(parsed.carrier_questions) ? parsed.carrier_questions : [];
-  parsed.deferred_items = Array.isArray(parsed.deferred_items) ? parsed.deferred_items : [];
-  parsed.invoice_adjustments = Array.isArray(parsed.invoice_adjustments) ? parsed.invoice_adjustments : [];
-  parsed.scope_deviations = Array.isArray(parsed.scope_deviations) ? parsed.scope_deviations : [];
-  parsed.unknowns = Array.isArray(parsed.unknowns) ? parsed.unknowns : [];
-
-  const ss = parsed.section_scores;
-  ss.coverage_clarity = ss.coverage_clarity ?? 0;
-  ss.scope_completeness = ss.scope_completeness ?? 0;
-  ss.estimate_accuracy = ss.estimate_accuracy ?? 0;
-  ss.documentation_support = ss.documentation_support ?? 0;
-  ss.financial_accuracy = ss.financial_accuracy ?? 0;
-  ss.carrier_risk = ss.carrier_risk ?? 0;
-  ss.file_stack_order = ss.file_stack_order ?? 0;
-  ss.payment_match = ss.payment_match ?? 0;
-  ss.estimate_operational_order = ss.estimate_operational_order ?? 0;
-  ss.photo_organization = ss.photo_organization ?? 0;
-  ss.da_report_quality = ss.da_report_quality ?? 0;
-  ss.fa_report_quality = ss.fa_report_quality ?? 0;
-  ss.policy_provisions = ss.policy_provisions ?? 0;
-
-  const sr: Record<string, unknown> = parsed.section_reasoning && typeof parsed.section_reasoning === "object"
-    ? (parsed.section_reasoning as Record<string, unknown>)
-    : {};
-  parsed.section_reasoning = {
-    coverage_clarity: typeof sr.coverage_clarity === "string" ? sr.coverage_clarity : "",
-    scope_completeness: typeof sr.scope_completeness === "string" ? sr.scope_completeness : "",
-    estimate_accuracy: typeof sr.estimate_accuracy === "string" ? sr.estimate_accuracy : "",
-    documentation_support: typeof sr.documentation_support === "string" ? sr.documentation_support : "",
-    financial_accuracy: typeof sr.financial_accuracy === "string" ? sr.financial_accuracy : "",
-    carrier_risk: typeof sr.carrier_risk === "string" ? sr.carrier_risk : "",
-    file_stack_order: typeof sr.file_stack_order === "string" ? sr.file_stack_order : "",
-    payment_match: typeof sr.payment_match === "string" ? sr.payment_match : "",
-    estimate_operational_order: typeof sr.estimate_operational_order === "string" ? sr.estimate_operational_order : "",
-    photo_organization: typeof sr.photo_organization === "string" ? sr.photo_organization : "",
-    da_report_quality: typeof sr.da_report_quality === "string" ? sr.da_report_quality : "",
-    fa_report_quality: typeof sr.fa_report_quality === "string" ? sr.fa_report_quality : "",
-    policy_provisions: typeof sr.policy_provisions === "string" ? sr.policy_provisions : "",
+  return {
+    overall_score: scoring.total,
+    total_max: scoring.max,
+    percent: scoring.percent,
+    technical_score: technicalScore,
+    technical_max: technicalMax,
+    presentation_score: presentationScoreVal,
+    presentation_max: presentationMaxVal,
+    section_scores: sectionScores,
+    section_max: sectionMax,
+    section_reasoning: sectionReasoning,
+    risk_level: riskLevel,
+    approval_status: approvalStatus,
+    executive_summary: executiveSummary,
+    questions: questionResults,
+    critical_failures: criticalFailures,
+    ready,
+    validation,
   };
-
-  logger.info("Audit completed — OpenAI response parsed and validated");
-  return parsed as AuditResponse;
 }

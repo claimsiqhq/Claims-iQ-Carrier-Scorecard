@@ -27,24 +27,30 @@ const router: IRouter = Router();
 function getAuditHtml(claim: any, audit: any): string {
   const raw = audit.rawResponse as Record<string, unknown>;
   const sectionScores = (raw.section_scores ?? {}) as AuditResponse["section_scores"];
+  const sectionMax = (raw.section_max ?? {}) as AuditResponse["section_max"];
   const sectionReasoning = (raw.section_reasoning ?? {}) as AuditResponse["section_reasoning"];
+  const questions = Array.isArray(raw.questions) ? raw.questions as AuditResponse["questions"] : [];
+
+  const validation = (raw.validation ?? { critical: [], warnings: [], info: [], ready: false }) as AuditResponse["validation"];
+
   const auditResult: AuditResponse = {
     overall_score: Number(raw.overall_score ?? 0),
+    total_max: Number(raw.total_max ?? 37),
+    percent: Number(raw.percent ?? 0),
     technical_score: Number(raw.technical_score ?? 0),
+    technical_max: Number(raw.technical_max ?? 27),
     presentation_score: Number(raw.presentation_score ?? 0),
+    presentation_max: Number(raw.presentation_max ?? 10),
     section_scores: sectionScores,
+    section_max: sectionMax,
     section_reasoning: sectionReasoning,
     risk_level: String(raw.risk_level ?? ""),
     approval_status: String(raw.approval_status ?? ""),
     critical_failures: Array.isArray(raw.critical_failures) ? raw.critical_failures : [],
-    key_defects: Array.isArray(raw.key_defects) ? raw.key_defects : [],
-    presentation_issues: Array.isArray(raw.presentation_issues) ? raw.presentation_issues : [],
-    carrier_questions: Array.isArray(raw.carrier_questions) ? raw.carrier_questions : [],
-    deferred_items: Array.isArray(raw.deferred_items) ? raw.deferred_items : [],
-    invoice_adjustments: Array.isArray(raw.invoice_adjustments) ? raw.invoice_adjustments : [],
-    scope_deviations: Array.isArray(raw.scope_deviations) ? raw.scope_deviations : [],
-    unknowns: Array.isArray(raw.unknowns) ? raw.unknowns : [],
     executive_summary: String(raw.executive_summary ?? ""),
+    questions,
+    ready: Boolean(raw.ready ?? false),
+    validation,
   };
   return renderAuditEmail({
     claimNumber: claim.claimNumber ?? "",

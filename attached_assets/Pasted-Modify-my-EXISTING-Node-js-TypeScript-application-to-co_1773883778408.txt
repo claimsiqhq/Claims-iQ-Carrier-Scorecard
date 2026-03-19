@@ -1,0 +1,310 @@
+Modify my EXISTING Node.js + TypeScript application to convert it into a QUESTION-LEVEL REPAIR ENGINE.
+
+CRITICAL RULES:
+- DO NOT rebuild the app
+- DO NOT refactor unrelated code
+- DO NOT change routing or ingestion flow
+- ONLY replace audit logic and extend output
+- KEEP architecture intact
+
+---
+
+GOAL:
+
+Replace current behavior:
+
+OLD:
+- LLM assigns section scores
+- vague explanations
+
+NEW:
+- LLM answers question-level audit
+- returns actionable fixes
+- scoring handled in code
+- validation drives readiness
+
+---
+
+==================================================
+STEP 1 — CREATE QUESTION BANK
+==================================================
+
+Create:
+
+/services/questionBank.ts
+
+Add:
+
+export type Answer = "PASS" | "PARTIAL" | "FAIL" | "NOT_APPLICABLE";
+
+export interface Question {
+  id: string;
+  text: string;
+  weight: number;
+  section: string;
+}
+
+export const QUESTION_BANK: Question[] = [
+  { id: "cause_of_loss", text: "Is cause of loss clearly stated?", weight: 2, section: "coverage" },
+  { id: "coverage_applied", text: "Is coverage applied correctly?", weight: 3, section: "coverage" },
+  { id: "exclusions_addressed", text: "Are exclusions addressed?", weight: 2, section: "coverage" },
+  { id: "policy_provisions", text: "Are policy provisions addressed?", weight: 2, section: "coverage" },
+
+  { id: "damage_accounted", text: "Is all damage accounted for?", weight: 5, section: "scope" },
+  { id: "deferred_items", text: "Are deferred items clearly explained?", weight: 5, section: "scope" },
+
+  { id: "payment_consistency", text: "Do payment values match?", weight: 5, section: "financial" },
+  { id: "deductible_correct", text: "Is deductible correct?", weight: 3, section: "financial" },
+
+  { id: "photo_alignment", text: "Are photos aligned to estimate?", weight: 3, section: "documentation" },
+  { id: "fa_support", text: "Does FA support estimate?", weight: 2, section: "documentation" },
+
+  { id: "file_order", text: "Is file stack logical?", weight: 3, section: "presentation" },
+  { id: "da_quality", text: "Is DA report concise?", weight: 2, section: "presentation" }
+];
+
+---
+
+==================================================
+STEP 2 — CREATE VALIDATION ENGINE
+==================================================
+
+Create:
+
+/services/validationEngine.ts
+
+Add:
+
+export function runValidation(reportText: string) {
+  const issues = {
+    critical: [],
+    warnings: [],
+    info: []
+  };
+
+  const payments = reportText.match(/\$[\d,]+/g) || [];
+  if (new Set(payments).size > 3) {
+    issues.warnings.push({
+      type: "payment_variance",
+      message: "Multiple payment values detected"
+    });
+  }
+
+  if (/deferred|pending/i.test(reportText)) {
+    if (!/next step|follow up/i.test(reportText)) {
+      issues.warnings.push({
+        type: "deferred_missing_next_step",
+        message: "Deferred item missing next step"
+      });
+    }
+  }
+
+  const ready = issues.critical.length === 0;
+
+  return { ...issues, ready };
+}
+
+---
+
+==================================================
+STEP 3 — CREATE PROMPTS (THIS WAS MISSING BEFORE)
+==================================================
+
+Create:
+
+/services/prompts.ts
+
+Add:
+
+export const SYSTEM_PROMPT = `
+You are a carrier audit assistant.
+
+You must answer audit questions and provide actionable fixes.
+
+DO NOT summarize.
+DO NOT assign scores.
+
+For each issue provide:
+- issue
+- impact
+- fix
+- location
+
+Return JSON only.
+`;
+
+export const USER_PROMPT_TEMPLATE = `
+Answer the following audit questions.
+
+For EACH question return:
+
+{
+  "id": "",
+  "answer": "PASS | PARTIAL | FAIL | NOT_APPLICABLE",
+  "issue": "",
+  "impact": "",
+  "fix": "",
+  "location": "",
+  "confidence": number
+}
+
+RULES:
+- PASS → minimal explanation
+- PARTIAL/FAIL → full details required
+- Fix must be specific
+- No vague language
+
+QUESTIONS:
+{{QUESTIONS}}
+
+REPORT:
+{{REPORT}}
+`;
+
+---
+
+==================================================
+STEP 4 — CREATE QUESTION AUDIT RUNNER
+==================================================
+
+Create:
+
+/services/runQuestionAudit.ts
+
+Add:
+
+import { QUESTION_BANK } from "./questionBank";
+import { SYSTEM_PROMPT, USER_PROMPT_TEMPLATE } from "./prompts";
+
+export async function runQuestionAudit(reportText: string) {
+
+  const questionsText = QUESTION_BANK
+    .map(q => `${q.id}: ${q.text}`)
+    .join("\\n");
+
+  const userPrompt = USER_PROMPT_TEMPLATE
+    .replace("{{QUESTIONS}}", questionsText)
+    .replace("{{REPORT}}", reportText);
+
+  const response = await openai.chat.completions.create({
+    model: "gpt-5",
+    temperature: 0,
+    messages: [
+      { role: "system", content: SYSTEM_PROMPT },
+      { role: "user", content: userPrompt }
+    ]
+  });
+
+  return JSON.parse(response.choices[0].message.content);
+}
+
+---
+
+==================================================
+STEP 5 — CREATE SCORING ENGINE
+==================================================
+
+Create:
+
+/services/scoringEngine.ts
+
+Add:
+
+function scoreAnswer(answer, weight) {
+  if (answer === "PASS") return weight;
+  if (answer === "PARTIAL") return weight * 0.5;
+  if (answer === "FAIL") return 0;
+  if (answer === "NOT_APPLICABLE") return weight;
+  return 0;
+}
+
+export function computeScore(results, questionBank) {
+  let total = 0;
+  let max = 0;
+
+  results.forEach(r => {
+    const q = questionBank.find(q => q.id === r.id);
+    if (!q) return;
+
+    total += scoreAnswer(r.answer, q.weight);
+    max += q.weight;
+  });
+
+  return {
+    total,
+    max,
+    percent: Math.round((total / max) * 100)
+  };
+}
+
+---
+
+==================================================
+STEP 6 — UPDATE MAIN AUDIT FLOW
+==================================================
+
+Replace existing audit logic with:
+
+const validation = runValidation(reportText);
+
+const questions = await runQuestionAudit(reportText);
+
+const scoring = computeScore(questions, QUESTION_BANK);
+
+return {
+  validation,
+  questions,
+  scoring
+};
+
+---
+
+==================================================
+STEP 7 — UPDATE EMAIL OUTPUT
+==================================================
+
+Modify email builder:
+
+function buildEmail(result) {
+  return `
+    <h2>Claim Status</h2>
+    <p>Ready: ${result.validation.ready ? "YES" : "NO"}</p>
+
+    <h2>Action Required</h2>
+    <ul>
+      ${result.questions
+        .filter(q => q.answer !== "PASS")
+        .map(q => `<li>${q.fix}</li>`)
+        .join("")}
+    </ul>
+
+    <h2>Details</h2>
+    ${result.questions
+      .filter(q => q.answer !== "PASS")
+      .map(q => `
+        <p>
+        <strong>${q.id}</strong><br/>
+        Issue: ${q.issue}<br/>
+        Impact: ${q.impact}<br/>
+        Fix: ${q.fix}<br/>
+        Location: ${q.location}
+        </p>
+      `)
+      .join("")}
+
+    <h2>Score</h2>
+    <p>${result.scoring.percent}%</p>
+  `;
+}
+
+---
+
+==================================================
+FINAL RESULT
+==================================================
+
+- LLM answers questions only
+- Code controls scoring
+- Output tells user exactly what to fix
+- Score becomes secondary
+- System becomes deterministic

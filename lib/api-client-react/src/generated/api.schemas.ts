@@ -75,6 +75,7 @@ export interface AuditSection {
   auditId: string;
   section: string;
   score: number;
+  max?: number;
   reasoning?: string;
 }
 
@@ -86,6 +87,12 @@ export interface AuditFinding {
   title: string;
   description: string;
   category?: string;
+  answer?: string;
+  issue?: string;
+  impact?: string;
+  fix?: string;
+  location?: string;
+  confidence?: number;
 }
 
 export interface AuditResult {
@@ -93,7 +100,10 @@ export interface AuditResult {
   claimId: string;
   overallScore: number;
   technicalScore: number;
+  technicalMax?: number;
   presentationScore: number;
+  presentationMax?: number;
+  totalMax?: number;
   riskLevel: string;
   approvalStatus: string;
   executiveSummary: string;

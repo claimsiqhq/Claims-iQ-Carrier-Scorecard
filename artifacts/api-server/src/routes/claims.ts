@@ -98,22 +98,34 @@ router.get("/claims/:id", requireAuth, async (req, res) => {
         db.select().from(auditFindings).where(eq(auditFindings.auditId, audit.id)),
       ]);
 
+      const raw = audit.rawResponse as Record<string, unknown> | null;
+      const technicalMax = typeof raw?.technical_max === "number" ? raw.technical_max : 27;
+      const presentationMax = typeof raw?.presentation_max === "number" ? raw.presentation_max : 10;
+      const totalMax = typeof raw?.total_max === "number" ? raw.total_max : 37;
+
       auditResult = {
         id: audit.id,
         claimId: audit.claimId ?? "",
         overallScore: audit.overallScore ? Number(audit.overallScore) : 0,
         technicalScore: audit.technicalScore ? Number(audit.technicalScore) : 0,
+        technicalMax,
         presentationScore: audit.presentationScore ? Number(audit.presentationScore) : 0,
+        presentationMax,
+        totalMax,
         riskLevel: audit.riskLevel ?? "",
         approvalStatus: audit.approvalStatus ?? "",
         executiveSummary: audit.executiveSummary ?? "",
-        sections: sectionRows.map((s) => ({
-          id: s.id,
-          auditId: s.auditId ?? "",
-          section: s.section ?? "",
-          score: s.score ? Number(s.score) : 0,
-          reasoning: s.reasoning ?? "",
-        })),
+        sections: sectionRows.map((s) => {
+          const sectionMax = raw?.section_max as Record<string, number> | undefined;
+          return {
+            id: s.id,
+            auditId: s.auditId ?? "",
+            section: s.section ?? "",
+            score: s.score ? Number(s.score) : 0,
+            max: sectionMax?.[s.section ?? ""] ?? 0,
+            reasoning: s.reasoning ?? "",
+          };
+        }),
         findings: findingRows.map((f) => {
           const meta = f.metadata as Record<string, unknown> | null;
           return {
@@ -124,6 +136,12 @@ router.get("/claims/:id", requireAuth, async (req, res) => {
             title: f.title ?? "",
             description: f.description ?? "",
             category: (meta?.category as string) ?? f.type ?? "",
+            answer: (meta?.answer as string) ?? undefined,
+            issue: (meta?.issue as string) ?? undefined,
+            impact: (meta?.impact as string) ?? undefined,
+            fix: (meta?.fix as string) ?? undefined,
+            location: (meta?.location as string) ?? undefined,
+            confidence: typeof meta?.confidence === "number" ? meta.confidence : undefined,
           };
         }),
       };

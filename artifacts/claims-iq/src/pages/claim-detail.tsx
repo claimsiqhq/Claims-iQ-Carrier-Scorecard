@@ -2,26 +2,17 @@ import React, { useState, useCallback } from "react"
 import {
   Shield,
   CheckCircle,
-  Calculator,
   PageSearch,
   DollarCircle,
   WarningTriangle,
   NavArrowRight,
   NavArrowDown,
-  Download,
-  Mail,
   Sparks,
-  ClipboardCheck,
   Folder,
-  CreditCard,
-  List,
-  MediaImage,
   Page,
-  BookStack,
-  Lock,
   SendMail,
   Xmark,
-  Trash,
+  Notes,
 } from "iconoir-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -33,31 +24,51 @@ import { useGetClaimDetail, getListClaimsQueryKey, getGetClaimDetailQueryKey } f
 import { useQueryClient } from "@tanstack/react-query"
 import { useLocation } from "wouter"
 
-interface ScorecardRow {
-  key: string
-  label: string
-  max: number
-  icon: React.ReactNode
+const SECTION_LABELS: Record<string, string> = {
+  coverage: "Coverage & Liability",
+  scope: "Scope Completeness",
+  financial: "Financial Accuracy",
+  documentation: "Documentation Quality",
+  presentation: "Presentation & Readiness",
 }
 
-const TECHNICAL_ROWS: ScorecardRow[] = [
-  { key: "coverage_clarity", label: "Coverage & Liability Clarity", max: 15, icon: <Shield width={16} height={16} /> },
-  { key: "scope_completeness", label: "Scope Completeness", max: 15, icon: <CheckCircle width={16} height={16} /> },
-  { key: "estimate_accuracy", label: "Estimate Technical Accuracy", max: 15, icon: <Calculator width={16} height={16} /> },
-  { key: "documentation_support", label: "Documentation & Evidence Support", max: 10, icon: <PageSearch width={16} height={16} /> },
-  { key: "financial_accuracy", label: "Financial Accuracy & Reconciliation", max: 10, icon: <DollarCircle width={16} height={16} /> },
-  { key: "carrier_risk", label: "Carrier Risk & Completeness", max: 15, icon: <WarningTriangle width={16} height={16} /> },
-]
+const SECTION_ICONS: Record<string, React.ReactNode> = {
+  coverage: <Shield width={16} height={16} />,
+  scope: <CheckCircle width={16} height={16} />,
+  financial: <DollarCircle width={16} height={16} />,
+  documentation: <Notes width={16} height={16} />,
+  presentation: <Folder width={16} height={16} />,
+}
 
-const PRESENTATION_ROWS: ScorecardRow[] = [
-  { key: "file_stack_order", label: "File Stack Order", max: 3, icon: <Folder width={16} height={16} /> },
-  { key: "payment_match", label: "Payment Recommendations Match", max: 5, icon: <CreditCard width={16} height={16} /> },
-  { key: "estimate_operational_order", label: "Estimate Operational Order", max: 3, icon: <List width={16} height={16} /> },
-  { key: "photo_organization", label: "Photographs Clear and In Order", max: 3, icon: <MediaImage width={16} height={16} /> },
-  { key: "da_report_quality", label: "DA Report Not Cumbersome", max: 2, icon: <Page width={16} height={16} /> },
-  { key: "fa_report_quality", label: "FA Report Detailed Enough", max: 2, icon: <BookStack width={16} height={16} /> },
-  { key: "policy_provisions", label: "Unique Policy Provisions Addressed", max: 2, icon: <Lock width={16} height={16} /> },
-]
+const QUESTION_LABELS: Record<string, string> = {
+  cause_of_loss: "Is cause of loss clearly stated?",
+  coverage_applied: "Is coverage applied correctly?",
+  exclusions_addressed: "Are exclusions addressed?",
+  policy_provisions: "Are policy provisions addressed?",
+  damage_accounted: "Is all damage accounted for?",
+  deferred_items: "Are deferred items clearly explained?",
+  payment_consistency: "Do payment values match?",
+  deductible_correct: "Is deductible correct?",
+  photo_alignment: "Are photos aligned to estimate?",
+  fa_support: "Does FA support estimate?",
+  file_order: "Is file stack logical?",
+  da_quality: "Is DA report concise?",
+}
+
+const QUESTION_SECTIONS: Record<string, string> = {
+  cause_of_loss: "coverage",
+  coverage_applied: "coverage",
+  exclusions_addressed: "coverage",
+  policy_provisions: "coverage",
+  damage_accounted: "scope",
+  deferred_items: "scope",
+  payment_consistency: "financial",
+  deductible_correct: "financial",
+  photo_alignment: "documentation",
+  fa_support: "documentation",
+  file_order: "presentation",
+  da_quality: "presentation",
+}
 
 function getScoreColor(score: number, max: number): { text: string; bg: string; bar: string } {
   const pct = max > 0 ? (score / max) * 100 : 0
@@ -67,13 +78,8 @@ function getScoreColor(score: number, max: number): { text: string; bg: string; 
 }
 
 export default function ClaimDetailPage({ claimId }: { claimId: string }) {
-  const [activeTab, setActiveTab] = useState("defects")
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     defects: true,
-    presentation: false,
-    questions: false,
-    risks: false,
-    deferred: false,
   })
   const [, setLocation] = useLocation()
   const [auditing, setAuditing] = useState(false)
@@ -201,24 +207,23 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
 
   const { claim, documents: docs, audit } = data
   const claimDetails = claim as unknown as Record<string, string | undefined>
-  const overallScore = audit?.overallScore ?? 0
+  const overallPercent = audit?.overallScore ?? 0
   const technicalScore = audit?.technicalScore ?? 0
+  const technicalMax = audit?.technicalMax ?? 27
   const presentationScore = audit?.presentationScore ?? 0
+  const presentationMax = audit?.presentationMax ?? 10
   const sections = audit?.sections ?? []
   const findings = audit?.findings ?? []
 
   const sectionScoreMap: Record<string, number> = {}
-  const sectionReasoningMap: Record<string, string> = {}
+  const sectionMaxMap: Record<string, number> = {}
   for (const s of sections) {
     sectionScoreMap[s.section] = s.score
-    if (s.reasoning) sectionReasoningMap[s.section] = s.reasoning
+    sectionMaxMap[s.section] = s.max ?? 0
   }
 
+  const questionResults = findings.filter((f) => f.type === "question_result")
   const defects = findings.filter((f) => f.type === "defect")
-  const presentationIssues = findings.filter((f) => f.type === "presentation_issue")
-  const questions = findings.filter((f) => f.type === "question" || f.type === "carrier_question")
-  const risks = findings.filter((f) => f.type === "risk")
-  const deferred = findings.filter((f) => f.type === "deferred")
 
   const claimFile = docs.length > 0 ? docs[0] : null
   const claimFileMeta = claimFile?.metadata as Record<string, unknown> | undefined
@@ -383,7 +388,7 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
                   style={{ borderColor: "#fca5a5", color: "#dc2626" }}
                   onClick={() => setShowDeleteConfirm(true)}
                 >
-                  <Trash width={16} height={16} />
+                  <WarningTriangle width={16} height={16} />
                 </Button>
               ) : (
                 <Button
@@ -509,11 +514,11 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
                         <div className="relative w-24 h-24 flex items-center justify-center rounded-full">
                           <svg className="w-full h-full transform -rotate-90 absolute top-0 left-0" viewBox="0 0 36 36">
                             <path strokeWidth="3" stroke={BRAND.lightPurpleGrey} fill="none" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
-                            <path strokeWidth="3" strokeDasharray={`${overallScore}, 100`} strokeLinecap="round" stroke={BRAND.purple} fill="none" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+                            <path strokeWidth="3" strokeDasharray={`${overallPercent}, 100`} strokeLinecap="round" stroke={BRAND.purple} fill="none" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
                           </svg>
                           <div className="text-center">
-                            <span className="text-3xl font-bold" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>{overallScore}</span>
-                            <span className="text-xs block -mt-1" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.mono }}>/100</span>
+                            <span className="text-3xl font-bold" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>{overallPercent}</span>
+                            <span className="text-xs block -mt-1" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.mono }}>%</span>
                           </div>
                         </div>
                         <div>
@@ -521,12 +526,12 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
                           <div className="flex gap-4 mb-2">
                             <div>
                               <span className="text-lg font-bold" style={{ color: BRAND.purple, fontFamily: FONTS.mono }}>{technicalScore}</span>
-                              <span className="text-xs ml-1" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.mono }}>/ 80</span>
+                              <span className="text-xs ml-1" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.mono }}>/ {technicalMax}</span>
                               <span className="text-xs block" style={{ color: BRAND.purpleSecondary }}>Technical</span>
                             </div>
                             <div>
                               <span className="text-lg font-bold" style={{ color: BRAND.purple, fontFamily: FONTS.mono }}>{presentationScore}</span>
-                              <span className="text-xs ml-1" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.mono }}>/ 20</span>
+                              <span className="text-xs ml-1" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.mono }}>/ {presentationMax}</span>
                               <span className="text-xs block" style={{ color: BRAND.purpleSecondary }}>Presentation</span>
                             </div>
                           </div>
@@ -548,22 +553,11 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
                   </CardContent>
                 </Card>
 
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  <ScorecardPanel
-                    title="Technical Scorecard"
-                    subtitle={`${technicalScore} / 80`}
-                    rows={TECHNICAL_ROWS}
-                    scores={sectionScoreMap}
-                    reasoning={sectionReasoningMap}
-                  />
-                  <ScorecardPanel
-                    title="Carrier Readiness"
-                    subtitle={`${presentationScore} / 20`}
-                    rows={PRESENTATION_ROWS}
-                    scores={sectionScoreMap}
-                    reasoning={sectionReasoningMap}
-                  />
-                </div>
+                <QuestionScorecardPanel
+                  sectionScoreMap={sectionScoreMap}
+                  sectionMaxMap={sectionMaxMap}
+                  questionResults={questionResults}
+                />
 
                 <Card className="shadow-sm" style={{ borderColor: BRAND.greyLavender, backgroundColor: BRAND.white }}>
                   <CardHeader className="pb-3 pt-5 px-5">
@@ -582,87 +576,23 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
                   </CardContent>
                 </Card>
 
-                <div className="pt-2 pb-10 space-y-3">
-                  <FindingsSection
-                    sectionKey="defects"
-                    title="Critical / Defects"
-                    icon={<WarningTriangle width={16} height={16} />}
-                    accentColor="#dc2626"
-                    count={defects.length}
-                    expanded={expandedSections.defects}
-                    onToggle={() => setExpandedSections((s) => ({ ...s, defects: !s.defects }))}
-                  >
-                    {defects.length > 0 ? defects.map((f) => (
-                      <DefectCard key={f.id} severity={f.severity === "high" || f.severity === "critical" ? "critical" : "warning"} title={f.title} description={f.description} category={f.category || f.type} />
-                    )) : (
-                      <EmptyTabContent icon={<CheckCircle width={40} height={40} />} title="No Critical Failures or Defects" subtitle="No defects identified for this claim." />
-                    )}
-                  </FindingsSection>
-
-                  <FindingsSection
-                    sectionKey="presentation"
-                    title="Presentation Issues"
-                    icon={<Folder width={16} height={16} />}
-                    accentColor={BRAND.gold}
-                    count={presentationIssues.length}
-                    expanded={expandedSections.presentation}
-                    onToggle={() => setExpandedSections((s) => ({ ...s, presentation: !s.presentation }))}
-                  >
-                    {presentationIssues.length > 0 ? presentationIssues.map((f) => (
-                      <DefectCard key={f.id} severity="warning" title={f.title} description={f.description} category="Presentation" />
-                    )) : (
-                      <EmptyTabContent icon={<Folder width={40} height={40} />} title="No Presentation Issues" subtitle="File organization meets carrier readiness standards." />
-                    )}
-                  </FindingsSection>
-
-                  <FindingsSection
-                    sectionKey="questions"
-                    title="Carrier Questions"
-                    icon={<PageSearch width={16} height={16} />}
-                    accentColor={BRAND.purple}
-                    count={questions.length}
-                    expanded={expandedSections.questions}
-                    onToggle={() => setExpandedSections((s) => ({ ...s, questions: !s.questions }))}
-                  >
-                    {questions.length > 0 ? questions.map((f) => (
-                      <DefectCard key={f.id} severity="warning" title={f.title} description={f.description} category={f.category || "Question"} />
-                    )) : (
-                      <EmptyTabContent icon={<PageSearch width={40} height={40} />} title="No Carrier Questions" subtitle="No questions identified for this claim." />
-                    )}
-                  </FindingsSection>
-
-                  <FindingsSection
-                    sectionKey="risks"
-                    title="Risks"
-                    icon={<WarningTriangle width={16} height={16} />}
-                    accentColor="#f59e0b"
-                    count={risks.length}
-                    expanded={expandedSections.risks}
-                    onToggle={() => setExpandedSections((s) => ({ ...s, risks: !s.risks }))}
-                  >
-                    {risks.length > 0 ? risks.map((f) => (
-                      <DefectCard key={f.id} severity={f.severity === "high" || f.severity === "critical" ? "critical" : "warning"} title={f.title} description={f.description} category={f.category || "Risk"} />
-                    )) : (
-                      <EmptyTabContent icon={<WarningTriangle width={40} height={40} />} title="No Risks Identified" subtitle="No risks found for this claim." />
-                    )}
-                  </FindingsSection>
-
-                  <FindingsSection
-                    sectionKey="deferred"
-                    title="Deferred Items"
-                    icon={<ClipboardCheck width={16} height={16} />}
-                    accentColor={BRAND.purpleSecondary}
-                    count={deferred.length}
-                    expanded={expandedSections.deferred}
-                    onToggle={() => setExpandedSections((s) => ({ ...s, deferred: !s.deferred }))}
-                  >
-                    {deferred.length > 0 ? deferred.map((f) => (
-                      <DefectCard key={f.id} severity="warning" title={f.title} description={f.description} category={f.category || "Deferred"} />
-                    )) : (
-                      <EmptyTabContent icon={<ClipboardCheck width={40} height={40} />} title="No Deferred Items" subtitle="No items deferred for later review." />
-                    )}
-                  </FindingsSection>
-                </div>
+                {defects.length > 0 && (
+                  <div className="pt-2 pb-10 space-y-3">
+                    <FindingsSection
+                      sectionKey="defects"
+                      title="Critical Failures"
+                      icon={<WarningTriangle width={16} height={16} />}
+                      accentColor="#dc2626"
+                      count={defects.length}
+                      expanded={expandedSections.defects}
+                      onToggle={() => setExpandedSections((s) => ({ ...s, defects: !s.defects }))}
+                    >
+                      {defects.map((f) => (
+                        <DefectCard key={f.id} severity="critical" title={f.title} description={f.description} category="Critical Failure" />
+                      ))}
+                    </FindingsSection>
+                  </div>
+                )}
               </>
             )}
 
@@ -825,43 +755,111 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
   )
 }
 
-function ScorecardPanel({ title, subtitle, rows, scores, reasoning }: { title: string; subtitle: string; rows: ScorecardRow[]; scores: Record<string, number>; reasoning?: Record<string, string> }) {
+function answerBadge(answer: string) {
+  if (answer === "PASS" || answer === "pass") return { label: "PASS", color: "#16a34a", bg: "#f0fdf4" }
+  if (answer === "PARTIAL" || answer === "partial") return { label: "PARTIAL", color: "#ca8a04", bg: "#fef9ec" }
+  if (answer === "NOT_APPLICABLE" || answer === "na") return { label: "N/A", color: "#6b7280", bg: "#f3f4f6" }
+  return { label: "FAIL", color: "#dc2626", bg: "#fef2f2" }
+}
+
+interface QuestionFinding {
+  id: string
+  title: string
+  description: string
+  severity: string
+  answer?: string
+  issue?: string
+  impact?: string
+  fix?: string
+  location?: string
+  confidence?: number
+}
+
+function QuestionScorecardPanel({ sectionScoreMap, sectionMaxMap, questionResults }: {
+  sectionScoreMap: Record<string, number>
+  sectionMaxMap: Record<string, number>
+  questionResults: QuestionFinding[]
+}) {
+  const sectionKeys = ["coverage", "scope", "financial", "documentation", "presentation"]
+
   return (
     <Card className="shadow-sm" style={{ borderColor: BRAND.greyLavender, backgroundColor: BRAND.white }}>
       <CardHeader className="pb-2 pt-5 px-5">
         <div className="flex items-center justify-between">
           <CardTitle className="text-sm font-bold uppercase tracking-wider" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
-            {title}
+            Question-Level Audit
           </CardTitle>
-          <span className="text-sm font-bold" style={{ color: BRAND.purple, fontFamily: FONTS.mono }}>{subtitle}</span>
+          <Badge variant="outline" className="text-xs" style={{ color: BRAND.purple, backgroundColor: BRAND.lightPurpleGrey, borderColor: BRAND.purpleLight }}>
+            {questionResults.filter((q) => q.severity === "pass").length}/{questionResults.length} Passed
+          </Badge>
         </div>
       </CardHeader>
       <CardContent className="px-5 pb-5">
-        <div className="space-y-3">
-          {rows.map((row) => {
-            const score = scores[row.key] ?? 0
-            const pct = row.max > 0 ? (score / row.max) * 100 : 0
-            const colors = getScoreColor(score, row.max)
-            const reason = reasoning?.[row.key]
+        <div className="space-y-5">
+          {sectionKeys.map((sKey) => {
+            const score = sectionScoreMap[sKey] ?? 0
+            const max = sectionMaxMap[sKey] ?? 0
+            const colors = getScoreColor(score, max)
+            const sectionQuestions = questionResults.filter((q) => QUESTION_SECTIONS[q.title] === sKey)
+
             return (
-              <div key={row.key}>
-                <div className="flex items-center justify-between mb-1">
+              <div key={sKey}>
+                <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2">
-                    <div className="p-1 rounded" style={{ backgroundColor: colors.bg, color: colors.text }}>{row.icon}</div>
-                    <span className="text-xs font-medium" style={{ color: BRAND.deepPurple, fontFamily: FONTS.body }}>{row.label}</span>
+                    <div className="p-1 rounded" style={{ backgroundColor: colors.bg, color: colors.text }}>
+                      {SECTION_ICONS[sKey]}
+                    </div>
+                    <span className="text-xs font-bold uppercase tracking-wider" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
+                      {SECTION_LABELS[sKey] || sKey}
+                    </span>
                   </div>
                   <span className="text-sm font-bold" style={{ color: colors.text, fontFamily: FONTS.mono }}>
-                    {score}<span className="text-xs font-normal" style={{ color: BRAND.purpleSecondary }}>/{row.max}</span>
+                    {score}<span className="text-xs font-normal" style={{ color: BRAND.purpleSecondary }}>/{max}</span>
                   </span>
                 </div>
-                <div className="w-full h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: colors.bg }}>
-                  <div className="h-full rounded-full transition-all duration-500" style={{ width: `${pct}%`, backgroundColor: colors.bar }} />
+
+                <div className="w-full h-1.5 rounded-full overflow-hidden mb-2" style={{ backgroundColor: colors.bg }}>
+                  <div className="h-full rounded-full transition-all duration-500" style={{ width: `${max > 0 ? (score / max) * 100 : 0}%`, backgroundColor: colors.bar }} />
                 </div>
-                {reason && (
-                  <p className="text-xs mt-1 leading-relaxed italic" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.body, paddingLeft: "28px" }}>
-                    {reason}
-                  </p>
-                )}
+
+                <div className="space-y-2 pl-7">
+                  {sectionQuestions.map((q) => {
+                    const badge = answerBadge(q.answer || q.severity)
+                    const showDetails = q.answer !== "PASS" && q.answer !== "pass" && q.severity !== "pass"
+                    return (
+                      <div key={q.id} className="flex items-start gap-2">
+                        <span className="inline-flex items-center justify-center text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 mt-0.5" style={{ backgroundColor: badge.bg, color: badge.color, minWidth: "40px", textAlign: "center" }}>
+                          {badge.label}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <span className="text-xs font-medium" style={{ color: BRAND.deepPurple, fontFamily: FONTS.body }}>
+                            {QUESTION_LABELS[q.title] || q.title}
+                          </span>
+                          {showDetails && q.fix && (
+                            <p className="text-[11px] mt-0.5 leading-relaxed" style={{ color: "#16a34a", fontFamily: FONTS.body }}>
+                              <strong>Fix:</strong> {q.fix}
+                            </p>
+                          )}
+                          {showDetails && q.issue && (
+                            <p className="text-[11px] mt-0.5 leading-relaxed italic" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.body }}>
+                              {q.issue}
+                            </p>
+                          )}
+                          {showDetails && q.impact && (
+                            <p className="text-[10px] mt-0.5 leading-relaxed" style={{ color: "#dc2626", fontFamily: FONTS.body }}>
+                              <strong>Impact:</strong> {q.impact}
+                            </p>
+                          )}
+                          {showDetails && q.location && (
+                            <p className="text-[10px] mt-0.5 leading-relaxed pl-2" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.mono, borderLeft: `2px solid ${BRAND.greyLavender}` }}>
+                              {q.location}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
               </div>
             )
           })}
@@ -928,18 +926,6 @@ function DefectCard({ severity, title, description, category }: { severity: "war
         </div>
         <p className="text-sm leading-relaxed" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.body }}>{description}</p>
         <p className="text-xs mt-2 font-medium uppercase tracking-wider" style={{ color: BRAND.purpleSecondary }}>{category}</p>
-      </CardContent>
-    </Card>
-  )
-}
-
-function EmptyTabContent({ icon, title, subtitle }: { icon: React.ReactNode; title: string; subtitle: string }) {
-  return (
-    <Card className="shadow-sm" style={{ borderColor: BRAND.greyLavender, backgroundColor: BRAND.white }}>
-      <CardContent className="p-10 text-center">
-        <div className="mb-3 flex justify-center" style={{ color: BRAND.purpleSecondary }}>{icon}</div>
-        <h4 className="text-sm font-semibold mb-1" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>{title}</h4>
-        <p className="text-xs" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.body }}>{subtitle}</p>
       </CardContent>
     </Card>
   )

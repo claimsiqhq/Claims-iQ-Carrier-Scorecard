@@ -19,23 +19,6 @@ import logger from "../lib/logger";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-function extractFindingText(item: unknown): { title: string; description: string } {
-  if (typeof item === "string") return { title: item, description: item };
-  if (item && typeof item === "object") {
-    const obj = item as Record<string, unknown>;
-    const parts: string[] = [];
-    if (typeof obj.item === "string") parts.push(obj.item);
-    else if (typeof obj.title === "string") parts.push(obj.title);
-    if (typeof obj.reason === "string") parts.push(obj.reason);
-    if (typeof obj.next_step === "string") parts.push(`Next: ${obj.next_step}`);
-    if (typeof obj.description === "string" && !parts.includes(obj.description as string)) parts.push(obj.description as string);
-    const text = parts.length > 0 ? parts.join(" — ") : JSON.stringify(item);
-    const title = (typeof obj.title === "string" ? obj.title : typeof obj.item === "string" ? obj.item : text).substring(0, 200);
-    return { title, description: text };
-  }
-  return { title: String(item), description: String(item) };
-}
-
 const auditLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
@@ -120,7 +103,7 @@ router.post("/claims/:id/audit", requireAuth, auditLimiter, async (req, res) => 
         .insert(audits)
         .values({
           claimId: id,
-          overallScore: String(auditResult.overall_score),
+          overallScore: String(auditResult.percent),
           technicalScore: String(auditResult.technical_score),
           presentationScore: String(auditResult.presentation_score),
           riskLevel: auditResult.risk_level,
@@ -130,73 +113,56 @@ router.post("/claims/:id/audit", requireAuth, auditLimiter, async (req, res) => 
         })
         .returning();
 
-      const sectionKeys = [
-        "coverage_clarity", "scope_completeness", "estimate_accuracy",
-        "documentation_support", "financial_accuracy", "carrier_risk",
-        "file_stack_order", "payment_match", "estimate_operational_order",
-        "photo_organization", "da_report_quality", "fa_report_quality",
-        "policy_provisions",
-      ] as const;
-
-      const reasoning = auditResult.section_reasoning ?? {};
+      const sectionKeys = ["coverage", "scope", "financial", "documentation", "presentation"] as const;
 
       await txDb.insert(auditSections).values(
         sectionKeys.map((key) => ({
           auditId: newAudit.id,
           section: key,
           score: String(auditResult.section_scores[key] ?? 0),
-          reasoning: (reasoning as Record<string, string>)[key] || null,
+          reasoning: auditResult.section_reasoning[key] || null,
         }))
       );
 
-      const allFindings: { type: string; severity: string; title: string; description: string }[] = [];
+      const questionFindings = auditResult.questions.map((q) => ({
+        auditId: newAudit.id,
+        type: "question_result",
+        severity: q.answer === "PASS" ? "pass" : q.answer === "PARTIAL" ? "partial" : q.answer === "NOT_APPLICABLE" ? "na" : "fail",
+        title: q.id,
+        description: q.issue || "",
+        metadata: {
+          category: "question_result",
+          answer: q.answer,
+          issue: q.issue,
+          impact: q.impact,
+          fix: q.fix,
+          location: q.location,
+          confidence: q.confidence,
+        } as Record<string, unknown>,
+      }));
 
-      const findingGroups = [
-        { type: "defect", severity: "critical", items: auditResult.critical_failures || [] },
-        { type: "defect", severity: "warning", items: auditResult.key_defects || [] },
-        { type: "presentation_issue", severity: "warning", items: auditResult.presentation_issues || [] },
-        { type: "carrier_question", severity: "info", items: auditResult.carrier_questions || [] },
-        { type: "deferred", severity: "info", items: auditResult.deferred_items || [] },
-      ];
+      const criticalFindings = auditResult.critical_failures.map((f) => ({
+        auditId: newAudit.id,
+        type: "defect",
+        severity: "critical",
+        title: f.substring(0, 200),
+        description: f,
+        metadata: { category: "defect" } as Record<string, unknown>,
+      }));
 
-      for (const group of findingGroups) {
-        for (const item of group.items) {
-          const { title, description } = extractFindingText(item);
-          allFindings.push({ type: group.type, severity: group.severity, title: title.substring(0, 200), description });
-        }
-      }
-
-      const riskItems = [
-        ...(auditResult.scope_deviations || []).map((item) => ({ type: "risk", severity: "warning", item })),
-        ...(auditResult.unknowns || []).map((item) => ({ type: "risk", severity: "info", item })),
-        ...(auditResult.invoice_adjustments || []).map((item) => ({ type: "risk", severity: "warning", item })),
-      ];
-
-      for (const rf of riskItems) {
-        const { title, description } = extractFindingText(rf.item);
-        allFindings.push({ type: rf.type, severity: rf.severity, title: title.substring(0, 200), description });
-      }
+      const allFindings = [...questionFindings, ...criticalFindings];
 
       if (allFindings.length > 0) {
-        await txDb.insert(auditFindings).values(
-          allFindings.map((f) => ({
-            auditId: newAudit.id,
-            type: f.type,
-            severity: f.severity,
-            title: f.title,
-            description: f.description,
-            metadata: { category: f.type },
-          }))
-        );
+        await txDb.insert(auditFindings).values(allFindings);
       }
 
       await txDb.insert(auditStructured).values({
         auditId: newAudit.id,
-        deferredItems: auditResult.deferred_items || [],
-        invoiceAdjustments: auditResult.invoice_adjustments || [],
-        scopeDeviations: auditResult.scope_deviations || [],
-        unknowns: auditResult.unknowns || [],
-        carrierQuestions: auditResult.carrier_questions || [],
+        deferredItems: [],
+        invoiceAdjustments: [],
+        scopeDeviations: [],
+        unknowns: [],
+        carrierQuestions: [],
       });
 
       await txDb
@@ -217,11 +183,12 @@ router.post("/claims/:id/audit", requireAuth, auditLimiter, async (req, res) => 
       res.json({
         success: true,
         auditId: newAudit.id,
-        overallScore: auditResult.overall_score,
+        overallScore: auditResult.percent,
         technicalScore: auditResult.technical_score,
         presentationScore: auditResult.presentation_score,
         riskLevel: auditResult.risk_level,
         approvalStatus: auditResult.approval_status,
+        ready: auditResult.ready,
       });
     } catch (txErr) {
       await client.query("ROLLBACK");

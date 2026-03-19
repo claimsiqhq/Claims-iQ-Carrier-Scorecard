@@ -29,7 +29,7 @@ The project is a pnpm workspace monorepo using Node.js v24 and TypeScript v5.9.
 - **Authentication**: Email/password login with bcrypt password hashing, cookie-based sessions stored in PostgreSQL.
 - **File Storage**: Supabase Storage for claim document uploads, with a dedicated `claim-documents` bucket.
 - **Email Service**: SendGrid for sending audit emails, with email content rendered as inline HTML.
-- **AI Integration**: Leverages Replit AI Integrations for OpenAI (gpt-5) for audit analysis, with configurable prompts stored in the database.
+- **AI Integration**: Leverages Replit AI Integrations for OpenAI (gpt-4o) for audit analysis. Prompts are in `artifacts/api-server/src/services/prompts.ts`.
 - **Logging**: Pino for structured JSON logging with PII redaction and audit logging for sensitive actions.
 - **Security**: Implements Helmet for security headers, CORS, rate limiting, body size limits, error sanitization, and CSRF protection.
 - **Monorepo Structure**: Organized into `artifacts` (API server, frontend, mockup sandbox) and `lib` (shared utilities like API spec, database schema, auth, object storage).
@@ -38,7 +38,7 @@ The project is a pnpm workspace monorepo using Node.js v24 and TypeScript v5.9.
 ### Feature Specifications
 - **Claims Management**: CRUD operations for claims, including associated documents and audit data.
 - **Document Processing**: Upload, text extraction (from PDFs up to 100MB), and storage of claim documents.
-- **Audit Generation**: AI-driven generation of audit reports based on configurable prompts, providing technical and presentation scores, per-section reasoning justifications, findings, and an executive summary. Audit results are stored transactionally. Each of the 13 scored categories includes a brief AI-generated reasoning explaining why the score was given.
+- **Audit Generation**: Question-level audit engine. LLM answers 12 specific questions across 5 sections (coverage, scope, financial, documentation, presentation). Code-side scoring engine deterministically converts PASS/PARTIAL/FAIL/NOT_APPLICABLE answers to weighted scores. A validation engine runs regex-based pre-checks on the report text. Each question result includes issue/impact/fix/location/confidence fields for actionable output. Results stored as `question_result` type findings. Services: `questionBank.ts`, `scoringEngine.ts`, `runQuestionAudit.ts`, `validationEngine.ts`, `prompts.ts`.
 - **Email Communication**: Preview and send comprehensive audit reports via email.
 - **Settings Management**: UI for editing AI prompt settings, with persistence to the database.
 - **Data Retention**: GDPR-compliant data deletion with cascading deletes for claims and associated PII.

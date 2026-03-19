@@ -1,5 +1,6 @@
 import type { AuditResponse } from "./audit";
 import type { CarrierScorecardAuditResult } from "./carrierScorecardAudit";
+import { QUESTION_BANK, SECTION_LABELS } from "./questionBank";
 import { sendEmail } from "./sendgrid";
 import logger from "../lib/logger";
 
@@ -10,25 +11,6 @@ interface EmailData {
   auditResult: AuditResponse;
 }
 
-const TECHNICAL_SECTIONS: { key: keyof AuditResponse["section_scores"]; label: string; max: number }[] = [
-  { key: "coverage_clarity", label: "Coverage & Liability Clarity", max: 15 },
-  { key: "scope_completeness", label: "Scope Completeness", max: 15 },
-  { key: "estimate_accuracy", label: "Estimate Technical Accuracy", max: 15 },
-  { key: "documentation_support", label: "Documentation & Evidence Support", max: 10 },
-  { key: "financial_accuracy", label: "Financial Accuracy & Reconciliation", max: 10 },
-  { key: "carrier_risk", label: "Carrier Risk & Completeness", max: 15 },
-];
-
-const PRESENTATION_SECTIONS: { key: keyof AuditResponse["section_scores"]; label: string; max: number }[] = [
-  { key: "file_stack_order", label: "File Stack Order", max: 3 },
-  { key: "payment_match", label: "Payment Recommendations Match", max: 5 },
-  { key: "estimate_operational_order", label: "Estimate Operational Order", max: 3 },
-  { key: "photo_organization", label: "Photographs Clear and In Order", max: 3 },
-  { key: "da_report_quality", label: "DA Report Not Cumbersome", max: 2 },
-  { key: "fa_report_quality", label: "FA Report Detailed Enough", max: 2 },
-  { key: "policy_provisions", label: "Unique Policy Provisions Addressed", max: 2 },
-];
-
 function escapeHtml(text: string): string {
   return text
     .replace(/&/g, "&amp;")
@@ -38,25 +20,113 @@ function escapeHtml(text: string): string {
 }
 
 function scoreColor(score: number, max: number): string {
+  if (max === 0) return "#6b7280";
   const pct = (score / max) * 100;
   if (pct >= 80) return "#16a34a";
   if (pct >= 60) return "#ca8a04";
   return "#dc2626";
 }
 
-function buildScorecardTable(title: string, sections: typeof TECHNICAL_SECTIONS, scores: AuditResponse["section_scores"], reasoning?: AuditResponse["section_reasoning"]): string {
+function answerIcon(answer: string): string {
+  if (answer === "PASS") return "&#10004;";
+  if (answer === "PARTIAL") return "&#9673;";
+  if (answer === "NOT_APPLICABLE") return "&#8212;";
+  return "&#10008;";
+}
+
+function answerColor(answer: string): string {
+  if (answer === "PASS") return "#16a34a";
+  if (answer === "PARTIAL") return "#ca8a04";
+  if (answer === "NOT_APPLICABLE") return "#6b7280";
+  return "#dc2626";
+}
+
+function buildActionRequired(r: AuditResponse): string {
+  const actionItems = r.questions.filter((q) => q.answer !== "PASS" && q.answer !== "NOT_APPLICABLE");
+  if (actionItems.length === 0) return "";
+
+  const items = actionItems
+    .map((q) => {
+      const qDef = QUESTION_BANK.find((qb) => qb.id === q.id);
+      return `<tr>
+        <td style="padding:10px 12px;border-bottom:1px solid #f0f0f0;font-size:13px;color:#374151;font-weight:600;">${escapeHtml(qDef?.text || q.id)}</td>
+        <td style="padding:10px 12px;border-bottom:1px solid #f0f0f0;font-size:13px;color:#dc2626;">${escapeHtml(q.fix || q.issue || "")}</td>
+      </tr>`;
+    })
+    .join("");
+
+  return `
+    <div style="margin-bottom:24px;">
+      <h3 style="font-size:15px;font-weight:700;color:#342A4F;margin:0 0 12px 0;">&#9888; Action Required</h3>
+      <table style="width:100%;border-collapse:collapse;border:1px solid #fca5a5;border-radius:6px;">
+        <thead>
+          <tr style="background-color:#fef2f2;">
+            <th style="padding:10px 12px;text-align:left;font-size:12px;color:#dc2626;border-bottom:2px solid #fca5a5;text-transform:uppercase;">Question</th>
+            <th style="padding:10px 12px;text-align:left;font-size:12px;color:#dc2626;border-bottom:2px solid #fca5a5;text-transform:uppercase;">Fix Required</th>
+          </tr>
+        </thead>
+        <tbody>${items}</tbody>
+      </table>
+    </div>`;
+}
+
+function buildQuestionDetails(r: AuditResponse): string {
+  const failPartial = r.questions.filter((q) => q.answer === "FAIL" || q.answer === "PARTIAL");
+  if (failPartial.length === 0) return "";
+
+  const rows = failPartial
+    .map((q) => {
+      const qDef = QUESTION_BANK.find((qb) => qb.id === q.id);
+      const aColor = answerColor(q.answer);
+      return `<div style="margin-bottom:16px;padding:12px;border-left:3px solid ${aColor};background-color:#fafafa;">
+        <p style="margin:0 0 4px 0;font-size:14px;font-weight:700;color:#342A4F;">${escapeHtml(qDef?.text || q.id)}</p>
+        ${q.issue ? `<p style="margin:0 0 4px 0;font-size:13px;color:#374151;"><strong>Issue:</strong> ${escapeHtml(q.issue)}</p>` : ""}
+        ${q.impact ? `<p style="margin:0 0 4px 0;font-size:13px;color:#374151;"><strong>Impact:</strong> ${escapeHtml(q.impact)}</p>` : ""}
+        ${q.fix ? `<p style="margin:0 0 4px 0;font-size:13px;color:#16a34a;"><strong>Fix:</strong> ${escapeHtml(q.fix)}</p>` : ""}
+        ${q.location ? `<p style="margin:0;font-size:12px;color:#6b7280;"><strong>Location:</strong> ${escapeHtml(q.location)}</p>` : ""}
+      </div>`;
+    })
+    .join("");
+
+  return `
+    <div style="margin-bottom:24px;">
+      <h3 style="font-size:15px;font-weight:700;color:#342A4F;margin:0 0 12px 0;">Issue Details</h3>
+      ${rows}
+    </div>`;
+}
+
+function buildQuestionTable(r: AuditResponse): string {
+  const sectionKeys = ["coverage", "scope", "financial", "documentation", "presentation"];
+
   let rows = "";
-  for (const s of sections) {
-    const val = scores[s.key] ?? 0;
-    const color = scoreColor(val, s.max);
-    rows += `<tr>
-      <td style="padding:8px 12px;border-bottom:${reasoning?.[s.key] ? "none" : "1px solid #e5e7eb"};font-size:14px;color:#374151;">${escapeHtml(s.label)}</td>
-      <td style="padding:8px 12px;border-bottom:${reasoning?.[s.key] ? "none" : "1px solid #e5e7eb"};text-align:center;font-weight:700;color:${color};font-size:14px;">${val}</td>
-      <td style="padding:8px 12px;border-bottom:${reasoning?.[s.key] ? "none" : "1px solid #e5e7eb"};text-align:center;font-size:14px;color:#6b7280;">/ ${s.max}</td>
+  for (const sectionKey of sectionKeys) {
+    const label = SECTION_LABELS[sectionKey] || sectionKey;
+    const sectionScore = r.section_scores[sectionKey] ?? 0;
+    const sectionMax = r.section_max[sectionKey] ?? 0;
+    const color = scoreColor(sectionScore, sectionMax);
+
+    rows += `<tr style="background-color:#f3f0f7;">
+      <td colspan="3" style="padding:10px 12px;font-size:13px;font-weight:700;color:#342A4F;border-bottom:1px solid #e5e7eb;">
+        ${escapeHtml(label)}
+        <span style="float:right;color:${color};font-weight:700;">${sectionScore}/${sectionMax}</span>
+      </td>
     </tr>`;
-    if (reasoning?.[s.key]) {
+
+    const sectionQuestions = r.questions.filter((q) => {
+      const qDef = QUESTION_BANK.find((qb) => qb.id === q.id);
+      return qDef?.section === sectionKey;
+    });
+
+    for (const q of sectionQuestions) {
+      const qDef = QUESTION_BANK.find((qb) => qb.id === q.id);
+      const icon = answerIcon(q.answer);
+      const aColor = answerColor(q.answer);
+      const detail = q.answer === "PASS" ? "" : (q.fix || q.issue || "");
+
       rows += `<tr>
-        <td colspan="3" style="padding:0 12px 8px 12px;border-bottom:1px solid #e5e7eb;font-size:12px;font-style:italic;color:#9D8BBF;">${escapeHtml(reasoning[s.key])}</td>
+        <td style="padding:6px 12px 6px 24px;border-bottom:1px solid #f0f0f0;font-size:13px;color:#374151;">${escapeHtml(qDef?.text || q.id)}</td>
+        <td style="padding:6px 12px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:16px;color:${aColor};font-weight:700;">${icon}</td>
+        <td style="padding:6px 12px;border-bottom:1px solid #f0f0f0;font-size:12px;color:#6b7280;font-style:italic;">${escapeHtml(detail)}</td>
       </tr>`;
     }
   }
@@ -64,26 +134,31 @@ function buildScorecardTable(title: string, sections: typeof TECHNICAL_SECTIONS,
   return `
     <table style="width:100%;border-collapse:collapse;margin-bottom:24px;">
       <thead>
-        <tr style="background-color:#f3f0f7;">
-          <th style="padding:10px 12px;text-align:left;font-size:13px;color:#342A4F;text-transform:uppercase;letter-spacing:0.05em;border-bottom:2px solid #7763B7;" colspan="3">${escapeHtml(title)}</th>
-        </tr>
         <tr style="background-color:#fafafa;">
-          <th style="padding:6px 12px;text-align:left;font-size:12px;color:#6b7280;border-bottom:1px solid #e5e7eb;">Section</th>
-          <th style="padding:6px 12px;text-align:center;font-size:12px;color:#6b7280;border-bottom:1px solid #e5e7eb;">Score</th>
-          <th style="padding:6px 12px;text-align:center;font-size:12px;color:#6b7280;border-bottom:1px solid #e5e7eb;">Max</th>
+          <th style="padding:8px 12px;text-align:left;font-size:12px;color:#6b7280;border-bottom:2px solid #7763B7;">Question</th>
+          <th style="padding:8px 12px;text-align:center;font-size:12px;color:#6b7280;border-bottom:2px solid #7763B7;width:50px;">Result</th>
+          <th style="padding:8px 12px;text-align:left;font-size:12px;color:#6b7280;border-bottom:2px solid #7763B7;">Action</th>
         </tr>
       </thead>
       <tbody>${rows}</tbody>
     </table>`;
 }
 
-function buildBulletSection(title: string, items: string[]): string {
-  if (!items || items.length === 0) return "";
-  const bullets = items.map((i) => `<li style="margin-bottom:6px;font-size:14px;color:#374151;">${escapeHtml(typeof i === "string" ? i : String(i))}</li>`).join("");
+function buildValidationSection(r: AuditResponse): string {
+  if (!r.validation) return "";
+  const v = r.validation;
+  const allIssues = [...v.critical, ...v.warnings, ...v.info];
+  if (allIssues.length === 0) return "";
+
+  const items = allIssues.map((i) => {
+    const color = v.critical.includes(i) ? "#dc2626" : v.warnings.includes(i) ? "#ca8a04" : "#6b7280";
+    return `<li style="margin-bottom:6px;font-size:13px;color:${color};">${escapeHtml(i.message)}</li>`;
+  }).join("");
+
   return `
     <div style="margin-bottom:20px;">
-      <h3 style="font-size:15px;font-weight:700;color:#342A4F;margin:0 0 8px 0;">${escapeHtml(title)}</h3>
-      <ul style="margin:0;padding-left:20px;">${bullets}</ul>
+      <h3 style="font-size:15px;font-weight:700;color:#342A4F;margin:0 0 8px 0;">Validation Checks</h3>
+      <ul style="margin:0;padding-left:20px;">${items}</ul>
     </div>`;
 }
 
@@ -92,6 +167,13 @@ export function renderAuditEmail(data: EmailData): string {
 
   const riskColors: Record<string, string> = { LOW: "#16a34a", MEDIUM: "#ca8a04", HIGH: "#dc2626" };
   const riskColor = riskColors[r.risk_level] ?? "#6b7280";
+
+  const techColor = scoreColor(r.technical_score, r.technical_max);
+  const presColor = scoreColor(r.presentation_score, r.presentation_max);
+
+  const readyText = r.ready ? "YES" : "NO";
+  const readyColor = r.ready ? "#16a34a" : "#dc2626";
+  const readyBg = r.ready ? "#f0fdf4" : "#fef2f2";
 
   logger.info("Email rendered");
 
@@ -106,46 +188,45 @@ export function renderAuditEmail(data: EmailData): string {
     </div>
 
     <div style="padding:24px 32px;">
-      <div style="display:flex;background-color:#f3f0f7;border-radius:8px;padding:20px;margin-bottom:24px;">
+      <div style="background-color:#f3f0f7;border-radius:8px;padding:20px;margin-bottom:24px;">
         <table style="width:100%;border-collapse:collapse;">
           <tr>
-            <td style="text-align:center;padding:8px 16px;border-right:1px solid #e3dfe8;">
-              <div style="font-size:32px;font-weight:700;color:#342A4F;">${escapeHtml(String(r.overall_score))}</div>
-              <div style="font-size:11px;color:#9D8BBF;text-transform:uppercase;letter-spacing:0.05em;">Overall Score</div>
+            <td style="text-align:center;padding:8px 12px;border-right:1px solid #e3dfe8;">
+              <div style="font-size:14px;font-weight:700;color:${readyColor};padding:6px 12px;border-radius:6px;background-color:${readyBg};display:inline-block;">${readyText}</div>
+              <div style="font-size:11px;color:#9D8BBF;text-transform:uppercase;letter-spacing:0.05em;margin-top:4px;">Ready</div>
             </td>
-            <td style="text-align:center;padding:8px 16px;border-right:1px solid #e3dfe8;">
-              <div style="font-size:24px;font-weight:700;color:#7763B7;">${escapeHtml(String(r.technical_score))}</div>
-              <div style="font-size:11px;color:#9D8BBF;text-transform:uppercase;letter-spacing:0.05em;">Technical / 80</div>
+            <td style="text-align:center;padding:8px 12px;border-right:1px solid #e3dfe8;">
+              <div style="font-size:32px;font-weight:700;color:#342A4F;">${r.percent}%</div>
+              <div style="font-size:11px;color:#9D8BBF;text-transform:uppercase;letter-spacing:0.05em;">Score</div>
             </td>
-            <td style="text-align:center;padding:8px 16px;border-right:1px solid #e3dfe8;">
-              <div style="font-size:24px;font-weight:700;color:#7763B7;">${escapeHtml(String(r.presentation_score))}</div>
-              <div style="font-size:11px;color:#9D8BBF;text-transform:uppercase;letter-spacing:0.05em;">Presentation / 20</div>
+            <td style="text-align:center;padding:8px 12px;border-right:1px solid #e3dfe8;">
+              <div style="font-size:24px;font-weight:700;color:${techColor};">${r.technical_score}/${r.technical_max}</div>
+              <div style="font-size:11px;color:#9D8BBF;text-transform:uppercase;letter-spacing:0.05em;">Technical</div>
             </td>
-            <td style="text-align:center;padding:8px 16px;border-right:1px solid #e3dfe8;">
+            <td style="text-align:center;padding:8px 12px;border-right:1px solid #e3dfe8;">
+              <div style="font-size:24px;font-weight:700;color:${presColor};">${r.presentation_score}/${r.presentation_max}</div>
+              <div style="font-size:11px;color:#9D8BBF;text-transform:uppercase;letter-spacing:0.05em;">Presentation</div>
+            </td>
+            <td style="text-align:center;padding:8px 12px;">
               <div style="font-size:16px;font-weight:700;color:${riskColor};">${escapeHtml(r.risk_level)}</div>
-              <div style="font-size:11px;color:#9D8BBF;text-transform:uppercase;letter-spacing:0.05em;">Risk Level</div>
-            </td>
-            <td style="text-align:center;padding:8px 16px;">
-              <div style="font-size:13px;font-weight:700;color:#C6A54E;">${escapeHtml(r.approval_status)}</div>
-              <div style="font-size:11px;color:#9D8BBF;text-transform:uppercase;letter-spacing:0.05em;">Status</div>
+              <div style="font-size:11px;color:#9D8BBF;text-transform:uppercase;letter-spacing:0.05em;">Risk</div>
             </td>
           </tr>
         </table>
       </div>
+
+      ${buildActionRequired(r)}
 
       <div style="margin-bottom:24px;">
         <h3 style="font-size:15px;font-weight:700;color:#342A4F;margin:0 0 8px 0;">Executive Summary</h3>
         <p style="font-size:14px;line-height:1.6;color:#374151;margin:0;">${escapeHtml(r.executive_summary)}</p>
       </div>
 
-      ${buildScorecardTable("Technical Scorecard", TECHNICAL_SECTIONS, r.section_scores, r.section_reasoning)}
-      ${buildScorecardTable("Presentation / Carrier Readiness", PRESENTATION_SECTIONS, r.section_scores, r.section_reasoning)}
+      ${buildQuestionDetails(r)}
 
-      ${buildBulletSection("Critical Failures", r.critical_failures)}
-      ${buildBulletSection("Key Defects", r.key_defects)}
-      ${buildBulletSection("Presentation Issues", r.presentation_issues)}
-      ${buildBulletSection("Carrier Questions", r.carrier_questions)}
-      ${buildBulletSection("Deferred Items", r.deferred_items)}
+      ${buildQuestionTable(r)}
+
+      ${buildValidationSection(r)}
     </div>
 
     <div style="background-color:#342A4F;padding:16px 32px;text-align:center;">

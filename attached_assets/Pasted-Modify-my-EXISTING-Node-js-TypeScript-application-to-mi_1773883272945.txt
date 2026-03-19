@@ -1,0 +1,278 @@
+Modify my EXISTING Node.js + TypeScript application to migrate from section-based scoring to a QUESTION-LEVEL audit engine.
+
+CRITICAL RULES:
+- DO NOT rebuild the app
+- DO NOT refactor unrelated code
+- DO NOT change upload or ingestion flow
+- KEEP existing routes and UI intact, only extend them
+- REMOVE section-level scoring logic and replace with question-based scoring
+
+---
+
+GOAL:
+
+Replace:
+"LLM assigns section scores"
+
+WITH:
+
+1. Question-level answers (LLM)
+2. Deterministic scoring (code)
+3. Section rollups (code)
+
+---
+
+==================================================
+STEP 1 — CREATE QUESTION BANK
+==================================================
+
+Create:
+
+/services/questionBank.ts
+
+Add:
+
+export type Answer = "PASS" | "PARTIAL" | "FAIL" | "NOT_APPLICABLE";
+
+export interface Question {
+  id: string;
+  text: string;
+  weight: number;
+  section: string;
+}
+
+export const QUESTION_BANK: Question[] = [
+
+  // COVERAGE (15)
+  { id: "cause_of_loss", text: "Is cause of loss clearly stated?", weight: 2, section: "coverage" },
+  { id: "coverage_applied", text: "Is coverage applied correctly?", weight: 3, section: "coverage" },
+  { id: "exclusions_addressed", text: "Are exclusions addressed?", weight: 2, section: "coverage" },
+  { id: "policy_provisions", text: "Are policy provisions referenced when applicable?", weight: 2, section: "coverage" },
+
+  // SCOPE
+  { id: "damage_accounted", text: "Is all observed damage accounted for?", weight: 5, section: "scope" },
+  { id: "deferred_items_valid", text: "Are deferred items clearly explained with next steps?", weight: 5, section: "scope" },
+
+  // FINANCIAL
+  { id: "payment_consistency", text: "Do payment values match across documents?", weight: 5, section: "financial" },
+  { id: "deductible_correct", text: "Is deductible applied correctly?", weight: 3, section: "financial" },
+
+  // PRESENTATION
+  { id: "file_order", text: "Is file stack in logical order?", weight: 3, section: "presentation" },
+  { id: "photo_alignment", text: "Are photos labeled and aligned to estimate?", weight: 3, section: "presentation" },
+  { id: "da_quality", text: "Is DA report concise and not repetitive?", weight: 2, section: "presentation" },
+  { id: "fa_quality", text: "Does FA report support estimate clearly?", weight: 2, section: "presentation" }
+];
+
+---
+
+==================================================
+STEP 2 — UPDATE OPENAI PROMPTS
+==================================================
+
+Replace prompts with:
+
+SYSTEM PROMPT:
+
+You are a carrier audit assistant.
+
+You will answer specific audit questions.
+
+DO NOT assign scores.
+DO NOT summarize sections.
+
+ONLY answer each question.
+
+Use ONLY these answers:
+- PASS
+- PARTIAL
+- FAIL
+- NOT_APPLICABLE
+
+Base answers strictly on document evidence.
+
+Return JSON only.
+
+---
+
+USER PROMPT TEMPLATE:
+
+Answer the following audit questions.
+
+For EACH question return:
+
+{
+  "id": "",
+  "answer": "PASS | PARTIAL | FAIL | NOT_APPLICABLE",
+  "reason": "",
+  "evidence": []
+}
+
+QUESTIONS:
+{{QUESTIONS}}
+
+---
+
+REPORT:
+{{REPORT}}
+
+---
+
+==================================================
+STEP 3 — CREATE QUESTION RUNNER
+==================================================
+
+Create:
+
+/services/runQuestionAudit.ts
+
+Add:
+
+import { QUESTION_BANK } from "./questionBank";
+
+export async function runQuestionAudit(reportText: string) {
+
+  const questionsText = QUESTION_BANK.map(q => `${q.id}: ${q.text}`).join("\n");
+
+  const prompt = USER_PROMPT_TEMPLATE
+    .replace("{{QUESTIONS}}", questionsText)
+    .replace("{{REPORT}}", reportText);
+
+  const response = await openai.chat.completions.create({
+    model: "gpt-5",
+    temperature: 0,
+    messages: [
+      { role: "system", content: SYSTEM_PROMPT },
+      { role: "user", content: prompt }
+    ]
+  });
+
+  return JSON.parse(response.choices[0].message.content);
+}
+
+---
+
+==================================================
+STEP 4 — CREATE SCORING ENGINE (DETERMINISTIC)
+==================================================
+
+Create:
+
+/services/scoringEngine.ts
+
+Add:
+
+function scoreAnswer(answer: string, weight: number) {
+  switch (answer) {
+    case "PASS": return weight;
+    case "PARTIAL": return weight * 0.5;
+    case "FAIL": return 0;
+    case "NOT_APPLICABLE": return weight;
+    default: return 0;
+  }
+}
+
+export function computeScore(results, questionBank) {
+
+  let total = 0;
+  let max = 0;
+
+  const sectionTotals = {};
+
+  results.forEach(r => {
+    const q = questionBank.find(q => q.id === r.id);
+    if (!q) return;
+
+    const score = scoreAnswer(r.answer, q.weight);
+
+    total += score;
+    max += q.weight;
+
+    if (!sectionTotals[q.section]) {
+      sectionTotals[q.section] = { score: 0, max: 0 };
+    }
+
+    sectionTotals[q.section].score += score;
+    sectionTotals[q.section].max += q.weight;
+  });
+
+  return {
+    total,
+    max,
+    percent: Math.round((total / max) * 100),
+    sections: sectionTotals
+  };
+}
+
+---
+
+==================================================
+STEP 5 — UPDATE MAIN AUDIT FLOW
+==================================================
+
+Replace existing audit logic with:
+
+const questionResults = await runQuestionAudit(reportText);
+
+const scoring = computeScore(questionResults, QUESTION_BANK);
+
+return {
+  questions: questionResults,
+  scoring
+};
+
+---
+
+==================================================
+STEP 6 — UPDATE EMAIL OUTPUT
+==================================================
+
+Update email builder:
+
+Display:
+
+1. CLAIM STATUS
+- Ready (based on critical FAIL questions)
+- Count FAIL questions
+
+2. SCORE
+- total %
+- section scores
+
+3. QUESTION BREAKDOWN
+
+Example:
+
+Coverage:
+✔ cause_of_loss
+✔ coverage_applied
+✖ exclusions_addressed
+
+---
+
+==================================================
+STEP 7 — READY LOGIC
+==================================================
+
+Add:
+
+const criticalFailures = questionResults.filter(q => q.answer === "FAIL");
+
+const ready = criticalFailures.length === 0;
+
+---
+
+==================================================
+FINAL RESULT
+==================================================
+
+System now:
+
+- uses LLM only for answering questions
+- uses code for scoring
+- produces explainable results
+- matches adjuster thinking
+- eliminates score randomness
+
+DO NOT reintroduce section-level LLM scoring
+DO NOT allow LLM to assign numeric scores
