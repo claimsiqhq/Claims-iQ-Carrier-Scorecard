@@ -75,6 +75,7 @@ export interface ScorecardQuestion {
   answer: string;
   points_awarded: number;
   points_possible: number;
+  root_issue?: string;
   issue?: string;
   impact?: string;
   fix?: string;
@@ -94,10 +95,19 @@ export interface AuditIssue {
   source_scorecard: string;
   category_key: string;
   question_key: string;
+  root_issue?: string;
   severity: string;
   issue: string;
   impact: string;
   fix: string;
+  evidence_locations?: string[];
+}
+
+export interface RootIssueGroup {
+  root_issue: string;
+  affects: string[];
+  fix: string;
+  impact: string;
   evidence_locations?: string[];
 }
 
@@ -164,6 +174,7 @@ export interface AuditResult {
   executiveSummary: string;
   daCategories?: ScorecardCategory[];
   faCategories?: ScorecardCategory[];
+  rootIssueGroups?: RootIssueGroup[];
   issues?: AuditIssue[];
   validationChecks?: ValidationCheck[];
   sections: AuditSection[];

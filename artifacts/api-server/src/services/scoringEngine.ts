@@ -78,7 +78,7 @@ function applyRootIssueDedup(results: QuestionResult[]): QuestionResult[] {
   const adjusted: QuestionResult[] = [];
 
   for (const [rootKey, items] of groups) {
-    if (items.length <= 1 || items.every((r) => r.answer === "PASS" || r.answer === "NOT_APPLICABLE")) {
+    if (items.every((r) => r.answer === "PASS" || r.answer === "NOT_APPLICABLE")) {
       adjusted.push(...items);
       continue;
     }
@@ -87,20 +87,14 @@ function applyRootIssueDedup(results: QuestionResult[]): QuestionResult[] {
     const passing = items.filter((r) => r.answer === "PASS" || r.answer === "NOT_APPLICABLE");
     adjusted.push(...passing);
 
-    if (failing.length <= 1) {
-      adjusted.push(...failing);
-      continue;
-    }
-
     const primary = failing.find((q) => q.answer === "FAIL") ?? failing[0];
     const material = isMaterial(rootKey);
 
     for (const q of failing) {
       if (q === primary) {
-        if (!material) {
-          const reducedAnswer: Answer = q.answer === "FAIL" ? "PARTIAL" : q.answer;
-          adjusted.push({ ...q, answer: reducedAnswer });
-          logger.info({ questionId: q.id, rootIssue: rootKey }, "Non-material primary issue softened to PARTIAL");
+        if (!material && q.answer === "FAIL") {
+          adjusted.push({ ...q, answer: "PARTIAL" as Answer });
+          logger.info({ questionId: q.id, rootIssue: rootKey }, "Non-material issue softened FAIL to PARTIAL");
         } else {
           adjusted.push(q);
         }

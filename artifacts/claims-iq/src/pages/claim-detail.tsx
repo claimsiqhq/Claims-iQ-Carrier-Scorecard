@@ -196,6 +196,7 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
   const actionRequiredCount = audit?.actionRequiredCount ?? 0
   const daCategories: ScorecardCategory[] = (audit?.daCategories ?? []) as ScorecardCategory[]
   const faCategories: ScorecardCategory[] = (audit?.faCategories ?? []) as ScorecardCategory[]
+  const rootIssueGroups: any[] = (audit?.rootIssueGroups ?? []) as any[]
   const auditIssues: AuditIssue[] = (audit?.issues ?? []) as AuditIssue[]
   const validationChecks: ValidationCheck[] = (audit?.validationChecks ?? []) as ValidationCheck[]
 
@@ -574,6 +575,10 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
                   </CardContent>
                 </Card>
 
+                {rootIssueGroups.length > 0 && (
+                  <RootIssuePanel groups={rootIssueGroups} />
+                )}
+
                 {auditIssues.length > 0 && (
                   <IssueDetailsPanel issues={auditIssues} />
                 )}
@@ -846,6 +851,67 @@ function ScorecardPanel({ title, icon, scorePct, awarded, possible, categories, 
                 </div>
               )
             })}
+          </div>
+        </div>
+      )}
+    </Card>
+  )
+}
+
+function RootIssuePanel({ groups }: { groups: any[] }) {
+  const [expanded, setExpanded] = useState(true)
+
+  return (
+    <Card className="shadow-sm overflow-hidden" style={{ borderColor: BRAND.greyLavender, backgroundColor: BRAND.white }}>
+      <button
+        className="w-full flex items-center justify-between p-4 hover:bg-black/[0.02] transition-colors"
+        onClick={() => setExpanded(!expanded)}
+      >
+        <div className="flex items-center gap-3">
+          <div className="p-1.5 rounded" style={{ backgroundColor: "#fef2f2", color: "#dc2626" }}>
+            <WarningTriangle width={16} height={16} />
+          </div>
+          <span className="text-sm font-semibold" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>Root Issues</span>
+          <span className="inline-flex items-center justify-center min-w-[22px] h-[22px] px-1.5 text-xs font-bold rounded-full" style={{ backgroundColor: "#dc2626", color: "#fff" }}>
+            {groups.length}
+          </span>
+        </div>
+        <NavArrowDown
+          width={16} height={16}
+          className="transition-transform duration-200"
+          style={{ color: BRAND.purpleSecondary, transform: expanded ? "rotate(180deg)" : "rotate(0deg)" }}
+        />
+      </button>
+      {expanded && (
+        <div className="px-4 pb-4 space-y-3" style={{ borderTop: `1px solid ${BRAND.greyLavender}` }}>
+          <div className="pt-3 space-y-3">
+            {groups.map((g: any, i: number) => (
+              <Card key={i} className="shadow-sm" style={{ borderColor: "#fca5a5", backgroundColor: BRAND.white, borderLeftWidth: 3, borderLeftColor: "#dc2626" }}>
+                <CardContent className="p-4">
+                  <h4 className="text-sm font-bold mb-2" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
+                    {humanize(g.root_issue)}
+                  </h4>
+                  <p className="text-xs mb-2" style={{ color: BRAND.purpleSecondary }}>
+                    Affects: {(g.affects || []).map((a: string) => humanize(a)).join(", ")}
+                  </p>
+                  {g.impact && (
+                    <p className="text-sm leading-relaxed mb-1" style={{ color: "#dc2626", fontFamily: FONTS.body }}>
+                      <strong>Impact:</strong> {g.impact}
+                    </p>
+                  )}
+                  {g.fix && (
+                    <p className="text-sm leading-relaxed mb-1" style={{ color: "#16a34a", fontFamily: FONTS.body }}>
+                      <strong>Fix:</strong> {g.fix}
+                    </p>
+                  )}
+                  {g.evidence_locations && g.evidence_locations.length > 0 && (
+                    <p className="text-xs" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.mono }}>
+                      Evidence: {g.evidence_locations.join(", ")}
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+            ))}
           </div>
         </div>
       )}

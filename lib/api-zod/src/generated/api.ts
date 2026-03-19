@@ -47,6 +47,7 @@ const ScorecardQuestion = zod.object({
   answer: zod.string(),
   points_awarded: zod.number(),
   points_possible: zod.number(),
+  root_issue: zod.string().optional(),
   issue: zod.string().optional(),
   impact: zod.string().optional(),
   fix: zod.string().optional(),
@@ -66,10 +67,19 @@ const AuditIssue = zod.object({
   source_scorecard: zod.string(),
   category_key: zod.string(),
   question_key: zod.string(),
+  root_issue: zod.string().optional(),
   severity: zod.string(),
   issue: zod.string(),
   impact: zod.string(),
   fix: zod.string(),
+  evidence_locations: zod.array(zod.string()).optional(),
+});
+
+const RootIssueGroup = zod.object({
+  root_issue: zod.string(),
+  affects: zod.array(zod.string()),
+  fix: zod.string(),
+  impact: zod.string(),
   evidence_locations: zod.array(zod.string()).optional(),
 });
 
@@ -136,6 +146,7 @@ export const GetClaimDetailResponse = zod.object({
       executiveSummary: zod.string(),
       daCategories: zod.array(ScorecardCategory).optional(),
       faCategories: zod.array(ScorecardCategory).optional(),
+      rootIssueGroups: zod.array(RootIssueGroup).optional(),
       issues: zod.array(AuditIssue).optional(),
       validationChecks: zod.array(ValidationCheck).optional(),
       sections: zod.array(
