@@ -99,7 +99,7 @@ export async function fileExists(storagePath: string): Promise<{ exists: boolean
     const folder = parts.join("/");
     const { data, error } = await supabase().storage
       .from(BUCKET_NAME)
-      .list(folder, { limit: 1, search: fileName });
+      .list(folder, { search: fileName });
     if (error) return { exists: false, error: error.message };
     const found = Array.isArray(data) && data.some((f: any) => f.name === fileName);
     return { exists: found };
