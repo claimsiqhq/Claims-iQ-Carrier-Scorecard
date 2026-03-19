@@ -1,5 +1,8 @@
 import type { Answer, Question, QuestionResult } from "./questionBank";
 import { DA_QUESTIONS, FA_QUESTIONS, DA_CATEGORY_KEYS, FA_CATEGORY_KEYS, getCategoryName } from "./questionBank";
+import { groupByRootIssue, isMaterial } from "./rootIssueEngine";
+import type { ValidationIssue } from "./validationEngine";
+import logger from "../lib/logger";
 
 function scoreAnswer(answer: Answer, maxPoints: number): number {
   switch (answer) {
@@ -46,6 +49,72 @@ function getEffectiveWeight(q: Question, denialApplicable: boolean): number {
   return q.weightIfNoDenial ?? q.weight;
 }
 
+const POLICY_PROVISION_IDS = new Set([
+  "are_unique_policy_provisions_addressed",
+  "does_fa_address_unique_policy_provisions",
+]);
+
+function applyPolicyProvisionGuard(results: QuestionResult[]): QuestionResult[] {
+  return results.map((r) => {
+    if (!POLICY_PROVISION_IDS.has(r.id)) return r;
+    if (r.answer !== "FAIL") return r;
+    const lowerIssue = (r.issue + " " + r.fix).toLowerCase();
+    const explicitlyMissing =
+      lowerIssue.includes("not addressed") ||
+      lowerIssue.includes("missing") ||
+      lowerIssue.includes("omitted") ||
+      lowerIssue.includes("ignored") ||
+      lowerIssue.includes("no mention");
+    if (!explicitlyMissing) {
+      logger.info({ questionId: r.id }, "Policy provision downgraded from FAIL to PARTIAL (not explicitly missing)");
+      return { ...r, answer: "PARTIAL" as Answer };
+    }
+    return r;
+  });
+}
+
+function applyRootIssueDedup(results: QuestionResult[]): QuestionResult[] {
+  const groups = groupByRootIssue(results);
+  const adjusted: QuestionResult[] = [];
+
+  for (const [rootKey, items] of groups) {
+    if (items.length <= 1 || items.every((r) => r.answer === "PASS" || r.answer === "NOT_APPLICABLE")) {
+      adjusted.push(...items);
+      continue;
+    }
+
+    const failing = items.filter((r) => r.answer === "FAIL" || r.answer === "PARTIAL");
+    const passing = items.filter((r) => r.answer === "PASS" || r.answer === "NOT_APPLICABLE");
+    adjusted.push(...passing);
+
+    if (failing.length <= 1) {
+      adjusted.push(...failing);
+      continue;
+    }
+
+    const primary = failing.find((q) => q.answer === "FAIL") ?? failing[0];
+    const material = isMaterial(rootKey);
+
+    for (const q of failing) {
+      if (q === primary) {
+        if (!material) {
+          const reducedAnswer: Answer = q.answer === "FAIL" ? "PARTIAL" : q.answer;
+          adjusted.push({ ...q, answer: reducedAnswer });
+          logger.info({ questionId: q.id, rootIssue: rootKey }, "Non-material primary issue softened to PARTIAL");
+        } else {
+          adjusted.push(q);
+        }
+      } else {
+        const damped: Answer = q.answer === "FAIL" ? "PARTIAL" : q.answer;
+        adjusted.push({ ...q, answer: damped });
+        logger.info({ questionId: q.id, rootIssue: rootKey, primary: primary.id }, "Duplicate root issue damped to PARTIAL");
+      }
+    }
+  }
+
+  return adjusted;
+}
+
 function buildCategories(
   questions: Question[],
   results: QuestionResult[],
@@ -68,6 +137,7 @@ function buildCategories(
             answer: "FAIL" as Answer,
             points_awarded: 0,
             points_possible: maxPts,
+            root_issue: "",
             issue: "Not evaluated",
             impact: "",
             fix: "",
@@ -94,9 +164,17 @@ export function computeScore(
   faResults: QuestionResult[],
   denialApplicable: boolean,
   warningCount: number = 0,
+  validationChecks: ValidationIssue[] = [],
 ): ScoringResult {
-  const daCategories = buildCategories(DA_QUESTIONS, daResults, DA_CATEGORY_KEYS, denialApplicable);
-  const faCategories = buildCategories(FA_QUESTIONS, faResults, FA_CATEGORY_KEYS, denialApplicable);
+  const guardedDa = applyPolicyProvisionGuard(daResults);
+  const guardedFa = applyPolicyProvisionGuard(faResults);
+
+  const allAdjusted = applyRootIssueDedup([...guardedDa, ...guardedFa]);
+  const adjDa = allAdjusted.filter((r) => guardedDa.some((d) => d.id === r.id));
+  const adjFa = allAdjusted.filter((r) => guardedFa.some((f) => f.id === r.id));
+
+  const daCategories = buildCategories(DA_QUESTIONS, adjDa, DA_CATEGORY_KEYS, denialApplicable);
+  const faCategories = buildCategories(FA_QUESTIONS, adjFa, FA_CATEGORY_KEYS, denialApplicable);
 
   const daAwarded = daCategories.reduce((s, c) => s + c.points_awarded, 0);
   const daPossible = daCategories.reduce((s, c) => s + c.points_possible, 0);
@@ -115,13 +193,24 @@ export function computeScore(
   const partialCount = allScoredQuestions.filter((r) => r.answer === "PARTIAL").length;
   const passedCount = allScoredQuestions.filter((r) => r.answer === "PASS").length;
 
+  const hasCriticalValidation = validationChecks.some((c) => c.severity === "critical");
+  const materialFailures = allScoredQuestions.filter(
+    (r) => r.answer === "FAIL" && isMaterial(r.root_issue),
+  );
+
   let readiness: "READY" | "REVIEW" | "NOT READY";
-  if (overallPercent >= 90) readiness = "READY";
-  else if (overallPercent >= 75) readiness = "REVIEW";
-  else readiness = "NOT READY";
+  if (hasCriticalValidation || materialFailures.length > 0) {
+    readiness = "NOT READY";
+  } else if (overallPercent >= 90) {
+    readiness = "READY";
+  } else if (overallPercent >= 75) {
+    readiness = "REVIEW";
+  } else {
+    readiness = "NOT READY";
+  }
 
   let technicalRisk: "LOW" | "MEDIUM" | "HIGH";
-  if (failedCount >= 3 || overallPercent < 50) technicalRisk = "HIGH";
+  if (materialFailures.length >= 2 || failedCount >= 3 || overallPercent < 50) technicalRisk = "HIGH";
   else if (failedCount >= 1 || overallPercent < 75) technicalRisk = "MEDIUM";
   else technicalRisk = "LOW";
 

@@ -105,6 +105,7 @@ router.get("/claims/:id", requireAuth, async (req, res) => {
       const faCard = raw?.field_adjuster_scorecard as Record<string, unknown> | undefined;
       const rawIssues = Array.isArray(raw?.issues) ? raw.issues as any[] : [];
       const rawValidation = Array.isArray(raw?.validation_checks) ? raw.validation_checks as any[] : [];
+      const rawRootIssueGroups = Array.isArray(raw?.root_issue_groups) ? raw.root_issue_groups as any[] : [];
 
       const isNewFormat = !!overallAudit;
 
@@ -170,6 +171,7 @@ router.get("/claims/:id", requireAuth, async (req, res) => {
             answer: q.answer ?? "FAIL",
             points_awarded: Number(q.points_awarded ?? 0),
             points_possible: Number(q.points_possible ?? 0),
+            root_issue: q.root_issue ?? "",
             issue: q.issue ?? "",
             impact: q.impact ?? "",
             fix: q.fix ?? "",
@@ -187,6 +189,7 @@ router.get("/claims/:id", requireAuth, async (req, res) => {
             answer: q.answer ?? "FAIL",
             points_awarded: Number(q.points_awarded ?? 0),
             points_possible: Number(q.points_possible ?? 0),
+            root_issue: q.root_issue ?? "",
             issue: q.issue ?? "",
             impact: q.impact ?? "",
             fix: q.fix ?? "",
@@ -194,10 +197,18 @@ router.get("/claims/:id", requireAuth, async (req, res) => {
             confidence: Number(q.confidence ?? 0),
           })) : [],
         })),
+        rootIssueGroups: rawRootIssueGroups.map((g: any) => ({
+          root_issue: g.root_issue ?? "",
+          affects: Array.isArray(g.affects) ? g.affects : [],
+          fix: g.fix ?? "",
+          impact: g.impact ?? "",
+          evidence_locations: Array.isArray(g.evidence_locations) ? g.evidence_locations : [],
+        })),
         issues: rawIssues.map((iss: any) => ({
           source_scorecard: iss.source_scorecard ?? "DA",
           category_key: iss.category_key ?? "",
           question_key: iss.question_key ?? "",
+          root_issue: iss.root_issue ?? "",
           severity: iss.severity ?? "",
           issue: iss.issue ?? "",
           impact: iss.impact ?? "",

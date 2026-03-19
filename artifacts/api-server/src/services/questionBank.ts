@@ -17,6 +17,7 @@ export interface QuestionResult {
   answer: Answer;
   points_awarded: number;
   points_possible: number;
+  root_issue: string;
   issue: string;
   impact: string;
   fix: string;

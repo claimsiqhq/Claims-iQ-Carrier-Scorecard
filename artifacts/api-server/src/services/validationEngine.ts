@@ -9,15 +9,70 @@ export interface ValidationResult {
   ready: boolean;
 }
 
+function extractPaymentAmounts(text: string): string[] {
+  const matches = text.match(/\$[\d,]+(?:\.\d{2})?/g) || [];
+  return matches.map((m) => m.replace(/[$,]/g, ""));
+}
+
+export function detectPaymentMismatch(text: string): boolean {
+  const sections = {
+    daReport: "",
+    sol: "",
+    paymentLetter: "",
+  };
+
+  const lower = text.toLowerCase();
+  const daIdx = lower.indexOf("desk adjuster") !== -1 ? lower.indexOf("desk adjuster") : lower.indexOf("da report");
+  const solIdx = lower.indexOf("statement of loss") !== -1 ? lower.indexOf("statement of loss") : lower.indexOf("sol");
+  const payIdx = lower.indexOf("payment letter") !== -1 ? lower.indexOf("payment letter") : lower.indexOf("payment recommendation");
+
+  const indices = [
+    { key: "daReport" as const, idx: daIdx },
+    { key: "sol" as const, idx: solIdx },
+    { key: "paymentLetter" as const, idx: payIdx },
+  ].filter((x) => x.idx !== -1).sort((a, b) => a.idx - b.idx);
+
+  for (let i = 0; i < indices.length; i++) {
+    const start = indices[i].idx;
+    const end = i + 1 < indices.length ? indices[i + 1].idx : text.length;
+    sections[indices[i].key] = text.slice(start, Math.min(start + 3000, end));
+  }
+
+  const sectionAmounts: string[][] = [];
+  for (const section of Object.values(sections)) {
+    if (section) {
+      sectionAmounts.push(extractPaymentAmounts(section));
+    }
+  }
+
+  if (sectionAmounts.length < 2) {
+    const allAmounts = extractPaymentAmounts(text);
+    const relevant = allAmounts.slice(0, 8);
+    const unique = new Set(relevant);
+    return unique.size > 3;
+  }
+
+  const allSets = sectionAmounts.map((a) => new Set(a));
+  for (let i = 0; i < allSets.length; i++) {
+    for (let j = i + 1; j < allSets.length; j++) {
+      const intersection = [...allSets[i]].filter((v) => allSets[j].has(v));
+      if (intersection.length === 0 && allSets[i].size > 0 && allSets[j].size > 0) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
 export function runValidation(reportText: string): ValidationResult {
   const checks: ValidationIssue[] = [];
 
-  const payments = reportText.match(/\$[\d,]+(?:\.\d{2})?/g) || [];
-  if (new Set(payments).size > 3) {
+  if (detectPaymentMismatch(reportText)) {
     checks.push({
-      key: "payment_variance",
+      key: "payment_inconsistency",
       severity: "warning",
-      message: "Multiple distinct payment values detected — verify consistency across DA report, SOL, and Payment Letter",
+      message: "Possible mismatch between DA, SOL, and payment letter values",
     });
   }
 
@@ -29,8 +84,8 @@ export function runValidation(reportText: string): ValidationResult {
   if (new Set(dedValues).size > 1) {
     checks.push({
       key: "deductible_inconsistency",
-      severity: "warning",
-      message: "Deductible values appear inconsistent across documents",
+      severity: "critical",
+      message: "Deductible values appear inconsistent across documents — verify correct application",
     });
   }
 

@@ -1,0 +1,321 @@
+Modify my EXISTING Node.js + TypeScript application to fix scoring accuracy, eliminate double penalization, and upgrade the audit system into a calibrated carrier-grade repair engine.
+
+CRITICAL RULES:
+- DO NOT rebuild the app
+- DO NOT refactor unrelated code
+- DO NOT change upload or ingestion flow
+- DO NOT remove existing functionality
+- ONLY fix audit logic, validation, scoring, and output structure
+
+---
+
+GOAL:
+
+Fix the current system issues:
+
+1. Same issue penalized multiple times (DA vs FA vs policy)
+2. Overly harsh scoring
+3. Weak validation logic (regex-based)
+4. Poor payment detection
+5. Missing root cause grouping
+6. No "ready for submission" signal
+7. Non-actionable outputs
+
+---
+
+==================================================
+STEP 1 — ADD ROOT ISSUE GROUPING (CRITICAL FIX)
+==================================================
+
+Update LLM output structure.
+
+Each question MUST now return:
+
+{
+  "id": "",
+  "answer": "PASS | PARTIAL | FAIL | NOT_APPLICABLE",
+
+  "root_issue": "",
+
+  "issue": "",
+  "impact": "",
+  "fix": "",
+  "location": "",
+  "confidence": number
+}
+
+---
+
+Update prompts:
+
+SYSTEM PROMPT ADD:
+
+Multiple questions may relate to the SAME underlying issue.
+
+You MUST assign the same "root_issue" value when issues share the same cause.
+
+Examples:
+- "ownership_unclear"
+- "payment_mismatch"
+- "missing_scope"
+
+Do NOT duplicate root issues.
+
+---
+
+==================================================
+STEP 2 — GROUP RESULTS BY ROOT ISSUE
+==================================================
+
+Create:
+
+/services/rootIssueEngine.ts
+
+Add:
+
+export function groupByRootIssue(results) {
+  const groups = {};
+
+  results.forEach(r => {
+    const key = r.root_issue || r.id;
+
+    if (!groups[key]) {
+      groups[key] = [];
+    }
+
+    groups[key].push(r);
+  });
+
+  return groups;
+}
+
+---
+
+==================================================
+STEP 3 — FIX DOUBLE PENALIZATION
+==================================================
+
+Create:
+
+/services/scoringEngine.ts
+
+REPLACE scoring logic with:
+
+function scoreAnswer(answer, weight) {
+  if (answer === "PASS") return weight;
+  if (answer === "PARTIAL") return weight * 0.5;
+  if (answer === "FAIL") return 0;
+  if (answer === "NOT_APPLICABLE") return weight;
+  return 0;
+}
+
+export function computeScore(results, questionBank) {
+
+  const groups = groupByRootIssue(results);
+
+  let total = 0;
+  let max = 0;
+
+  Object.values(groups).forEach(group => {
+
+    const primary = group.find(q => q.answer !== "PASS");
+
+    if (!primary) {
+      // all PASS
+      group.forEach(q => {
+        const qb = questionBank.find(x => x.id === q.id);
+        total += qb.weight;
+        max += qb.weight;
+      });
+      return;
+    }
+
+    group.forEach((q, i) => {
+      const qb = questionBank.find(x => x.id === q.id);
+      max += qb.weight;
+
+      if (i === 0) {
+        total += scoreAnswer(q.answer, qb.weight);
+      } else {
+        total += scoreAnswer(q.answer, qb.weight) * 0.25;
+      }
+    });
+
+  });
+
+  return {
+    total,
+    max,
+    percent: Math.round((total / max) * 100)
+  };
+}
+
+---
+
+==================================================
+STEP 4 — FIX VALIDATION ENGINE (IMPORTANT)
+==================================================
+
+Replace naive regex logic.
+
+Update:
+
+/services/validationEngine.ts
+
+REPLACE payment logic with:
+
+export function detectPaymentMismatch(text) {
+
+  const numbers = text.match(/\$[\d,]+/g) || [];
+
+  // Extract structured groups heuristically
+  const relevant = numbers.slice(0, 6); // reduce noise
+
+  const unique = new Set(relevant);
+
+  if (unique.size <= 2) return false;
+
+  return true;
+}
+
+Update validation:
+
+if (detectPaymentMismatch(reportText)) {
+  issues.warnings.push({
+    type: "payment_inconsistency",
+    message: "Possible mismatch between DA, SOL, and payment letter values"
+  });
+}
+
+---
+
+==================================================
+STEP 5 — ADD MATERIALITY (CRITICAL)
+==================================================
+
+Modify scoring behavior:
+
+Add:
+
+function isMaterial(issue) {
+  return [
+    "payment_mismatch",
+    "missing_scope",
+    "coverage_error"
+  ].includes(issue.root_issue);
+}
+
+In scoring:
+
+IF NOT material:
+→ reduce penalty by 50%
+
+---
+
+==================================================
+STEP 6 — FIX POLICY PROVISION SCORING
+==================================================
+
+Modify scoring rules:
+
+IF policy provisions unclear BUT not clearly required:
+
+→ force answer = PARTIAL
+→ never FAIL unless explicitly missing when required
+
+---
+
+==================================================
+STEP 7 — ADD READY LOGIC
+==================================================
+
+Add:
+
+function determineReady(validation, results) {
+  const hasCritical = validation.critical.length > 0;
+
+  const majorFailures = results.filter(
+    r => r.answer === "FAIL" && isMaterial(r)
+  );
+
+  return !hasCritical && majorFailures.length === 0;
+}
+
+---
+
+==================================================
+STEP 8 — ROOT ISSUE OUTPUT (UI + EMAIL)
+==================================================
+
+Transform output:
+
+Instead of showing individual issues:
+
+Group into:
+
+{
+  "root_issue": "ownership_unclear",
+  "affects": ["fa_report", "policy_provisions"],
+  "fix": "...",
+  "impact": "...",
+  "locations": []
+}
+
+---
+
+==================================================
+STEP 9 — UPDATE EMAIL OUTPUT
+==================================================
+
+Replace email structure:
+
+1. CLAIM STATUS
+- Ready: YES / NO
+
+2. ROOT ISSUES (PRIMARY)
+- grouped issues
+- fix + impact
+
+3. DETAILED FINDINGS
+
+4. SCORE (SECONDARY)
+
+---
+
+==================================================
+STEP 10 — UPDATE PROMPT FOR ACTIONABLE OUTPUT
+==================================================
+
+Update USER PROMPT:
+
+Add:
+
+- issue = specific problem
+- impact = why it matters
+- fix = exact action
+- location = where to fix
+- root_issue = grouping key
+
+MANDATORY:
+Fix must be executable (no vague wording)
+
+---
+
+==================================================
+FINAL RESULT
+==================================================
+
+System now:
+
+- identifies root problems (not duplicates)
+- avoids double penalties
+- scores realistically
+- outputs actionable fixes
+- groups issues intelligently
+- determines readiness correctly
+
+DO NOT:
+
+- reintroduce section-only scoring
+- allow LLM to assign numeric scores
+- penalize same issue multiple times

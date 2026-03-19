@@ -71,6 +71,26 @@ function readinessBg(r: string): string {
   return "#fef2f2";
 }
 
+function buildRootIssueSection(r: AuditResponse): string {
+  if (!r.root_issue_groups || r.root_issue_groups.length === 0) return "";
+
+  const cards = r.root_issue_groups.map((g) => {
+    const affectsStr = g.affects.map((a) => escapeHtml(a.replace(/_/g, " "))).join(", ");
+    return `<div style="margin-bottom:12px;padding:12px 16px;border-left:3px solid #dc2626;background-color:#fef2f2;border-radius:4px;">
+      <p style="margin:0 0 4px 0;font-size:14px;font-weight:700;color:#342A4F;">${escapeHtml(g.root_issue.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase()))}</p>
+      <p style="margin:0 0 4px 0;font-size:12px;color:#6b7280;">Affects: ${affectsStr}</p>
+      ${g.impact ? `<p style="margin:0 0 4px 0;font-size:13px;color:#dc2626;"><strong>Impact:</strong> ${escapeHtml(g.impact)}</p>` : ""}
+      ${g.fix ? `<p style="margin:0 0 4px 0;font-size:13px;color:#16a34a;"><strong>Fix:</strong> ${escapeHtml(g.fix)}</p>` : ""}
+      ${g.evidence_locations.length > 0 ? `<p style="margin:0;font-size:11px;color:#6b7280;">Evidence: ${escapeHtml(g.evidence_locations.join(", "))}</p>` : ""}
+    </div>`;
+  }).join("");
+
+  return `<div style="margin-bottom:24px;">
+    <h3 style="font-size:15px;font-weight:700;color:#342A4F;margin:0 0 12px 0;">&#9888; Root Issues (${r.root_issue_groups.length})</h3>
+    ${cards}
+  </div>`;
+}
+
 function buildActionTable(r: AuditResponse): string {
   if (r.issues.length === 0) return "";
 
@@ -81,7 +101,7 @@ function buildActionTable(r: AuditResponse): string {
   </tr>`).join("");
 
   return `<div style="margin-bottom:24px;">
-    <h3 style="font-size:15px;font-weight:700;color:#342A4F;margin:0 0 12px 0;">&#9888; Action Required (${r.issues.length})</h3>
+    <h3 style="font-size:15px;font-weight:700;color:#342A4F;margin:0 0 12px 0;">Detailed Findings (${r.issues.length})</h3>
     <table style="width:100%;border-collapse:collapse;border:1px solid #fca5a5;border-radius:6px;">
       <thead><tr style="background-color:#fef2f2;">
         <th style="padding:8px 12px;text-align:left;font-size:11px;color:#dc2626;border-bottom:2px solid #fca5a5;text-transform:uppercase;width:50px;">Source</th>
@@ -222,6 +242,8 @@ export function renderAuditEmail(data: EmailData): string {
           </tr>
         </table>
       </div>
+
+      ${buildRootIssueSection(r)}
 
       ${buildActionTable(r)}
 

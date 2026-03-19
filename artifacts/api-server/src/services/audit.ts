@@ -2,6 +2,7 @@ import logger from "../lib/logger";
 import { runQuestionAudit } from "./runQuestionAudit";
 import { computeScore, type ScoringResult, type CategoryScore } from "./scoringEngine";
 import { runValidation, type ValidationResult, type ValidationIssue } from "./validationEngine";
+import { buildRootIssueGroups, type RootIssueGroup } from "./rootIssueEngine";
 import type { QuestionResult } from "./questionBank";
 
 export interface AuditResponse {
@@ -36,14 +37,24 @@ export interface AuditResponse {
     points_possible: number;
     categories: CategoryScore[];
   };
+  root_issue_groups: RootIssueGroupOutput[];
   issues: IssueItem[];
   validation_checks: ValidationIssue[];
+}
+
+export interface RootIssueGroupOutput {
+  root_issue: string;
+  affects: string[];
+  fix: string;
+  impact: string;
+  evidence_locations: string[];
 }
 
 export interface IssueItem {
   source_scorecard: "DA" | "FA";
   category_key: string;
   question_key: string;
+  root_issue: string;
   severity: string;
   issue: string;
   impact: string;
@@ -80,6 +91,7 @@ export function getFallbackAudit(): AuditResponse {
       points_possible: 100,
       categories: [],
     },
+    root_issue_groups: [],
     issues: [],
     validation_checks: [],
   };
@@ -95,6 +107,7 @@ function buildIssues(scoring: ScoringResult): IssueItem[] {
           source_scorecard: "DA",
           category_key: cat.category_key,
           question_key: q.id,
+          root_issue: q.root_issue,
           severity: q.answer === "FAIL" ? "fail" : "partial",
           issue: q.issue,
           impact: q.impact,
@@ -112,6 +125,7 @@ function buildIssues(scoring: ScoringResult): IssueItem[] {
           source_scorecard: "FA",
           category_key: cat.category_key,
           question_key: q.id,
+          root_issue: q.root_issue,
           severity: q.answer === "FAIL" ? "fail" : "partial",
           issue: q.issue,
           impact: q.impact,
@@ -138,10 +152,24 @@ export async function runFinalAudit(
     qResult.fa_results,
     qResult.denial_letter_applicable,
     validation.checks.length,
+    validation.checks,
   );
 
   const issues = buildIssues(scoring);
-  const actionRequiredCount = issues.length;
+  const actionRequiredCount = issues.filter((i) => i.severity === "fail").length;
+
+  const rootGroups = buildRootIssueGroups(
+    scoring.da.categories.flatMap((c) => c.questions),
+    scoring.fa.categories.flatMap((c) => c.questions),
+  );
+
+  const rootIssueGroupsOutput: RootIssueGroupOutput[] = rootGroups.map((g) => ({
+    root_issue: g.root_issue,
+    affects: g.affects,
+    fix: g.fix,
+    impact: g.impact,
+    evidence_locations: g.evidence_locations,
+  }));
 
   const result: AuditResponse = {
     claim_metadata: {
@@ -175,6 +203,7 @@ export async function runFinalAudit(
       points_possible: scoring.fa.points_possible,
       categories: scoring.fa.categories,
     },
+    root_issue_groups: rootIssueGroupsOutput,
     issues,
     validation_checks: validation.checks,
   };
@@ -187,6 +216,7 @@ export async function runFinalAudit(
     risk: scoring.technical_risk,
     failCount: scoring.failed_count,
     issueCount: issues.length,
+    rootIssueGroupCount: rootIssueGroupsOutput.length,
   }, "DA/FA carrier audit completed");
 
   return result;

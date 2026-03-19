@@ -21,6 +21,7 @@ function normalizeResult(questions: typeof DA_QUESTIONS, rawResults: any[]): Que
         answer: "FAIL" as Answer,
         points_awarded: 0,
         points_possible: q.weight,
+        root_issue: "",
         issue: "Question not answered by AI",
         impact: "",
         fix: "",
@@ -30,6 +31,7 @@ function normalizeResult(questions: typeof DA_QUESTIONS, rawResults: any[]): Que
     }
 
     const answer: Answer = VALID_ANSWERS.includes(match.answer) ? match.answer : "FAIL";
+    const root_issue = typeof match.root_issue === "string" ? match.root_issue : "";
     const issue = typeof match.issue === "string" ? match.issue : "";
     const impact = typeof match.impact === "string" ? match.impact : "";
     const fix = typeof match.fix === "string" ? match.fix : "";
@@ -43,6 +45,7 @@ function normalizeResult(questions: typeof DA_QUESTIONS, rawResults: any[]): Que
       answer,
       points_awarded: 0,
       points_possible: q.weight,
+      root_issue,
       issue,
       impact,
       fix,
@@ -60,6 +63,7 @@ function buildFallback(): QuestionAuditOutput {
       answer: "FAIL" as Answer,
       points_awarded: 0,
       points_possible: q.weight,
+      root_issue: "",
       issue: "Audit processing failed",
       impact: "",
       fix: "",
@@ -71,6 +75,7 @@ function buildFallback(): QuestionAuditOutput {
       answer: "FAIL" as Answer,
       points_awarded: 0,
       points_possible: q.weight,
+      root_issue: "",
       issue: "Audit processing failed",
       impact: "",
       fix: "",
