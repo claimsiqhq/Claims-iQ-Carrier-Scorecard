@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useRef } from "react"
+import { useToast } from "@/hooks/use-toast"
 import { BRAND, FONTS } from "@/lib/brand"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -54,6 +55,7 @@ export default function ClaimsListPage() {
   const { data: claims, isLoading } = useListClaims()
   const [, setLocation] = useLocation()
   const queryClient = useQueryClient()
+  const { toast } = useToast()
 
   const [status, setStatus] = useState<IngestStatus>("idle")
   const [fileName, setFileName] = useState("")
@@ -153,7 +155,9 @@ export default function ClaimsListPage() {
       })
       if (!retryRes.ok) {
         const body = await retryRes.json().catch(() => ({ error: "Retry failed" }))
-        setRetryingClaims((prev) => ({ ...prev, [claimId]: body.error || "Retry failed" }))
+        const msg = body.error || "Retry failed"
+        setRetryingClaims((prev) => ({ ...prev, [claimId]: msg }))
+        toast({ title: "Retry failed", description: msg, variant: "destructive" })
         return
       }
 
@@ -166,7 +170,9 @@ export default function ClaimsListPage() {
           if (!statusRes.ok) continue
           const ps = await statusRes.json()
           if (ps.status === "error") {
-            setRetryingClaims((prev) => ({ ...prev, [claimId]: ps.error || "Processing failed" }))
+            const msg = ps.error || "Processing failed"
+            setRetryingClaims((prev) => ({ ...prev, [claimId]: msg }))
+            toast({ title: "Retry failed", description: msg, variant: "destructive" })
             queryClient.invalidateQueries({ queryKey: ["/claims"] })
             return
           }
@@ -187,10 +193,13 @@ export default function ClaimsListPage() {
         }
       }
       setRetryingClaims((prev) => ({ ...prev, [claimId]: "Timed out waiting for processing" }))
+      toast({ title: "Retry timed out", description: "Processing is taking longer than expected. Check back later.", variant: "destructive" })
     } catch (err: any) {
-      setRetryingClaims((prev) => ({ ...prev, [claimId]: err.message || "Retry failed" }))
+      const msg = err.message || "Retry failed"
+      setRetryingClaims((prev) => ({ ...prev, [claimId]: msg }))
+      toast({ title: "Retry failed", description: msg, variant: "destructive" })
     }
-  }, [baseUrl, queryClient])
+  }, [baseUrl, queryClient, toast])
 
   const isBusy = status === "uploading" || status === "extracting" || status === "parsing"
 

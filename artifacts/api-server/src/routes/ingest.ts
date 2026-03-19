@@ -203,14 +203,6 @@ router.post("/claims/:id/retry", requireAuth, async (req, res) => {
       return;
     }
 
-    if (claim.status === "processing") {
-      const ageMs = claim.createdAt ? Date.now() - new Date(claim.createdAt).getTime() : Infinity;
-      if (ageMs < 15 * 60 * 1000) {
-        res.status(400).json({ error: "This claim may still be processing. Please wait at least 15 minutes before retrying." });
-        return;
-      }
-    }
-
     const claimDocs = await db.select().from(documents).where(eq(documents.claimId, id));
     const doc = claimDocs.find((d) => d.type === "claim_file" && d.fileUrl);
     if (!doc || !doc.fileUrl) {
