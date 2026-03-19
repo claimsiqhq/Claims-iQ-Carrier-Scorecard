@@ -1,0 +1,95 @@
+Implementing photo analysis is the absolute best way to ensure maximum accuracy and secure the remaining 50 points on the Andover Field Adjuster (FA) scorecard. 
+
+According to the carrier rules, 20 points are awarded if "Photograph labels/rooms follow flow of estimate" and another 30 points are awarded if the "FA report adequately describes what is seen in photographs and written into estimate" [1]. 
+
+To build a highly accurate visual engine, your Multimodal AI shouldn't just look for "pictures of water." Based on the high-quality files in your directory (like the Mattson and Farrell claims), carriers expect granular, undeniable proof. 
+
+Here are the **three core visual capabilities** you must build into your Vision AI prompt to guarantee carrier-grade accuracy, followed by the code prompt to implement it:
+
+### 1. Diagnostic Screen OCR (The "Undeniable Proof" Standard)
+Top adjusters don't just photograph a water stain; they photograph the screens of their diagnostic tools to prove the extent of the damage. Your AI must use Optical Character Recognition (OCR) to read the actual numbers on these devices:
+*   **Moisture Meters:** In the Farrell and Mattson claims, the adjuster uses a Tramex ME5 moisture meter. Your AI must detect the device and read the screen to verify the severity, such as reading **"18.8 WOOD"** [2], **"91.0 DRYWALL"**, or **"100.0 DRYWALL"** [3, 4]. 
+*   **Thermal Imaging:** The adjuster uses a Teledyne FLIR TG267 infrared imager to show hidden moisture. The AI should confirm the presence of the thermal gradient screen and read the exact temperature drops, such as **66.3°F** or **64.6°F** [5, 6].
+*   *Accuracy Check:* If the estimate includes tearing out drywall or setting up dehumidifiers, the AI *must* find these exact tool readings in the photo sheet to justify the cost.
+
+### 2. Laser Measurement Verification
+To ensure the Xactimate sketch perfectly matches the photos, the AI needs to validate the dimensional proof.
+*   In the provided files, the adjuster uses Bosch Professional GLM 20 and Leica DISTO D1 laser measures to justify the sizes of windows and rooms [7-9]. 
+*   *Accuracy Check:* The AI should extract the measurements from the laser screens (e.g., reading 11' 0 3/16" [9]) or physical tape measures [10] and cross-reference them against the dimensions listed in the sketch and estimate.
+
+### 3. Sequential Label Alignment
+The carrier explicitly deducts points if the photos are out of order [1]. The AI must read the burned-in file paths at the top of every photo block.
+*   For example, it must verify that photos labeled `Exterior (elevations)/Front` [11] strictly precede interior photos labeled `Interior/Upper level/Living Room / Kitchen` [12].
+*   It must also ensure the visual damage matches the adjuster's caption. If the caption says "Floor - gapping and mouthing at joints" [13] or "Water saturated bookshelf" [14], the AI must confirm those specific damages are clearly visible in the frame.
+
+***
+
+### The Claude Prompt to Implement High-Accuracy Vision
+
+You can feed this prompt directly into your application to upgrade your validation engine to handle multimodal analysis:
+
+**Modify my EXISTING Node.js + TypeScript application to integrate a Multimodal Vision AI module for extreme-accuracy Photo Sheet validation.**
+
+CRITICAL RULES:
+* DO NOT rebuild the app from scratch.
+* ONLY append the new vision logic to `validationEngine.ts`, update `scoringEngine.ts`, and update the LLM System Prompt instructions.
+
+--------------------------------------------------------------------------------
+
+GOAL:
+Address the 50-point FA scorecard requirements by ensuring absolute accuracy between the physical damage, the diagnostic tool readings, the photo captions, and the estimate [1].
+
+### ==================================================STEP 1 — ADD VISION OCR VALIDATOR
+Update: `/services/validationEngine.ts`
+
+Add a function to handle the OCR and visual extraction from the photo sheets, specifically hunting for diagnostic proof:
+
+```typescript
+export function validateVisualDiagnostics(estimateText: string, visionAIResults: any): boolean {
+  // visionAIResults is the JSON output from the multimodal LLM reviewing the images
+  const claimsWaterMitigation = /tear out|drywall|dehumidifier|air mover/i.test(estimateText);
+  
+  if (!claimsWaterMitigation) return true; // Skip if no water damage is claimed
+
+  // High-accuracy check: The Vision AI MUST have successfully read numbers off a Tramex, FLIR, or laser screen
+  const hasTramexReading = visionAIResults.detectedText.some(text => /wood|drywall|%/i.test(text) && visionAIResults.toolsDetected.includes("moisture_meter"));
+  const hasFlirReading = visionAIResults.detectedText.some(text => /°F|°C/i.test(text) && visionAIResults.toolsDetected.includes("thermal_imager"));
+
+  return hasTramexReading || hasFlirReading;
+}
+```
+
+Add to validation execution:
+```typescript
+if (!validateVisualDiagnostics(estimateText, parsedVisionResults)) {
+  issues.critical.push({
+    type: "unverified_diagnostic_proof",
+    message: "Estimate claims water mitigation, but Vision AI could not read a valid Tramex moisture percentage or FLIR temperature reading in the photo sheet."
+  });
+}
+```
+
+### ==================================================STEP 2 — CAPTION-TO-DAMAGE ALIGNMENT
+Update: `/services/validationEngine.ts`
+
+Add logic to ensure the adjuster's typed caption matches the visual reality, fulfilling the "FA Report adequately describes what is seen" rule [1].
+
+```typescript
+export function validateCaptionAccuracy(visionAIResults: any): boolean {
+   // Iterate through images to ensure the caption matches the AI's visual classification
+   for (const image of visionAIResults.images) {
+       if (image.caption.includes("gapping") && !image.aiClassification.includes("floor_damage")) return false;
+       if (image.caption.includes("bubbling") && !image.aiClassification.includes("ceiling_damage")) return false;
+   }
+   return true;
+}
+```
+
+### ==================================================STEP 3 — UPDATE MULTIMODAL LLM SYSTEM PROMPT
+You must give the Vision LLM strict instructions on how to process the pixels for maximum accuracy.
+
+SYSTEM PROMPT ADD:
+You are a highly precise Carrier Quality Assurance Vision AI. You will be provided with insurance claim photo sheets. You must perform the following extractions with 100% accuracy:
+1. **Tool OCR:** Scan every image for diagnostic tools (Tramex ME5, Teledyne FLIR TG267, Bosch/Leica Laser measures). You MUST extract the exact numeric values printed on the LED/LCD screens (e.g., "18.8 WOOD", "66.3°F", "11' 0 3/16").
+2. **Label Sequence:** Extract the file path above every photo (e.g., `FA Mansdorf/Interior/Upper level...`). Flag the file as "photo_out_of_order" if an Interior photo precedes an Exterior elevation.
+3. **Damage Verification:** Compare the adjuster's text caption below the photo to the pixels. If the caption claims specific damage (e.g., "gapping joints", "water stains"), confirm the damage is visually present. Use root_issue: "unverified_diagnostic_proof" if the photo does not match the claim.
