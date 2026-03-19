@@ -227,10 +227,12 @@ export default function DashboardPage() {
 
     const email = emailTo.trim()
     const snapshot = [...queueRef.current]
+    const queued = snapshot.filter((item) => item.status === "queued")
 
-    for (const item of snapshot) {
-      if (item.status !== "queued") continue
-      await processItem(item, email)
+    const BATCH_SIZE = 3
+    for (let i = 0; i < queued.length; i += BATCH_SIZE) {
+      const batch = queued.slice(i, i + BATCH_SIZE)
+      await Promise.all(batch.map((item) => processItem(item, email)))
     }
 
     processingRef.current = false
