@@ -323,12 +323,74 @@ export default function DashboardPage() {
               className="gap-2 text-white shrink-0 px-5 py-2.5 text-sm"
               style={{ backgroundColor: "#16a34a", fontFamily: FONTS.heading, fontWeight: 600, borderRadius: 8 }}
               onClick={() => fileInputRef.current?.click()}
-              disabled={isBusy}
+              disabled={isBusy || !!pendingFile}
             >
               <Plus width={16} height={16} strokeWidth={2.5} />
               Create new claim
             </Button>
           </div>
+
+          {pendingFile && ingestStatus === "idle" && (
+            <Card className="shadow-sm mb-6" style={{ borderColor: BRAND.purple, backgroundColor: BRAND.white }}>
+              <CardContent className="p-5">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-9 h-9 rounded-full flex items-center justify-center" style={{ backgroundColor: `${BRAND.purple}14` }}>
+                    <Page width={20} height={20} style={{ color: BRAND.purple }} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-bold truncate" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
+                      {ingestFileName}
+                    </p>
+                    <p className="text-xs" style={{ color: BRAND.purpleSecondary }}>
+                      Ready to process
+                    </p>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="shrink-0 text-xs"
+                    style={{ color: BRAND.purpleSecondary }}
+                    onClick={handleResetIngest}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+
+                <div className="mb-4">
+                  <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.body }}>
+                    Send audit report to (optional)
+                  </label>
+                  <div className="relative">
+                    <Mail width={16} height={16} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: BRAND.purpleSecondary }} />
+                    <input
+                      type="email"
+                      placeholder="recipient@example.com"
+                      value={emailTo}
+                      onChange={(e) => setEmailTo(e.target.value)}
+                      className="w-full pl-9 pr-3 py-2.5 text-sm rounded-lg border outline-none focus:ring-2 transition-all"
+                      style={{
+                        borderColor: BRAND.greyLavender,
+                        backgroundColor: BRAND.offWhite,
+                        color: BRAND.deepPurple,
+                        fontFamily: FONTS.body,
+                      }}
+                      onFocus={(e) => { e.target.style.borderColor = BRAND.purple; e.target.style.boxShadow = `0 0 0 2px ${BRAND.purple}22` }}
+                      onBlur={(e) => { e.target.style.borderColor = BRAND.greyLavender; e.target.style.boxShadow = "none" }}
+                    />
+                  </div>
+                </div>
+
+                <Button
+                  className="w-full gap-2 text-white py-2.5"
+                  style={{ backgroundColor: BRAND.purple, fontFamily: FONTS.heading, fontWeight: 600 }}
+                  onClick={handleStartPipeline}
+                >
+                  <SendDiagonal width={16} height={16} />
+                  {emailTo.trim() ? "Upload, Audit & Email" : "Upload & Audit"}
+                </Button>
+              </CardContent>
+            </Card>
+          )}
 
           {isBusy && (
             <Card className="shadow-sm mb-6" style={{ borderColor: BRAND.greyLavender, backgroundColor: BRAND.white }}>
@@ -342,32 +404,44 @@ export default function DashboardPage() {
                     <Page width={14} height={14} style={{ color: BRAND.purpleSecondary }} />
                     <span className="text-xs" style={{ color: BRAND.purpleSecondary }}>{ingestFileName}</span>
                   </div>
-                  <div className="flex items-center gap-3 mt-5 w-full max-w-xs">
-                    {["uploading", "extracting", "parsing"].map((step, i) => {
-                      const steps = ["uploading", "extracting", "parsing"]
-                      const currentIdx = steps.indexOf(ingestStatus)
-                      const isDone = i < currentIdx
-                      const isActive = i === currentIdx
-                      return (
-                        <div key={step} className="flex-1">
-                          <div className="h-1.5 rounded-full" style={{
-                            backgroundColor: isDone ? BRAND.purple : isActive ? BRAND.purpleLight : BRAND.greyLavender,
-                          }}>
-                            {isActive && (
-                              <div className="h-full rounded-full animate-pulse" style={{ backgroundColor: BRAND.purple, width: "60%" }} />
-                            )}
-                          </div>
-                          <p className="text-[10px] mt-1 text-center" style={{
-                            color: isDone || isActive ? BRAND.deepPurple : BRAND.purpleSecondary,
-                            fontFamily: FONTS.heading,
-                            fontWeight: isActive ? 700 : 400,
-                          }}>
-                            {step === "uploading" ? "Upload" : step === "extracting" ? "Extract" : "Parse"}
-                          </p>
-                        </div>
-                      )
-                    })}
-                  </div>
+                  {(() => {
+                    const allSteps = emailTo.trim()
+                      ? ["extracting", "parsing", "auditing", "emailing"]
+                      : ["extracting", "parsing", "auditing"]
+                    const stepLabels: Record<string, string> = {
+                      extracting: "Extract",
+                      parsing: "Parse",
+                      auditing: "Audit",
+                      emailing: "Email",
+                    }
+                    const currentIdx = allSteps.indexOf(ingestStatus)
+                    return (
+                      <div className="flex items-center gap-2 mt-5 w-full max-w-sm">
+                        {allSteps.map((step, i) => {
+                          const isDone = i < currentIdx
+                          const isActive = step === ingestStatus
+                          return (
+                            <div key={step} className="flex-1">
+                              <div className="h-1.5 rounded-full" style={{
+                                backgroundColor: isDone ? BRAND.purple : isActive ? BRAND.purpleLight : BRAND.greyLavender,
+                              }}>
+                                {isActive && (
+                                  <div className="h-full rounded-full animate-pulse" style={{ backgroundColor: BRAND.purple, width: "60%" }} />
+                                )}
+                              </div>
+                              <p className="text-[10px] mt-1 text-center" style={{
+                                color: isDone || isActive ? BRAND.deepPurple : BRAND.purpleSecondary,
+                                fontFamily: FONTS.heading,
+                                fontWeight: isActive ? 700 : 400,
+                              }}>
+                                {stepLabels[step] || step}
+                              </p>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )
+                  })()}
                 </div>
               </CardContent>
             </Card>
@@ -382,10 +456,10 @@ export default function DashboardPage() {
                   </div>
                   <div className="flex-1">
                     <p className="text-sm font-bold" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
-                      Claim Created — {ingestResult.parsedData.claimNumber || ingestResult.claim.claimNumber}
+                      {statusLabels.complete}
                     </p>
                     <p className="text-xs" style={{ color: BRAND.purpleSecondary }}>
-                      {ingestResult.document.extractedLength.toLocaleString()} characters extracted from {ingestResult.document.fileName}
+                      {ingestResult.parsedData.claimNumber || ingestResult.claim.claimNumber} — {ingestResult.parsedData.insuredName || ingestResult.claim.insuredName}
                     </p>
                   </div>
                 </div>
@@ -405,7 +479,7 @@ export default function DashboardPage() {
                     style={{ backgroundColor: BRAND.purple, fontFamily: FONTS.heading, fontWeight: 600 }}
                     onClick={() => setLocation(`/claims/${ingestResult.claim.id}`)}
                   >
-                    View Claim & Run Audit
+                    View Audit Results
                     <ArrowRight width={16} height={16} />
                   </Button>
                   <Button
