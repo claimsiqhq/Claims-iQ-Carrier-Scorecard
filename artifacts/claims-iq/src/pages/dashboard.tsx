@@ -79,8 +79,16 @@ interface ParsedClaimData {
 
 interface IngestResult {
   claim: { id: string; claimNumber: string; insuredName: string; carrier: string; dateOfLoss: string; status: string }
-  document: { id: string; fileName: string; extractedLength: number; storagePath: string }
-  parsedData: ParsedClaimData
+  document: { id: string; fileName: string; storagePath: string }
+}
+
+interface ProcessingStatus {
+  status: "processing" | "ready" | "error"
+  error?: string
+  claimNumber?: string
+  insuredName?: string
+  carrier?: string
+  dateOfLoss?: string
 }
 
 function formatDate(iso: string | null) {
@@ -133,6 +141,21 @@ export default function DashboardPage() {
     if (newItems.length > 0) setQueue((prev) => [...prev, ...newItems])
   }, [])
 
+  const pollProcessingStatus = useCallback(async (claimId: string): Promise<ProcessingStatus> => {
+    const maxAttempts = 200
+    const intervalMs = 3000
+    for (let i = 0; i < maxAttempts; i++) {
+      await new Promise((r) => setTimeout(r, intervalMs))
+      try {
+        const res = await fetch(`${baseUrl}/claims/${claimId}/processing-status`, { credentials: "include" })
+        if (!res.ok) continue
+        const data: ProcessingStatus = await res.json()
+        if (data.status !== "processing") return data
+      } catch { /* retry */ }
+    }
+    return { status: "error", error: "Processing timed out" }
+  }, [baseUrl])
+
   const processItem = useCallback(async (item: QueueItem, email: string) => {
     const baseApiUrl = baseUrl
     try {
@@ -151,9 +174,19 @@ export default function DashboardPage() {
         throw new Error(errBody.error || "Processing failed")
       }
 
-      updateItem(item.id, { status: "parsing" })
       const result: IngestResult = await ingestRes.json()
-      updateItem(item.id, { status: "auditing", claimId: result.claim.id, claimNumber: result.claim.claimNumber, insuredName: result.claim.insuredName })
+      updateItem(item.id, { status: "extracting", claimId: result.claim.id })
+
+      const processingResult = await pollProcessingStatus(result.claim.id)
+      if (processingResult.status === "error") {
+        throw new Error(processingResult.error || "Extraction failed")
+      }
+
+      updateItem(item.id, {
+        status: "auditing",
+        claimNumber: processingResult.claimNumber,
+        insuredName: processingResult.insuredName,
+      })
 
       const auditRes = await fetch(`${baseApiUrl}/claims/${result.claim.id}/audit`, {
         method: "POST",
@@ -183,7 +216,7 @@ export default function DashboardPage() {
     } catch (err: any) {
       updateItem(item.id, { status: "error", error: err.message || "Processing failed" })
     }
-  }, [baseUrl, updateItem])
+  }, [baseUrl, updateItem, pollProcessingStatus])
 
   useEffect(() => { queueRef.current = queue }, [queue])
 

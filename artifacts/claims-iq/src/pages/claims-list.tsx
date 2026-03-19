@@ -42,6 +42,8 @@ const statusColors: Record<string, { bg: string; color: string }> = {
   analyzed: { bg: "#e8f5e9", color: "#2e7d32" },
   approved: { bg: "#e3f2fd", color: "#1565c0" },
   pending: { bg: "#fef9ec", color: BRAND.gold },
+  processing: { bg: `${BRAND.purple}14`, color: BRAND.purple },
+  error: { bg: "#fef2f2", color: "#dc2626" },
   denied: { bg: "#fef2f2", color: "#dc2626" },
   review: { bg: BRAND.lightPurpleGrey, color: BRAND.purple },
 }
@@ -88,8 +90,27 @@ export default function ClaimsListPage() {
         throw new Error(errBody.error || "Processing failed")
       }
 
-      setStatus("parsing")
       const data: IngestResult = await ingestRes.json()
+
+      setStatus("extracting")
+      const maxAttempts = 200
+      for (let i = 0; i < maxAttempts; i++) {
+        await new Promise((r) => setTimeout(r, 3000))
+        try {
+          const statusRes = await fetch(`${baseUrl}/claims/${data.claim.id}/processing-status`, { credentials: "include" })
+          if (!statusRes.ok) continue
+          const ps = await statusRes.json()
+          if (ps.status === "error") throw new Error(ps.error || "Extraction failed")
+          if (ps.status === "ready") {
+            data.claim.claimNumber = ps.claimNumber
+            data.claim.insuredName = ps.insuredName
+            break
+          }
+        } catch (pollErr: any) {
+          if (pollErr.message && pollErr.message !== "Failed to fetch") throw pollErr
+        }
+      }
+
       setResult(data)
       setStatus("complete")
       queryClient.invalidateQueries({ queryKey: ["/claims"] })
