@@ -17,6 +17,8 @@ import {
   ArrowRight,
   Mail,
   SendDiagonal,
+  Xmark,
+  WarningTriangle,
 } from "iconoir-react"
 
 interface DashboardData {
@@ -48,7 +50,17 @@ interface DashboardData {
 type SortKey = "claimNumber" | "insuredName" | "carrier" | "status" | "dateOfLoss" | "createdAt"
 type SortDir = "asc" | "desc"
 
-type IngestStatus = "idle" | "uploading" | "extracting" | "parsing" | "auditing" | "emailing" | "complete" | "error"
+type ItemStatus = "queued" | "extracting" | "parsing" | "auditing" | "emailing" | "complete" | "error"
+
+interface QueueItem {
+  id: string
+  file: File
+  status: ItemStatus
+  error?: string
+  claimId?: string
+  claimNumber?: string
+  insuredName?: string
+}
 
 interface ParsedClaimData {
   claimNumber: string
@@ -90,13 +102,12 @@ export default function DashboardPage() {
   const [page, setPage] = useState(1)
   const perPage = 10
 
-  const [ingestStatus, setIngestStatus] = useState<IngestStatus>("idle")
-  const [ingestFileName, setIngestFileName] = useState("")
-  const [ingestError, setIngestError] = useState<string | null>(null)
-  const [ingestResult, setIngestResult] = useState<IngestResult | null>(null)
+  const [queue, setQueue] = useState<QueueItem[]>([])
   const [dragOver, setDragOver] = useState(false)
   const [emailTo, setEmailTo] = useState("")
-  const [pendingFile, setPendingFile] = useState<File | null>(null)
+  const [processing, setProcessing] = useState(false)
+  const processingRef = useRef(false)
+  const queueRef = useRef<QueueItem[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const fetchDashboard = useCallback(() => {
@@ -109,34 +120,30 @@ export default function DashboardPage() {
 
   useEffect(() => { fetchDashboard() }, [fetchDashboard])
 
-  const stageFile = useCallback((file: File) => {
-    if (!file.name.toLowerCase().endsWith(".pdf") && file.type !== "application/pdf") {
-      setIngestError("Please upload a PDF file.")
-      setIngestStatus("error")
-      return
-    }
-    setPendingFile(file)
-    setIngestFileName(file.name)
-    setIngestError(null)
-    setIngestResult(null)
-    setIngestStatus("idle")
+  const updateItem = useCallback((id: string, patch: Partial<QueueItem>) => {
+    setQueue((prev) => prev.map((item) => item.id === id ? { ...item, ...patch } : item))
   }, [])
 
-  const handleStartPipeline = useCallback(async () => {
-    if (!pendingFile) return
+  const addFiles = useCallback((files: FileList | File[]) => {
+    const newItems: QueueItem[] = []
+    for (const file of Array.from(files)) {
+      if (!file.name.toLowerCase().endsWith(".pdf") && file.type !== "application/pdf") continue
+      newItems.push({ id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, file, status: "queued" })
+    }
+    if (newItems.length > 0) setQueue((prev) => [...prev, ...newItems])
+  }, [])
 
-    setIngestStatus("uploading")
-    setIngestError(null)
-    setIngestResult(null)
-
+  const processItem = useCallback(async (item: QueueItem, email: string) => {
+    const baseApiUrl = baseUrl
     try {
-      setIngestStatus("extracting")
+      updateItem(item.id, { status: "extracting" })
       const formData = new FormData()
-      formData.append("file", pendingFile)
+      formData.append("file", item.file)
 
-      const ingestRes = await fetch(`${baseUrl}/ingest`, {
+      const ingestRes = await fetch(`${baseApiUrl}/ingest`, {
         method: "POST",
         body: formData,
+        credentials: "include",
       })
 
       if (!ingestRes.ok) {
@@ -144,12 +151,11 @@ export default function DashboardPage() {
         throw new Error(errBody.error || "Processing failed")
       }
 
-      setIngestStatus("parsing")
+      updateItem(item.id, { status: "parsing" })
       const result: IngestResult = await ingestRes.json()
-      setIngestResult(result)
+      updateItem(item.id, { status: "auditing", claimId: result.claim.id, claimNumber: result.claim.claimNumber, insuredName: result.claim.insuredName })
 
-      setIngestStatus("auditing")
-      const auditRes = await fetch(`${baseUrl}/claims/${result.claim.id}/audit`, {
+      const auditRes = await fetch(`${baseApiUrl}/claims/${result.claim.id}/audit`, {
         method: "POST",
         credentials: "include",
       })
@@ -159,65 +165,71 @@ export default function DashboardPage() {
         throw new Error(errBody.error || "Audit failed")
       }
 
-      const trimmedEmail = emailTo.trim()
-      if (trimmedEmail) {
-        setIngestStatus("emailing")
-        const emailRes = await fetch(`${baseUrl}/claims/${result.claim.id}/email/send`, {
+      if (email) {
+        updateItem(item.id, { status: "emailing" })
+        const emailRes = await fetch(`${baseApiUrl}/claims/${result.claim.id}/email/send`, {
           method: "POST",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ to: trimmedEmail }),
+          body: JSON.stringify({ to: email }),
         })
-
         if (!emailRes.ok) {
           const errBody = await emailRes.json().catch(() => ({ error: "Email failed" }))
           throw new Error(errBody.error || "Failed to send email")
         }
       }
 
-      setIngestStatus("complete")
-      setPendingFile(null)
-      fetchDashboard()
+      updateItem(item.id, { status: "complete" })
     } catch (err: any) {
-      setIngestStatus("error")
-      setIngestError(err.message || "Failed to process file")
+      updateItem(item.id, { status: "error", error: err.message || "Processing failed" })
     }
-  }, [pendingFile, emailTo, baseUrl, fetchDashboard])
+  }, [baseUrl, updateItem])
+
+  useEffect(() => { queueRef.current = queue }, [queue])
+
+  const startProcessing = useCallback(async () => {
+    if (processingRef.current) return
+    processingRef.current = true
+    setProcessing(true)
+
+    const email = emailTo.trim()
+    const snapshot = [...queueRef.current]
+
+    for (const item of snapshot) {
+      if (item.status !== "queued") continue
+      await processItem(item, email)
+    }
+
+    processingRef.current = false
+    setProcessing(false)
+    fetchDashboard()
+  }, [emailTo, processItem, fetchDashboard])
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault()
     setDragOver(false)
-    const file = e.dataTransfer.files[0]
-    if (file) stageFile(file)
-  }, [stageFile])
+    if (e.dataTransfer.files.length > 0) addFiles(e.dataTransfer.files)
+  }, [addFiles])
 
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (file) stageFile(file)
+    if (e.target.files && e.target.files.length > 0) addFiles(e.target.files)
     if (e.target) e.target.value = ""
-  }, [stageFile])
+  }, [addFiles])
 
-  const handleResetIngest = useCallback(() => {
-    setIngestStatus("idle")
-    setIngestFileName("")
-    setIngestError(null)
-    setIngestResult(null)
-    setPendingFile(null)
+  const handleClearQueue = useCallback(() => {
+    setQueue([])
     setEmailTo("")
   }, [])
 
-  const isBusy = ingestStatus === "uploading" || ingestStatus === "extracting" || ingestStatus === "parsing" || ingestStatus === "auditing" || ingestStatus === "emailing"
+  const removeFromQueue = useCallback((id: string) => {
+    setQueue((prev) => prev.filter((item) => item.id !== id))
+  }, [])
 
-  const statusLabels: Record<IngestStatus, string> = {
-    idle: "",
-    uploading: "Uploading file...",
-    extracting: "Extracting text from PDF...",
-    parsing: "AI is analyzing the claim...",
-    auditing: "Running carrier scorecard audit...",
-    emailing: "Sending audit report email...",
-    complete: emailTo.trim() ? "Audit complete — email sent!" : "Audit complete!",
-    error: ingestError || "Processing failed",
-  }
+  const hasQueued = queue.some((i) => i.status === "queued")
+  const hasActive = queue.some((i) => i.status !== "queued" && i.status !== "complete" && i.status !== "error")
+  const allDone = queue.length > 0 && queue.every((i) => i.status === "complete" || i.status === "error")
+  const completedCount = queue.filter((i) => i.status === "complete").length
+  const errorCount = queue.filter((i) => i.status === "error").length
 
   const filteredClaims = useMemo(() => {
     if (!data) return []
@@ -303,6 +315,7 @@ export default function DashboardPage() {
         ref={fileInputRef}
         type="file"
         accept=".pdf,application/pdf"
+        multiple
         className="hidden"
         onChange={handleInputChange}
       />
@@ -323,190 +336,130 @@ export default function DashboardPage() {
               className="gap-2 text-white shrink-0 px-5 py-2.5 text-sm"
               style={{ backgroundColor: "#16a34a", fontFamily: FONTS.heading, fontWeight: 600, borderRadius: 8 }}
               onClick={() => fileInputRef.current?.click()}
-              disabled={isBusy || !!pendingFile}
+              disabled={processing}
             >
               <Plus width={16} height={16} strokeWidth={2.5} />
-              Create new claim
+              Upload Claims
             </Button>
           </div>
 
-          {pendingFile && ingestStatus === "idle" && (
-            <Card className="shadow-sm mb-6" style={{ borderColor: BRAND.purple, backgroundColor: BRAND.white }}>
+          {queue.length > 0 && (
+            <Card className="shadow-sm mb-6" style={{ borderColor: processing ? BRAND.purple : allDone ? "#bbf7d0" : BRAND.greyLavender, backgroundColor: BRAND.white }}>
               <CardContent className="p-5">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="w-9 h-9 rounded-full flex items-center justify-center" style={{ backgroundColor: `${BRAND.purple}14` }}>
-                    <Page width={20} height={20} style={{ color: BRAND.purple }} />
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-full flex items-center justify-center" style={{ backgroundColor: allDone ? "#e8f5e9" : `${BRAND.purple}14` }}>
+                      {processing ? (
+                        <div className="w-5 h-5 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: BRAND.purple, borderTopColor: "transparent" }} />
+                      ) : allDone ? (
+                        <CheckCircle width={20} height={20} style={{ color: "#16a34a" }} />
+                      ) : (
+                        <CloudUpload width={20} height={20} style={{ color: BRAND.purple }} />
+                      )}
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
+                        {processing
+                          ? `Processing ${queue.length} file${queue.length > 1 ? "s" : ""}...`
+                          : allDone
+                            ? `${completedCount} of ${queue.length} complete${errorCount > 0 ? ` (${errorCount} failed)` : ""}`
+                            : `${queue.length} file${queue.length > 1 ? "s" : ""} ready`}
+                      </p>
+                      {processing && (
+                        <p className="text-xs" style={{ color: BRAND.purpleSecondary }}>
+                          {completedCount} done, {queue.filter((i) => i.status !== "queued" && i.status !== "complete" && i.status !== "error").length} in progress, {queue.filter((i) => i.status === "queued").length} waiting
+                        </p>
+                      )}
+                    </div>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-bold truncate" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
-                      {ingestFileName}
-                    </p>
-                    <p className="text-xs" style={{ color: BRAND.purpleSecondary }}>
-                      Ready to process
-                    </p>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="shrink-0 text-xs"
-                    style={{ color: BRAND.purpleSecondary }}
-                    onClick={handleResetIngest}
-                  >
-                    Cancel
-                  </Button>
+                  {!processing && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="shrink-0 text-xs"
+                      style={{ color: BRAND.purpleSecondary }}
+                      onClick={handleClearQueue}
+                    >
+                      Clear All
+                    </Button>
+                  )}
                 </div>
 
-                <div className="mb-4">
-                  <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.body }}>
-                    Send audit report to (optional)
-                  </label>
-                  <div className="relative">
-                    <Mail width={16} height={16} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: BRAND.purpleSecondary }} />
-                    <input
-                      type="email"
-                      placeholder="recipient@example.com"
-                      value={emailTo}
-                      onChange={(e) => setEmailTo(e.target.value)}
-                      className="w-full pl-9 pr-3 py-2.5 text-sm rounded-lg border outline-none focus:ring-2 transition-all"
-                      style={{
-                        borderColor: BRAND.greyLavender,
-                        backgroundColor: BRAND.offWhite,
-                        color: BRAND.deepPurple,
-                        fontFamily: FONTS.body,
-                      }}
-                      onFocus={(e) => { e.target.style.borderColor = BRAND.purple; e.target.style.boxShadow = `0 0 0 2px ${BRAND.purple}22` }}
-                      onBlur={(e) => { e.target.style.borderColor = BRAND.greyLavender; e.target.style.boxShadow = "none" }}
+                <div className="space-y-2 mb-4 max-h-60 overflow-y-auto">
+                  {queue.map((item) => (
+                    <QueueItemRow
+                      key={item.id}
+                      item={item}
+                      onRemove={removeFromQueue}
+                      onView={(id) => setLocation(`/claims/${id}`)}
+                      canRemove={!processing && item.status === "queued"}
                     />
-                  </div>
+                  ))}
                 </div>
 
-                <Button
-                  className="w-full gap-2 text-white py-2.5"
-                  style={{ backgroundColor: BRAND.purple, fontFamily: FONTS.heading, fontWeight: 600 }}
-                  onClick={handleStartPipeline}
-                >
-                  <SendDiagonal width={16} height={16} />
-                  {emailTo.trim() ? "Upload, Audit & Email" : "Upload & Audit"}
-                </Button>
-              </CardContent>
-            </Card>
-          )}
-
-          {isBusy && (
-            <Card className="shadow-sm mb-6" style={{ borderColor: BRAND.greyLavender, backgroundColor: BRAND.white }}>
-              <CardContent className="p-6">
-                <div className="flex flex-col items-center py-4">
-                  <div className="w-10 h-10 border-3 border-t-transparent rounded-full animate-spin mb-4" style={{ borderColor: BRAND.purple, borderTopColor: "transparent" }} />
-                  <p className="text-sm font-bold" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
-                    {statusLabels[ingestStatus]}
-                  </p>
-                  <div className="flex items-center gap-2 mt-1.5">
-                    <Page width={14} height={14} style={{ color: BRAND.purpleSecondary }} />
-                    <span className="text-xs" style={{ color: BRAND.purpleSecondary }}>{ingestFileName}</span>
-                  </div>
-                  {(() => {
-                    const allSteps = emailTo.trim()
-                      ? ["extracting", "parsing", "auditing", "emailing"]
-                      : ["extracting", "parsing", "auditing"]
-                    const stepLabels: Record<string, string> = {
-                      extracting: "Extract",
-                      parsing: "Parse",
-                      auditing: "Audit",
-                      emailing: "Email",
-                    }
-                    const currentIdx = allSteps.indexOf(ingestStatus)
-                    return (
-                      <div className="flex items-center gap-2 mt-5 w-full max-w-sm">
-                        {allSteps.map((step, i) => {
-                          const isDone = i < currentIdx
-                          const isActive = step === ingestStatus
-                          return (
-                            <div key={step} className="flex-1">
-                              <div className="h-1.5 rounded-full" style={{
-                                backgroundColor: isDone ? BRAND.purple : isActive ? BRAND.purpleLight : BRAND.greyLavender,
-                              }}>
-                                {isActive && (
-                                  <div className="h-full rounded-full animate-pulse" style={{ backgroundColor: BRAND.purple, width: "60%" }} />
-                                )}
-                              </div>
-                              <p className="text-[10px] mt-1 text-center" style={{
-                                color: isDone || isActive ? BRAND.deepPurple : BRAND.purpleSecondary,
-                                fontFamily: FONTS.heading,
-                                fontWeight: isActive ? 700 : 400,
-                              }}>
-                                {stepLabels[step] || step}
-                              </p>
-                            </div>
-                          )
-                        })}
+                {hasQueued && !processing && (
+                  <>
+                    <div className="mb-4">
+                      <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.body }}>
+                        Email audit reports to (optional — applies to all)
+                      </label>
+                      <div className="relative">
+                        <Mail width={16} height={16} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: BRAND.purpleSecondary }} />
+                        <input
+                          type="email"
+                          placeholder="recipient@example.com"
+                          value={emailTo}
+                          onChange={(e) => setEmailTo(e.target.value)}
+                          className="w-full pl-9 pr-3 py-2.5 text-sm rounded-lg border outline-none focus:ring-2 transition-all"
+                          style={{
+                            borderColor: BRAND.greyLavender,
+                            backgroundColor: BRAND.offWhite,
+                            color: BRAND.deepPurple,
+                            fontFamily: FONTS.body,
+                          }}
+                          onFocus={(e) => { e.target.style.borderColor = BRAND.purple; e.target.style.boxShadow = `0 0 0 2px ${BRAND.purple}22` }}
+                          onBlur={(e) => { e.target.style.borderColor = BRAND.greyLavender; e.target.style.boxShadow = "none" }}
+                        />
                       </div>
-                    )
-                  })()}
-                </div>
-              </CardContent>
-            </Card>
-          )}
+                    </div>
 
-          {ingestStatus === "complete" && ingestResult && (
-            <Card className="shadow-sm mb-6" style={{ borderColor: "#bbf7d0", backgroundColor: BRAND.white }}>
-              <CardContent className="p-5">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="w-9 h-9 rounded-full flex items-center justify-center" style={{ backgroundColor: "#e8f5e9" }}>
-                    <CheckCircle width={20} height={20} style={{ color: "#16a34a" }} />
+                    <div className="flex gap-2">
+                      <Button
+                        className="flex-1 gap-2 text-white py-2.5"
+                        style={{ backgroundColor: BRAND.purple, fontFamily: FONTS.heading, fontWeight: 600 }}
+                        onClick={startProcessing}
+                      >
+                        <SendDiagonal width={16} height={16} />
+                        {emailTo.trim()
+                          ? `Upload, Audit & Email (${queue.filter((i) => i.status === "queued").length})`
+                          : `Upload & Audit (${queue.filter((i) => i.status === "queued").length})`}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        className="gap-2 shrink-0"
+                        style={{ borderColor: BRAND.greyLavender, color: BRAND.deepPurple, fontFamily: FONTS.heading, fontWeight: 600 }}
+                        onClick={() => fileInputRef.current?.click()}
+                      >
+                        <Plus width={14} height={14} />
+                        Add More
+                      </Button>
+                    </div>
+                  </>
+                )}
+
+                {allDone && (
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      className="flex-1 gap-2"
+                      style={{ borderColor: BRAND.greyLavender, color: BRAND.deepPurple, fontFamily: FONTS.heading, fontWeight: 600 }}
+                      onClick={handleClearQueue}
+                    >
+                      <RefreshDouble width={14} height={14} />
+                      Upload More
+                    </Button>
                   </div>
-                  <div className="flex-1">
-                    <p className="text-sm font-bold" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
-                      {statusLabels.complete}
-                    </p>
-                    <p className="text-xs" style={{ color: BRAND.purpleSecondary }}>
-                      {ingestResult.parsedData.claimNumber || ingestResult.claim.claimNumber} — {ingestResult.parsedData.insuredName || ingestResult.claim.insuredName}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-4">
-                  <DataField label="Insured" value={ingestResult.parsedData.insuredName} />
-                  <DataField label="Carrier" value={ingestResult.parsedData.carrier} />
-                  <DataField label="Date of Loss" value={ingestResult.parsedData.dateOfLoss} mono />
-                  <DataField label="Loss Type" value={ingestResult.parsedData.lossType} />
-                  <DataField label="Total Claim" value={ingestResult.parsedData.totalClaimAmount} mono />
-                  <DataField label="Deductible" value={ingestResult.parsedData.deductible} mono />
-                </div>
-
-                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-                  <Button
-                    className="flex-1 gap-2 text-white"
-                    style={{ backgroundColor: BRAND.purple, fontFamily: FONTS.heading, fontWeight: 600 }}
-                    onClick={() => setLocation(`/claims/${ingestResult.claim.id}`)}
-                  >
-                    View Audit Results
-                    <ArrowRight width={16} height={16} />
-                  </Button>
-                  <Button
-                    variant="outline"
-                    className="gap-2"
-                    style={{ borderColor: BRAND.greyLavender, color: BRAND.deepPurple, fontFamily: FONTS.heading, fontWeight: 600 }}
-                    onClick={handleResetIngest}
-                  >
-                    <RefreshDouble width={14} height={14} />
-                    Upload Another
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {ingestStatus === "error" && ingestError && (
-            <Card className="shadow-sm mb-6" style={{ borderColor: "#fca5a5", backgroundColor: BRAND.white }}>
-              <CardContent className="p-4 flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-semibold" style={{ color: "#dc2626" }}>{ingestError}</p>
-                  <p className="text-xs mt-0.5" style={{ color: BRAND.purpleSecondary }}>{ingestFileName}</p>
-                </div>
-                <Button variant="outline" size="sm" className="gap-1.5" onClick={handleResetIngest} style={{ borderColor: BRAND.greyLavender, color: BRAND.deepPurple }}>
-                  <RefreshDouble width={14} height={14} />
-                  Dismiss
-                </Button>
+                )}
               </CardContent>
             </Card>
           )}
@@ -682,6 +635,101 @@ export default function DashboardPage() {
         </div>
       </div>
     </main>
+  )
+}
+
+const ITEM_STATUS_LABELS: Record<ItemStatus, string> = {
+  queued: "Queued",
+  extracting: "Extracting text...",
+  parsing: "Analyzing claim...",
+  auditing: "Running audit...",
+  emailing: "Sending email...",
+  complete: "Complete",
+  error: "Failed",
+}
+
+function QueueItemRow({ item, onRemove, onView, canRemove }: {
+  item: QueueItem
+  onRemove: (id: string) => void
+  onView: (claimId: string) => void
+  canRemove: boolean
+}) {
+  const isActive = item.status !== "queued" && item.status !== "complete" && item.status !== "error"
+  const steps: ItemStatus[] = ["extracting", "parsing", "auditing"]
+  const currentIdx = steps.indexOf(item.status as ItemStatus)
+  const progress = item.status === "complete" ? 100
+    : item.status === "emailing" ? 90
+    : item.status === "error" ? 0
+    : item.status === "queued" ? 0
+    : Math.max(10, ((currentIdx + 1) / steps.length) * 80)
+
+  return (
+    <div
+      className="flex items-center gap-3 px-3 py-2.5 rounded-lg border"
+      style={{
+        borderColor: item.status === "error" ? "#fca5a5" : item.status === "complete" ? "#bbf7d0" : isActive ? BRAND.purple + "40" : BRAND.greyLavender,
+        backgroundColor: item.status === "error" ? "#fef2f2" : item.status === "complete" ? "#f0fdf4" : isActive ? BRAND.purple + "06" : BRAND.offWhite,
+      }}
+    >
+      <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{
+        backgroundColor: item.status === "error" ? "#fef2f2" : item.status === "complete" ? "#e8f5e9" : isActive ? `${BRAND.purple}14` : BRAND.lightPurpleGrey,
+      }}>
+        {item.status === "complete" ? (
+          <CheckCircle width={16} height={16} style={{ color: "#16a34a" }} />
+        ) : item.status === "error" ? (
+          <WarningTriangle width={16} height={16} style={{ color: "#dc2626" }} />
+        ) : isActive ? (
+          <div className="w-4 h-4 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: BRAND.purple, borderTopColor: "transparent" }} />
+        ) : (
+          <Page width={16} height={16} style={{ color: BRAND.purpleSecondary }} />
+        )}
+      </div>
+
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <p className="text-xs font-semibold truncate" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
+            {item.claimNumber || item.file.name}
+          </p>
+          {item.insuredName && (
+            <span className="text-[10px] truncate" style={{ color: BRAND.purpleSecondary }}>
+              {item.insuredName}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2 mt-0.5">
+          <span className="text-[10px]" style={{ color: item.status === "error" ? "#dc2626" : isActive ? BRAND.purple : BRAND.purpleSecondary, fontFamily: FONTS.body, fontWeight: isActive ? 600 : 400 }}>
+            {item.status === "error" ? item.error || "Failed" : ITEM_STATUS_LABELS[item.status]}
+          </span>
+          {isActive && (
+            <div className="flex-1 h-1 rounded-full max-w-[100px]" style={{ backgroundColor: BRAND.greyLavender }}>
+              <div className="h-full rounded-full transition-all duration-500" style={{ width: `${progress}%`, backgroundColor: BRAND.purple }} />
+            </div>
+          )}
+        </div>
+      </div>
+
+      {item.status === "complete" && item.claimId && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="shrink-0 text-xs gap-1 px-2 py-1"
+          style={{ color: BRAND.purple, fontFamily: FONTS.heading }}
+          onClick={() => onView(item.claimId!)}
+        >
+          View
+          <ArrowRight width={12} height={12} />
+        </Button>
+      )}
+
+      {canRemove && (
+        <button
+          className="shrink-0 w-6 h-6 rounded-full flex items-center justify-center hover:bg-black/5 transition-colors"
+          onClick={() => onRemove(item.id)}
+        >
+          <Xmark width={14} height={14} style={{ color: BRAND.purpleSecondary }} />
+        </button>
+      )}
+    </div>
   )
 }
 

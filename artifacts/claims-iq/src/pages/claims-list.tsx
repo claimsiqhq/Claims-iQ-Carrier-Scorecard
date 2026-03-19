@@ -80,6 +80,7 @@ export default function ClaimsListPage() {
       const ingestRes = await fetch(`${baseUrl}/ingest`, {
         method: "POST",
         body: formData,
+        credentials: "include",
       })
 
       if (!ingestRes.ok) {
