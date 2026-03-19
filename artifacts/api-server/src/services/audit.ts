@@ -1,8 +1,9 @@
 import logger from "../lib/logger";
 import { runQuestionAudit } from "./runQuestionAudit";
 import { computeScore, type ScoringResult, type CategoryScore } from "./scoringEngine";
-import { runValidation, type ValidationResult, type ValidationIssue } from "./validationEngine";
+import { runValidation, runVisionValidation, type ValidationResult, type ValidationIssue } from "./validationEngine";
 import { buildRootIssueGroups, type RootIssueGroup } from "./rootIssueEngine";
+import { runPhotoAnalysis, type VisionAnalysisResult } from "./visionAnalysis";
 import type { QuestionResult } from "./questionBank";
 
 export interface AuditResponse {
@@ -40,6 +41,7 @@ export interface AuditResponse {
   root_issue_groups: RootIssueGroupOutput[];
   issues: IssueItem[];
   validation_checks: ValidationIssue[];
+  vision_analysis: VisionAnalysisResult | null;
 }
 
 export interface RootIssueGroupOutput {
@@ -94,6 +96,7 @@ export function getFallbackAudit(): AuditResponse {
     root_issue_groups: [],
     issues: [],
     validation_checks: [],
+    vision_analysis: null,
   };
 }
 
@@ -142,10 +145,31 @@ function buildIssues(scoring: ScoringResult): IssueItem[] {
 export async function runFinalAudit(
   reportText: string,
   claimMeta?: { claim_number?: string; insured_name?: string; carrier_name?: string },
+  options?: { pdfBuffer?: Buffer; requestId?: string },
 ): Promise<AuditResponse> {
   logger.info("DA/FA carrier audit started");
 
   const validation = runValidation(reportText);
+
+  let visionResult: VisionAnalysisResult | null = null;
+  if (options?.pdfBuffer) {
+    try {
+      visionResult = await runPhotoAnalysis({
+        pdfBuffer: options.pdfBuffer,
+        extractedText: reportText,
+        requestId: options.requestId ?? "audit",
+      });
+
+      const visionChecks = runVisionValidation(reportText, visionResult);
+      validation.checks.push(...visionChecks);
+      if (visionChecks.some((c) => c.severity === "critical")) {
+        validation.ready = false;
+      }
+    } catch (err) {
+      logger.error({ err }, "Vision photo analysis failed — continuing without it");
+    }
+  }
+
   const qResult = await runQuestionAudit(reportText);
   const scoring = computeScore(
     qResult.da_results,
@@ -206,6 +230,7 @@ export async function runFinalAudit(
     root_issue_groups: rootIssueGroupsOutput,
     issues,
     validation_checks: validation.checks,
+    vision_analysis: visionResult,
   };
 
   logger.info({
@@ -217,6 +242,9 @@ export async function runFinalAudit(
     failCount: scoring.failed_count,
     issueCount: issues.length,
     rootIssueGroupCount: rootIssueGroupsOutput.length,
+    hasVisionAnalysis: !!visionResult,
+    photoPages: visionResult?.total_photo_pages ?? 0,
+    toolReadings: visionResult?.tool_readings.length ?? 0,
   }, "DA/FA carrier audit completed");
 
   return result;

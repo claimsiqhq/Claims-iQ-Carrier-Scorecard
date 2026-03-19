@@ -55,6 +55,7 @@ export const audits = pgTable("audits", {
   approvalStatus: text("approval_status"),
   executiveSummary: text("executive_summary"),
   rawResponse: jsonb("raw_response"),
+  visionAnalysis: jsonb("vision_analysis"),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
   index("idx_audits_claim_id").on(table.claimId),

@@ -223,3 +223,60 @@ export function runValidation(reportText: string): ValidationResult {
   const hasCritical = checks.some((c) => c.severity === "critical");
   return { checks, ready: !hasCritical };
 }
+
+export function runVisionValidation(
+  reportText: string,
+  visionResults: { tool_readings: any[]; damage_verifications: any[]; photo_sequence_valid: boolean; sequence_issues: string[] },
+): ValidationIssue[] {
+  const visionChecks: ValidationIssue[] = [];
+
+  const claimsWaterMitigation = /tear.?out|drywall.*remov|dehumidifier|air mover|water mitigation|dry.?out|moisture.*content/i.test(reportText);
+
+  if (claimsWaterMitigation) {
+    const hasMoistureReading = visionResults.tool_readings.some(
+      (r: any) => r.tool_type === "moisture_meter",
+    );
+    const hasThermalReading = visionResults.tool_readings.some(
+      (r: any) => r.tool_type === "thermal_imager",
+    );
+
+    if (!hasMoistureReading && !hasThermalReading) {
+      visionChecks.push({
+        key: "unverified_diagnostic_proof",
+        severity: "critical",
+        message: "Estimate claims water mitigation, but Vision AI could not find a valid moisture meter percentage or thermal imager temperature reading in the photo sheet.",
+      });
+    } else if (!hasMoistureReading) {
+      visionChecks.push({
+        key: "missing_moisture_reading",
+        severity: "warning",
+        message: "No moisture meter readings (e.g., Tramex) found in photos despite water mitigation scope in estimate.",
+      });
+    }
+  }
+
+  const discrepancies = visionResults.damage_verifications.filter(
+    (d: any) => !d.damage_visible && d.confidence >= 70,
+  );
+  if (discrepancies.length > 0) {
+    for (const d of discrepancies) {
+      visionChecks.push({
+        key: "caption_damage_mismatch",
+        severity: "warning",
+        message: `Photo caption claims "${d.caption_claim}" but Vision AI could not verify this damage is visible (${d.discrepancy || "damage not apparent in image"}).`,
+      });
+    }
+  }
+
+  if (!visionResults.photo_sequence_valid) {
+    for (const issue of visionResults.sequence_issues) {
+      visionChecks.push({
+        key: "photo_sequence_error",
+        severity: "warning",
+        message: issue,
+      });
+    }
+  }
+
+  return visionChecks;
+}

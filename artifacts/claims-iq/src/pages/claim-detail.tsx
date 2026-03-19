@@ -12,6 +12,8 @@ import {
   SendMail,
   Xmark,
   Notes,
+  Camera,
+  MediaImage,
 } from "iconoir-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -200,6 +202,7 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
   const rootIssueGroups: any[] = (audit?.rootIssueGroups ?? []) as any[]
   const auditIssues: AuditIssue[] = (audit?.issues ?? []) as AuditIssue[]
   const validationChecks: ValidationCheck[] = (audit?.validationChecks ?? []) as ValidationCheck[]
+  const visionAnalysis = (audit as any)?.visionAnalysis as VisionAnalysisData | null | undefined
 
   const claimFile = docs.length > 0 ? docs[0] : null
   const claimFileMeta = claimFile?.metadata as Record<string, unknown> | undefined
@@ -586,6 +589,10 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
 
                 {validationChecks.length > 0 && (
                   <ValidationPanel checks={validationChecks} />
+                )}
+
+                {visionAnalysis && (visionAnalysis.tool_readings?.length > 0 || visionAnalysis.damage_verifications?.length > 0 || visionAnalysis.sequence_issues?.length > 0) && (
+                  <VisionAnalysisPanel vision={visionAnalysis} />
                 )}
               </>
             )}
@@ -1049,6 +1056,174 @@ function ValidationPanel({ checks }: { checks: ValidationCheck[] }) {
         </div>
       )}
     </Card>
+  )
+}
+
+interface VisionToolReading {
+  page_number: number
+  tool_type: string
+  tool_model: string
+  reading_value: string
+  reading_unit: string
+  material_or_location: string
+  confidence: number
+}
+
+interface VisionDamageVerification {
+  page_number: number
+  caption_claim: string
+  damage_visible: boolean
+  damage_type: string
+  discrepancy: string
+  confidence: number
+}
+
+interface VisionAnalysisData {
+  analyzed_pages: number[]
+  total_photo_pages: number
+  tool_readings: VisionToolReading[]
+  photo_labels: { page_number: number; label_path: string; caption: string; section_type: string; order_index: number }[]
+  damage_verifications: VisionDamageVerification[]
+  photo_sequence_valid: boolean
+  sequence_issues: string[]
+  diagnostics_summary: {
+    moisture_readings_found: number
+    thermal_readings_found: number
+    laser_readings_found: number
+    captions_verified: number
+    captions_with_discrepancy: number
+  }
+}
+
+function VisionAnalysisPanel({ vision }: { vision: VisionAnalysisData }) {
+  const [expanded, setExpanded] = useState(true)
+
+  const totalFindings = (vision.tool_readings?.length ?? 0) + (vision.damage_verifications?.length ?? 0) + (vision.sequence_issues?.length ?? 0)
+  const discrepancies = vision.damage_verifications?.filter(d => !d.damage_visible).length ?? 0
+  const ds = vision.diagnostics_summary
+
+  const toolTypeLabel = (t: string) => {
+    const labels: Record<string, string> = { moisture_meter: "Moisture Meter", thermal_imager: "Thermal Imager", laser_measure: "Laser Measure", tape_measure: "Tape Measure" }
+    return labels[t] || humanize(t)
+  }
+
+  return (
+    <Card className="shadow-sm overflow-hidden" style={{ borderColor: BRAND.greyLavender, backgroundColor: BRAND.white }}>
+      <button
+        className="w-full flex items-center justify-between p-4 hover:bg-black/[0.02] transition-colors"
+        onClick={() => setExpanded(!expanded)}
+      >
+        <div className="flex items-center gap-3">
+          <div className="p-1.5 rounded" style={{ backgroundColor: "#ede9fe", color: BRAND.purple }}>
+            <Camera width={16} height={16} />
+          </div>
+          <span className="text-sm font-semibold" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>Photo Analysis (Vision AI)</span>
+          <span className="inline-flex items-center justify-center min-w-[22px] h-[22px] px-1.5 text-xs font-bold rounded-full" style={{ backgroundColor: BRAND.purple, color: "#fff" }}>
+            {totalFindings}
+          </span>
+          {discrepancies > 0 && (
+            <span className="inline-flex items-center justify-center min-w-[22px] h-[22px] px-1.5 text-xs font-bold rounded-full" style={{ backgroundColor: "#dc2626", color: "#fff" }}>
+              {discrepancies} discrepanc{discrepancies !== 1 ? "ies" : "y"}
+            </span>
+          )}
+        </div>
+        <NavArrowDown
+          width={16} height={16}
+          className="transition-transform duration-200"
+          style={{ color: BRAND.purpleSecondary, transform: expanded ? "rotate(180deg)" : "rotate(0deg)" }}
+        />
+      </button>
+      {expanded && (
+        <div className="px-4 pb-4" style={{ borderTop: `1px solid ${BRAND.greyLavender}` }}>
+          {ds && (
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 pt-3 pb-3">
+              <VisionStat label="Moisture" value={ds.moisture_readings_found} />
+              <VisionStat label="Thermal" value={ds.thermal_readings_found} />
+              <VisionStat label="Laser" value={ds.laser_readings_found} />
+              <VisionStat label="Verified" value={ds.captions_verified} color="#16a34a" />
+              <VisionStat label="Discrepancies" value={ds.captions_with_discrepancy} color={ds.captions_with_discrepancy > 0 ? "#dc2626" : undefined} />
+            </div>
+          )}
+
+          {vision.tool_readings?.length > 0 && (
+            <div className="mb-3">
+              <h4 className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>Diagnostic Tool Readings</h4>
+              <div className="space-y-1.5">
+                {vision.tool_readings.map((tr, i) => (
+                  <div key={i} className="flex items-center gap-2 p-2 rounded text-xs" style={{ backgroundColor: BRAND.offWhite }}>
+                    <span className="inline-flex items-center justify-center text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 uppercase" style={{ backgroundColor: "#ede9fe", color: BRAND.purple, minWidth: "80px" }}>
+                      {toolTypeLabel(tr.tool_type)}
+                    </span>
+                    <span className="font-bold" style={{ color: BRAND.deepPurple, fontFamily: FONTS.mono }}>{tr.reading_value} {tr.reading_unit}</span>
+                    <span style={{ color: BRAND.purpleSecondary }}>at {tr.material_or_location}</span>
+                    <span className="ml-auto text-[10px] shrink-0" style={{ color: BRAND.purpleSecondary }}>p.{tr.page_number}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {vision.damage_verifications?.length > 0 && (
+            <div className="mb-3">
+              <h4 className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>Damage Verifications</h4>
+              <div className="space-y-1.5">
+                {vision.damage_verifications.map((dv, i) => (
+                  <div key={i} className="flex items-start gap-2 p-2 rounded text-xs" style={{ backgroundColor: dv.damage_visible ? "#f0fdf4" : "#fef2f2" }}>
+                    <span className="inline-flex items-center justify-center text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 mt-0.5 uppercase" style={{ backgroundColor: dv.damage_visible ? "#dcfce7" : "#fecaca", color: dv.damage_visible ? "#16a34a" : "#dc2626", minWidth: "60px" }}>
+                      {dv.damage_visible ? "Confirmed" : "Mismatch"}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <span className="font-medium block" style={{ color: BRAND.deepPurple }}>{dv.caption_claim}</span>
+                      {dv.damage_visible ? (
+                        <span style={{ color: "#16a34a" }}>Visible: {dv.damage_type}</span>
+                      ) : (
+                        <span style={{ color: "#dc2626" }}>{dv.discrepancy || "Damage not visually confirmed"}</span>
+                      )}
+                    </div>
+                    <span className="text-[10px] shrink-0 mt-0.5" style={{ color: BRAND.purpleSecondary }}>p.{dv.page_number}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {vision.sequence_issues?.length > 0 && (
+            <div>
+              <h4 className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>Photo Sequence Issues</h4>
+              <div className="space-y-1.5">
+                {vision.sequence_issues.map((issue, i) => (
+                  <div key={i} className="flex items-start gap-2 p-2 rounded text-xs" style={{ backgroundColor: "#fef9ec" }}>
+                    <WarningTriangle width={14} height={14} className="shrink-0 mt-0.5" style={{ color: "#ca8a04" }} />
+                    <span style={{ color: BRAND.deepPurple, fontFamily: FONTS.body }}>{issue}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {!vision.photo_sequence_valid && vision.sequence_issues?.length === 0 && (
+            <div className="flex items-center gap-2 p-2 rounded text-xs" style={{ backgroundColor: "#fef9ec" }}>
+              <WarningTriangle width={14} height={14} style={{ color: "#ca8a04" }} />
+              <span style={{ color: BRAND.deepPurple }}>Photo sequence could not be validated</span>
+            </div>
+          )}
+
+          <div className="flex items-center gap-2 mt-3 text-[11px]" style={{ color: BRAND.purpleSecondary }}>
+            <MediaImage width={12} height={12} />
+            <span>{vision.total_photo_pages} photo page{vision.total_photo_pages !== 1 ? "s" : ""} analyzed across {vision.analyzed_pages?.length ?? 0} page{(vision.analyzed_pages?.length ?? 0) !== 1 ? "s" : ""}</span>
+          </div>
+        </div>
+      )}
+    </Card>
+  )
+}
+
+function VisionStat({ label, value, color }: { label: string; value: number; color?: string }) {
+  return (
+    <div className="text-center p-2 rounded" style={{ backgroundColor: BRAND.offWhite }}>
+      <span className="text-lg font-bold block" style={{ color: color || BRAND.deepPurple, fontFamily: FONTS.mono }}>{value}</span>
+      <span className="text-[10px] uppercase tracking-wider" style={{ color: BRAND.purpleSecondary }}>{label}</span>
+    </div>
   )
 }
 

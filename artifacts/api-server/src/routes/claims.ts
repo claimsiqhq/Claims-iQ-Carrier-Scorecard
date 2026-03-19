@@ -220,6 +220,7 @@ router.get("/claims/:id", requireAuth, async (req, res) => {
           severity: v.severity ?? "info",
           message: v.message ?? "",
         })),
+        visionAnalysis: (audit.visionAnalysis as Record<string, unknown> | null) ?? (raw?.vision_analysis as Record<string, unknown> | null) ?? null,
         sections: sectionRows.map((s) => ({
           id: s.id,
           auditId: s.auditId ?? "",

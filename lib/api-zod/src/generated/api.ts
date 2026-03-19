@@ -149,6 +149,7 @@ export const GetClaimDetailResponse = zod.object({
       rootIssueGroups: zod.array(RootIssueGroup).optional(),
       issues: zod.array(AuditIssue).optional(),
       validationChecks: zod.array(ValidationCheck).optional(),
+      visionAnalysis: zod.object({}).passthrough().nullable().optional(),
       sections: zod.array(
         zod.object({
           id: zod.string(),

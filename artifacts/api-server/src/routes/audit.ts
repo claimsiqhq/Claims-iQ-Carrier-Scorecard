@@ -14,8 +14,10 @@ import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import * as schema from "@workspace/db/schema";
 import { runFinalAudit, type AuditResponse } from "../services/audit";
+import { downloadFile } from "../lib/supabaseStorage";
 import { requireAuth } from "../middlewares/requireAuth";
 import logger from "../lib/logger";
+import { randomUUID } from "crypto";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -71,12 +73,27 @@ router.post("/claims/:id/audit", requireAuth, auditLimiter, async (req, res) => 
 
     const reportText = reportParts.join("\n");
 
+    let pdfBuffer: Buffer | undefined;
+    const pdfDoc = docs.find((d) => d.fileUrl && (d.type === "claim_file" || d.fileUrl?.endsWith(".pdf")));
+    if (pdfDoc?.fileUrl) {
+      try {
+        pdfBuffer = await downloadFile(pdfDoc.fileUrl);
+        logger.info({ claimId: id, storagePath: pdfDoc.fileUrl, bytes: pdfBuffer.length }, "Downloaded PDF for vision analysis");
+      } catch (dlErr) {
+        logger.warn({ err: dlErr, claimId: id }, "Could not download PDF for vision analysis — proceeding without it");
+      }
+    }
+
+    const requestId = randomUUID();
     let auditResult: AuditResponse;
     try {
       auditResult = await runFinalAudit(reportText, {
         claim_number: claim.claimNumber ?? "",
         insured_name: claim.insuredName ?? "",
         carrier_name: claim.carrier ?? "",
+      }, {
+        pdfBuffer,
+        requestId,
       });
     } catch (err) {
       logger.error({ err }, "OpenAI audit call failed");
@@ -118,6 +135,7 @@ router.post("/claims/:id/audit", requireAuth, auditLimiter, async (req, res) => 
           approvalStatus: oa.readiness,
           executiveSummary: oa.executive_summary,
           rawResponse: auditResult as unknown as Record<string, unknown>,
+          visionAnalysis: auditResult.vision_analysis as unknown as Record<string, unknown> ?? null,
         })
         .returning();
 
@@ -202,7 +220,55 @@ router.post("/claims/:id/audit", requireAuth, auditLimiter, async (req, res) => 
         } as Record<string, unknown>,
       }));
 
-      const allFindings = [...questionFindings, ...issueFindings, ...validationFindings];
+      const visionFindings: typeof questionFindings = [];
+      if (auditResult.vision_analysis) {
+        const va = auditResult.vision_analysis;
+        for (const tr of va.tool_readings) {
+          visionFindings.push({
+            auditId: newAudit.id,
+            type: "vision_tool_reading",
+            severity: "info",
+            title: `${tr.tool_type}: ${tr.reading_value} ${tr.reading_unit}`,
+            description: `${tr.tool_model} reading at ${tr.material_or_location} (page ${tr.page_number})`,
+            metadata: {
+              category: "vision_analysis",
+              ...tr,
+            } as Record<string, unknown>,
+          });
+        }
+        for (const dv of va.damage_verifications) {
+          visionFindings.push({
+            auditId: newAudit.id,
+            type: "vision_damage_verification",
+            severity: dv.damage_visible ? "pass" : "warning",
+            title: `Damage check: ${dv.caption_claim}`,
+            description: dv.damage_visible
+              ? `Confirmed: ${dv.damage_type} visible (page ${dv.page_number})`
+              : `Discrepancy: ${dv.discrepancy || "damage not apparent"} (page ${dv.page_number})`,
+            metadata: {
+              category: "vision_analysis",
+              ...dv,
+            } as Record<string, unknown>,
+          });
+        }
+        if (va.sequence_issues.length > 0) {
+          for (const issue of va.sequence_issues) {
+            visionFindings.push({
+              auditId: newAudit.id,
+              type: "vision_sequence",
+              severity: "warning",
+              title: "Photo sequence issue",
+              description: issue,
+              metadata: {
+                category: "vision_analysis",
+                photo_sequence_valid: false,
+              } as Record<string, unknown>,
+            });
+          }
+        }
+      }
+
+      const allFindings = [...questionFindings, ...issueFindings, ...validationFindings, ...visionFindings];
 
       if (allFindings.length > 0) {
         await txDb.insert(auditFindings).values(allFindings);

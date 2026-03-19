@@ -64,6 +64,8 @@ function getAuditHtml(claim: any, audit: any): string {
       },
       issues: [],
       validation_checks: [],
+      root_issue_groups: [],
+      vision_analysis: null,
     };
     return renderAuditEmail({
       claimNumber: claim.claimNumber ?? "",
