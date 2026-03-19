@@ -92,7 +92,7 @@ export async function getSignedUrl(storagePath: string, expiresIn = 3600): Promi
   return data.signedUrl;
 }
 
-export async function fileExists(storagePath: string): Promise<boolean> {
+export async function fileExists(storagePath: string): Promise<{ exists: boolean; error?: string }> {
   try {
     const parts = storagePath.split("/");
     const fileName = parts.pop()!;
@@ -100,10 +100,11 @@ export async function fileExists(storagePath: string): Promise<boolean> {
     const { data, error } = await supabase().storage
       .from(BUCKET_NAME)
       .list(folder, { limit: 1, search: fileName });
-    if (error) return false;
-    return Array.isArray(data) && data.some((f: any) => f.name === fileName);
-  } catch {
-    return false;
+    if (error) return { exists: false, error: error.message };
+    const found = Array.isArray(data) && data.some((f: any) => f.name === fileName);
+    return { exists: found };
+  } catch (err: any) {
+    return { exists: false, error: err.message || "Storage check failed" };
   }
 }
 

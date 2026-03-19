@@ -211,9 +211,14 @@ router.post("/claims/:id/retry", requireAuth, async (req, res) => {
     }
 
     const storagePath = doc.fileUrl;
-    const exists = await fileExists(storagePath);
-    if (!exists) {
-      res.status(400).json({ error: "Original file not found in storage — please re-upload the claim" });
+    const check = await fileExists(storagePath);
+    if (!check.exists) {
+      if (check.error) {
+        logger.warn({ claimId: id, storagePath, storageError: check.error }, "Retry: storage check failed");
+        res.status(500).json({ error: "Could not verify file in storage — please try again" });
+      } else {
+        res.status(400).json({ error: "Original file not found in storage — please re-upload the claim" });
+      }
       return;
     }
 
