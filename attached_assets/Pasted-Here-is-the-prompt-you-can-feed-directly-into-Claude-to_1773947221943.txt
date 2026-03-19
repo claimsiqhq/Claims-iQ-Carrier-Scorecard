@@ -1,0 +1,123 @@
+Here is the prompt you can feed directly into Claude to seamlessly add the Stack Order and Prior Loss validators to your existing scoring engine. 
+
+***
+
+Modify my EXISTING Node.js + TypeScript application to integrate two specific carrier-compliance rules (Stack Order and Prior Loss Review) into the validation and scoring engine.
+
+CRITICAL RULES:
+* DO NOT rebuild the app
+* DO NOT refactor unrelated code
+* DO NOT remove the root issue grouping or materiality logic previously added
+* ONLY append the new validation logic to the existing validationEngine.ts and update the LLM prompt instructions
+
+--------------------------------------------------------------------------------
+
+GOAL:
+Add two strict carrier requirements to the validation engine based on the Andover scorecard:
+1. Enforce strict document stack order (DA report, SOL, Payment Letter, Other Letters, Estimate, Photos, Sketch, Prior Loss Report).
+2. Enforce ISO Prior Loss report inclusion at the end of the stack AND ensure the DA report mentions reviewing them.
+
+--------------------------------------------------------------------------------
+
+### ==================================================STEP 1 — ADD STACK ORDER VALIDATOR
+Update:
+/services/validationEngine.ts
+
+Add the following heuristic function to check the order of documents based on standard headers:
+```typescript
+export function validateStackOrder(documentPages: string[]): boolean {
+  // Expected flow based on carrier SLAs
+  const expectedOrder = [
+    "Desk Adjuster Report",
+    "STATEMENT OF LOSS",
+    "Dear", // Payment Letter
+    "Estimate",
+    "Photo Sheet",
+    "Sketch", // or Diagram
+    "ISO File Number" // Prior Loss Report
+  ];
+
+  let currentIndex = 0;
+  
+  for (const page of documentPages) {
+    if (currentIndex >= expectedOrder.length) break;
+    
+    // If the current page contains the next expected document header, advance the index
+    if (page.includes(expectedOrder[currentIndex])) {
+      currentIndex++;
+    }
+  }
+
+  // Returns true if all documents were found in the correct sequential order
+  return currentIndex === expectedOrder.length;
+}
+```
+
+Add to validation execution:
+```typescript
+if (!validateStackOrder(pages)) {
+  issues.warnings.push({
+    type: "invalid_stack_order",
+    message: "File stack is out of order. Must be: DA Report -> SOL -> Payment Letter -> Letters -> Estimate -> Photos -> Sketch -> Prior Loss."
+  });
+}
+```
+
+--------------------------------------------------------------------------------
+
+### ==================================================STEP 2 — ADD PRIOR LOSS VALIDATOR
+Update:
+/services/validationEngine.ts
+
+Add a function to ensure the Prior Loss requirement is met:
+```typescript
+export function validatePriorLossReview(daReportText: string, hasIsoReport: boolean): boolean {
+  const mentionsPriors = /prior loss|prior claims|iso/i.test(daReportText);
+  return mentionsPriors && hasIsoReport;
+}
+```
+
+Add to validation execution:
+```typescript
+if (!validatePriorLossReview(daReportText, hasIsoReport)) {
+  issues.critical.push({
+    type: "missing_prior_loss_review",
+    message: "ISO ClaimSearch report is missing or Desk Adjuster failed to mention reviewing prior losses within the past 5 years."
+  });
+}
+```
+
+--------------------------------------------------------------------------------
+
+### ==================================================STEP 3 — UPDATE MATERIALITY LOGIC
+Update:
+/services/scoringEngine.ts
+
+Update the `isMaterial` function to include the new prior loss failure, as carriers deduct heavy points for missing ISO reviews:
+```typescript
+function isMaterial(issue) { 
+  return [ 
+    "payment_mismatch", 
+    "missing_scope", 
+    "coverage_error",
+    "missing_prior_loss_review" // NEW: Treat missing ISO/Prior Loss review as a material failure
+  ].includes(issue.root_issue); 
+}
+```
+
+--------------------------------------------------------------------------------
+
+### ==================================================STEP 4 — UPDATE LLM SYSTEM PROMPT
+Add the two new root issues to the SYSTEM PROMPT instructions so the LLM correctly categorizes them.
+
+SYSTEM PROMPT ADD:
+You must now also check for and assign the following `root_issue` values where applicable:
+* "invalid_stack_order": Use this if the PDF pages do not flow in the exact order of: DA report, SOL, Payment Letter, Estimate, Photos, Sketch, Prior Loss.
+* "missing_prior_loss_review": Use this if the ISO report is missing at the end of the file, OR if the Desk Adjuster report fails to explicitly mention reviewing prior losses.
+
+***
+
+### Why this prompt works based on your rules:
+* **Targeted Scoring Categories:** It strictly enforces the "File Stack Order" check [1] and the "Prior Losses Addressed" check [2] directly derived from the Andover scorecard.
+* **Smart Materiality:** Because missing a prior loss review can result in paying for pre-existing damage, adding `missing_prior_loss_review` to your `isMaterial` array ensures the file will be flagged as **NOT READY** for submission until the adjuster attaches the ISO report and updates their narrative [2-4].
+* **Stack Order Heuristics:** The `validateStackOrder` function uses the exact document flow required by Jordan Midgley's email to algorithmically verify the PDF compilation order before a human even has to look at it [1].

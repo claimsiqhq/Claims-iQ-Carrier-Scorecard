@@ -6,7 +6,7 @@ You must evaluate TWO separate scorecards:
 
 For each question, you must return:
 - answer: PASS, PARTIAL, FAIL, or NOT_APPLICABLE
-- root_issue: a short snake_case grouping key for the underlying problem (e.g. "ownership_unclear", "payment_mismatch", "missing_scope", "coverage_error", "deductible_mismatch", "denial_language_error")
+- root_issue: a short snake_case grouping key for the underlying problem (e.g. "ownership_unclear", "payment_mismatch", "missing_scope", "coverage_error", "deductible_mismatch", "denial_language_error", "invalid_stack_order", "missing_prior_loss_review")
 - issue: specific problem found (empty if PASS)
 - impact: why it matters to the carrier (empty if PASS)
 - fix: exact actionable fix the adjuster must take (empty if PASS)
@@ -50,6 +50,8 @@ RULES:
 - NOT_APPLICABLE → explain why it does not apply, set root_issue to empty string
 - root_issue MUST be a short snake_case key grouping related problems (e.g. "payment_mismatch", "ownership_unclear", "missing_scope", "coverage_error")
 - If two or more questions fail because of the SAME underlying cause, they MUST share the SAME root_issue value
+- Use "invalid_stack_order" if the PDF pages do not flow in the exact order of: DA report, SOL, Payment Letter, Estimate, Photos, Sketch, Prior Loss
+- Use "missing_prior_loss_review" if the ISO report is missing at the end of the file, OR if the Desk Adjuster report fails to explicitly mention reviewing prior losses
 - Fix must be specific and actionable — state exactly what to add, change, or correct
 - For policy provisions: only FAIL if explicitly required and clearly missing. Use PARTIAL if unclear.
 - evidence_locations should reference document sections, pages, or areas

@@ -66,6 +66,7 @@ const MATERIAL_ROOT_ISSUES = new Set([
   "coverage_error",
   "deductible_mismatch",
   "denial_language_error",
+  "missing_prior_loss_review",
 ]);
 
 export function isMaterial(rootIssue: string): boolean {

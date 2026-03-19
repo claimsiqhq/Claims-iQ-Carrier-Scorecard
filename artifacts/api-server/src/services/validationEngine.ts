@@ -65,6 +65,34 @@ export function detectPaymentMismatch(text: string): boolean {
   return false;
 }
 
+export function validateStackOrder(documentPages: string[]): boolean {
+  const expectedOrder = [
+    "Desk Adjuster Report",
+    "STATEMENT OF LOSS",
+    "Dear",
+    "Estimate",
+    "Photo Sheet",
+    "Sketch",
+    "ISO File Number",
+  ];
+
+  let currentIndex = 0;
+
+  for (const page of documentPages) {
+    if (currentIndex >= expectedOrder.length) break;
+    if (page.includes(expectedOrder[currentIndex])) {
+      currentIndex++;
+    }
+  }
+
+  return currentIndex === expectedOrder.length;
+}
+
+export function validatePriorLossReview(daReportText: string, hasIsoReport: boolean): boolean {
+  const mentionsPriors = /prior loss|prior claims|iso/i.test(daReportText);
+  return mentionsPriors && hasIsoReport;
+}
+
 export function runValidation(reportText: string): ValidationResult {
   const checks: ValidationIssue[] = [];
 
@@ -129,6 +157,28 @@ export function runValidation(reportText: string): ValidationResult {
         });
       }
     }
+  }
+
+  const pages = reportText.split(/={3,}\s*Page\s+\d+\s*={3,}/i).filter(Boolean);
+  if (pages.length > 1 && !validateStackOrder(pages)) {
+    checks.push({
+      key: "invalid_stack_order",
+      severity: "warning",
+      message: "File stack is out of order. Must be: DA Report → SOL → Payment Letter → Letters → Estimate → Photos → Sketch → Prior Loss.",
+    });
+  }
+
+  const lower = reportText.toLowerCase();
+  const daStart = lower.indexOf("desk adjuster");
+  const daEnd = lower.indexOf("statement of loss", daStart > -1 ? daStart : 0);
+  const daReportText = daStart > -1 ? reportText.slice(daStart, daEnd > daStart ? daEnd : Math.min(daStart + 5000, reportText.length)) : "";
+  const hasIsoReport = /ISO File Number|ISO ClaimSearch|clue report/i.test(reportText);
+  if (!validatePriorLossReview(daReportText, hasIsoReport)) {
+    checks.push({
+      key: "missing_prior_loss_review",
+      severity: "critical",
+      message: "ISO ClaimSearch report is missing or Desk Adjuster failed to mention reviewing prior losses within the past 5 years.",
+    });
   }
 
   if (!/cause of loss|col\b/i.test(reportText)) {
