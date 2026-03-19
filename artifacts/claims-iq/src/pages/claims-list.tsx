@@ -13,6 +13,8 @@ import {
   Page,
   RefreshDouble,
   ArrowRight,
+  Restart,
+  WarningTriangle,
 } from "iconoir-react"
 
 type IngestStatus = "idle" | "uploading" | "extracting" | "parsing" | "complete" | "error"
@@ -58,6 +60,7 @@ export default function ClaimsListPage() {
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<IngestResult | null>(null)
   const [dragOver, setDragOver] = useState(false)
+  const [retryingClaims, setRetryingClaims] = useState<Record<string, string>>({})
   const fileInputRef = useRef<HTMLInputElement>(null)
   const baseUrl = import.meta.env.VITE_API_URL || "/api"
 
@@ -139,6 +142,55 @@ export default function ClaimsListPage() {
     setError(null)
     setResult(null)
   }, [])
+
+  const handleRetry = useCallback(async (claimId: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setRetryingClaims((prev) => ({ ...prev, [claimId]: "retrying" }))
+    try {
+      const retryRes = await fetch(`${baseUrl}/claims/${claimId}/retry`, {
+        method: "POST",
+        credentials: "include",
+      })
+      if (!retryRes.ok) {
+        const body = await retryRes.json().catch(() => ({ error: "Retry failed" }))
+        setRetryingClaims((prev) => ({ ...prev, [claimId]: body.error || "Retry failed" }))
+        return
+      }
+
+      setRetryingClaims((prev) => ({ ...prev, [claimId]: "polling" }))
+      const maxAttempts = 200
+      for (let i = 0; i < maxAttempts; i++) {
+        await new Promise((r) => setTimeout(r, 3000))
+        try {
+          const statusRes = await fetch(`${baseUrl}/claims/${claimId}/processing-status`, { credentials: "include" })
+          if (!statusRes.ok) continue
+          const ps = await statusRes.json()
+          if (ps.status === "error") {
+            setRetryingClaims((prev) => ({ ...prev, [claimId]: ps.error || "Processing failed" }))
+            queryClient.invalidateQueries({ queryKey: ["/claims"] })
+            return
+          }
+          if (ps.status === "ready") {
+            setRetryingClaims((prev) => {
+              const next = { ...prev }
+              delete next[claimId]
+              return next
+            })
+            queryClient.invalidateQueries({ queryKey: ["/claims"] })
+            return
+          }
+        } catch (pollErr: any) {
+          if (pollErr.message && pollErr.message !== "Failed to fetch") {
+            setRetryingClaims((prev) => ({ ...prev, [claimId]: pollErr.message }))
+            return
+          }
+        }
+      }
+      setRetryingClaims((prev) => ({ ...prev, [claimId]: "Timed out waiting for processing" }))
+    } catch (err: any) {
+      setRetryingClaims((prev) => ({ ...prev, [claimId]: err.message || "Retry failed" }))
+    }
+  }, [baseUrl, queryClient])
 
   const isBusy = status === "uploading" || status === "extracting" || status === "parsing"
 
@@ -346,6 +398,10 @@ export default function ClaimsListPage() {
               )}
               {claims.map((claim) => {
                 const sc = statusColors[claim.status] || statusColors.pending
+                const retryState = retryingClaims[claim.id]
+                const isRetrying = retryState === "retrying" || retryState === "polling"
+                const retryError = retryState && !isRetrying ? retryState : null
+                const canRetry = (claim.status === "processing" || claim.status === "error") && !isRetrying
                 return (
                   <Card
                     key={claim.id}
@@ -362,19 +418,47 @@ export default function ClaimsListPage() {
                           <div className="flex items-center gap-3 mb-1">
                             <span className="text-sm font-bold" style={{ color: BRAND.deepPurple, fontFamily: FONTS.mono }}>{claim.claimNumber}</span>
                             <Badge className="shadow-none text-xs border-transparent" style={{ backgroundColor: sc.bg, color: sc.color }}>
-                              {claim.status.charAt(0).toUpperCase() + claim.status.slice(1)}
+                              {isRetrying ? "Retrying…" : claim.status.charAt(0).toUpperCase() + claim.status.slice(1)}
                             </Badge>
                           </div>
                           <p className="text-sm" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.body }}>{claim.insuredName}</p>
+                          {retryError && (
+                            <div className="flex items-center gap-1.5 mt-1">
+                              <WarningTriangle width={12} height={12} style={{ color: "#dc2626" }} />
+                              <p className="text-xs" style={{ color: "#dc2626" }}>{retryError}</p>
+                            </div>
+                          )}
                         </div>
                       </div>
-                      <div className="text-right hidden sm:block">
-                        <p className="text-xs" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.body }}>
-                          {claim.carrier}
-                        </p>
-                        <p className="text-xs" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.mono }}>
-                          {claim.dateOfLoss}
-                        </p>
+                      <div className="flex items-center gap-3">
+                        {canRetry && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="gap-1.5 shrink-0"
+                            style={{ borderColor: BRAND.purple, color: BRAND.purple, fontFamily: FONTS.heading, fontWeight: 600 }}
+                            onClick={(e) => handleRetry(claim.id, e)}
+                          >
+                            <Restart width={14} height={14} />
+                            Retry
+                          </Button>
+                        )}
+                        {isRetrying && (
+                          <div className="flex items-center gap-2 shrink-0">
+                            <div className="w-4 h-4 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: BRAND.purple, borderTopColor: "transparent" }} />
+                            <span className="text-xs" style={{ color: BRAND.purple, fontFamily: FONTS.heading, fontWeight: 600 }}>
+                              {retryState === "retrying" ? "Starting…" : "Processing…"}
+                            </span>
+                          </div>
+                        )}
+                        <div className="text-right hidden sm:block">
+                          <p className="text-xs" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.body }}>
+                            {claim.carrier}
+                          </p>
+                          <p className="text-xs" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.mono }}>
+                            {claim.dateOfLoss}
+                          </p>
+                        </div>
                       </div>
                     </CardContent>
                   </Card>

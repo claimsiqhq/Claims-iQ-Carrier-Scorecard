@@ -3,7 +3,7 @@ import { randomUUID } from "crypto";
 import { db } from "@workspace/db";
 import { claims, documents } from "@workspace/db";
 import { eq } from "drizzle-orm";
-import { uploadFile } from "../lib/supabaseStorage";
+import { uploadFile, downloadFile, fileExists } from "../lib/supabaseStorage";
 import { parseClaimFromText } from "../services/ingest";
 import { extractPdfTextWithVisionPages } from "../services/finalReportIngestion";
 import { requireAuth } from "../middlewares/requireAuth";
@@ -179,6 +179,81 @@ router.get("/claims/:id/processing-status", requireAuth, async (req, res) => {
   } catch (err) {
     logger.error({ err }, "Processing status check error");
     res.status(500).json({ error: "Failed to check processing status" });
+  }
+});
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+router.post("/claims/:id/retry", requireAuth, async (req, res) => {
+  try {
+    const id = req.params.id as string;
+    if (!UUID_RE.test(id)) {
+      res.status(400).json({ error: "Invalid claim ID format" });
+      return;
+    }
+
+    const [claim] = await db.select().from(claims).where(eq(claims.id, id));
+    if (!claim) {
+      res.status(404).json({ error: "Claim not found" });
+      return;
+    }
+
+    if (claim.status !== "processing" && claim.status !== "error") {
+      res.status(400).json({ error: "Only claims in processing or error status can be retried" });
+      return;
+    }
+
+    if (claim.status === "processing") {
+      const ageMs = claim.createdAt ? Date.now() - new Date(claim.createdAt).getTime() : Infinity;
+      if (ageMs < 15 * 60 * 1000) {
+        res.status(400).json({ error: "This claim may still be processing. Please wait at least 15 minutes before retrying." });
+        return;
+      }
+    }
+
+    const claimDocs = await db.select().from(documents).where(eq(documents.claimId, id));
+    const doc = claimDocs.find((d) => d.type === "claim_file" && d.fileUrl);
+    if (!doc || !doc.fileUrl) {
+      res.status(400).json({ error: "No document file found for this claim" });
+      return;
+    }
+
+    const storagePath = doc.fileUrl;
+    const exists = await fileExists(storagePath);
+    if (!exists) {
+      res.status(400).json({ error: "Original file not found in storage — please re-upload the claim" });
+      return;
+    }
+
+    let fileBuffer: Buffer;
+    try {
+      fileBuffer = await downloadFile(storagePath);
+    } catch (dlErr) {
+      logger.error({ err: dlErr, claimId: id }, "Retry: failed to download file from storage");
+      res.status(500).json({ error: "Failed to download file from storage" });
+      return;
+    }
+
+    await db.update(claims).set({
+      status: "processing",
+      summary: null,
+      insuredName: "Processing…",
+    }).where(eq(claims.id, id));
+
+    const meta = doc.metadata as Record<string, unknown> | null;
+    const fileName = (meta?.fileName as string) || "claim.pdf";
+    const contentType = (meta?.contentType as string) || "application/pdf";
+
+    logger.info({ claimId: id, storagePath, fileName }, "Retry: re-processing claim");
+
+    res.status(202).json({ status: "processing", claimId: id });
+
+    processInBackground(id, doc.id, fileBuffer, fileName, contentType, storagePath).catch((err) => {
+      logger.error({ err, claimId: id }, "Retry: background processing crashed unexpectedly");
+    });
+  } catch (err) {
+    logger.error({ err }, "Retry endpoint error");
+    res.status(500).json({ error: "Failed to retry claim processing" });
   }
 });
 

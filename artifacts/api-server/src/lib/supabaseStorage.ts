@@ -92,6 +92,21 @@ export async function getSignedUrl(storagePath: string, expiresIn = 3600): Promi
   return data.signedUrl;
 }
 
+export async function fileExists(storagePath: string): Promise<boolean> {
+  try {
+    const parts = storagePath.split("/");
+    const fileName = parts.pop()!;
+    const folder = parts.join("/");
+    const { data, error } = await supabase().storage
+      .from(BUCKET_NAME)
+      .list(folder, { limit: 1, search: fileName });
+    if (error) return false;
+    return Array.isArray(data) && data.some((f: any) => f.name === fileName);
+  } catch {
+    return false;
+  }
+}
+
 export async function deleteFile(storagePath: string): Promise<void> {
   const { error } = await supabase().storage
     .from(BUCKET_NAME)
