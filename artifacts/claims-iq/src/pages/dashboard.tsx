@@ -15,6 +15,8 @@ import {
   Page,
   RefreshDouble,
   ArrowRight,
+  Mail,
+  SendDiagonal,
 } from "iconoir-react"
 
 interface DashboardData {
@@ -46,7 +48,7 @@ interface DashboardData {
 type SortKey = "claimNumber" | "insuredName" | "carrier" | "status" | "dateOfLoss" | "createdAt"
 type SortDir = "asc" | "desc"
 
-type IngestStatus = "idle" | "uploading" | "extracting" | "parsing" | "complete" | "error"
+type IngestStatus = "idle" | "uploading" | "extracting" | "parsing" | "auditing" | "emailing" | "complete" | "error"
 
 interface ParsedClaimData {
   claimNumber: string
@@ -93,6 +95,8 @@ export default function DashboardPage() {
   const [ingestError, setIngestError] = useState<string | null>(null)
   const [ingestResult, setIngestResult] = useState<IngestResult | null>(null)
   const [dragOver, setDragOver] = useState(false)
+  const [emailTo, setEmailTo] = useState("")
+  const [pendingFile, setPendingFile] = useState<File | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const fetchDashboard = useCallback(() => {
@@ -105,22 +109,30 @@ export default function DashboardPage() {
 
   useEffect(() => { fetchDashboard() }, [fetchDashboard])
 
-  const handleFile = useCallback(async (file: File) => {
+  const stageFile = useCallback((file: File) => {
     if (!file.name.toLowerCase().endsWith(".pdf") && file.type !== "application/pdf") {
       setIngestError("Please upload a PDF file.")
       setIngestStatus("error")
       return
     }
+    setPendingFile(file)
+    setIngestFileName(file.name)
+    setIngestError(null)
+    setIngestResult(null)
+    setIngestStatus("idle")
+  }, [])
+
+  const handleStartPipeline = useCallback(async () => {
+    if (!pendingFile) return
 
     setIngestStatus("uploading")
     setIngestError(null)
-    setIngestFileName(file.name)
     setIngestResult(null)
 
     try {
       setIngestStatus("extracting")
       const formData = new FormData()
-      formData.append("file", file)
+      formData.append("file", pendingFile)
 
       const ingestRes = await fetch(`${baseUrl}/ingest`, {
         method: "POST",
@@ -135,42 +147,75 @@ export default function DashboardPage() {
       setIngestStatus("parsing")
       const result: IngestResult = await ingestRes.json()
       setIngestResult(result)
+
+      setIngestStatus("auditing")
+      const auditRes = await fetch(`${baseUrl}/claims/${result.claim.id}/audit`, {
+        method: "POST",
+        credentials: "include",
+      })
+
+      if (!auditRes.ok) {
+        const errBody = await auditRes.json().catch(() => ({ error: "Audit failed" }))
+        throw new Error(errBody.error || "Audit failed")
+      }
+
+      const trimmedEmail = emailTo.trim()
+      if (trimmedEmail) {
+        setIngestStatus("emailing")
+        const emailRes = await fetch(`${baseUrl}/claims/${result.claim.id}/email/send`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ to: trimmedEmail }),
+        })
+
+        if (!emailRes.ok) {
+          const errBody = await emailRes.json().catch(() => ({ error: "Email failed" }))
+          throw new Error(errBody.error || "Failed to send email")
+        }
+      }
+
       setIngestStatus("complete")
+      setPendingFile(null)
       fetchDashboard()
     } catch (err: any) {
       setIngestStatus("error")
       setIngestError(err.message || "Failed to process file")
     }
-  }, [baseUrl, fetchDashboard])
+  }, [pendingFile, emailTo, baseUrl, fetchDashboard])
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault()
     setDragOver(false)
     const file = e.dataTransfer.files[0]
-    if (file) handleFile(file)
-  }, [handleFile])
+    if (file) stageFile(file)
+  }, [stageFile])
 
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
-    if (file) handleFile(file)
+    if (file) stageFile(file)
     if (e.target) e.target.value = ""
-  }, [handleFile])
+  }, [stageFile])
 
   const handleResetIngest = useCallback(() => {
     setIngestStatus("idle")
     setIngestFileName("")
     setIngestError(null)
     setIngestResult(null)
+    setPendingFile(null)
+    setEmailTo("")
   }, [])
 
-  const isBusy = ingestStatus === "uploading" || ingestStatus === "extracting" || ingestStatus === "parsing"
+  const isBusy = ingestStatus === "uploading" || ingestStatus === "extracting" || ingestStatus === "parsing" || ingestStatus === "auditing" || ingestStatus === "emailing"
 
   const statusLabels: Record<IngestStatus, string> = {
     idle: "",
     uploading: "Uploading file...",
     extracting: "Extracting text from PDF...",
     parsing: "AI is analyzing the claim...",
-    complete: "Claim processed successfully",
+    auditing: "Running carrier scorecard audit...",
+    emailing: "Sending audit report email...",
+    complete: emailTo.trim() ? "Audit complete — email sent!" : "Audit complete!",
     error: ingestError || "Processing failed",
   }
 
