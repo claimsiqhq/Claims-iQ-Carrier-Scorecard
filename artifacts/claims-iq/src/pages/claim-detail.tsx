@@ -3,7 +3,6 @@ import {
   Shield,
   CheckCircle,
   PageSearch,
-  DollarCircle,
   WarningTriangle,
   NavArrowRight,
   NavArrowDown,
@@ -23,64 +22,38 @@ import { BRAND, FONTS } from "@/lib/brand"
 import { useGetClaimDetail, getListClaimsQueryKey, getGetClaimDetailQueryKey } from "@workspace/api-client-react"
 import { useQueryClient } from "@tanstack/react-query"
 import { useLocation } from "wouter"
+import type { ScorecardCategory, ScorecardQuestion, AuditIssue, ValidationCheck } from "@workspace/api-client-react/src/generated/api.schemas"
 
-const SECTION_LABELS: Record<string, string> = {
-  coverage: "Coverage & Liability",
-  scope: "Scope Completeness",
-  financial: "Financial Accuracy",
-  documentation: "Documentation Quality",
-  presentation: "Presentation & Readiness",
-}
-
-const SECTION_ICONS: Record<string, React.ReactNode> = {
-  coverage: <Shield width={16} height={16} />,
-  scope: <CheckCircle width={16} height={16} />,
-  financial: <DollarCircle width={16} height={16} />,
-  documentation: <Notes width={16} height={16} />,
-  presentation: <Folder width={16} height={16} />,
-}
-
-const QUESTION_LABELS: Record<string, string> = {
-  cause_of_loss: "Is cause of loss clearly stated?",
-  coverage_applied: "Is coverage applied correctly?",
-  exclusions_addressed: "Are exclusions addressed?",
-  policy_provisions: "Are policy provisions addressed?",
-  damage_accounted: "Is all damage accounted for?",
-  deferred_items: "Are deferred items clearly explained?",
-  payment_consistency: "Do payment values match?",
-  deductible_correct: "Is deductible correct?",
-  photo_alignment: "Are photos aligned to estimate?",
-  fa_support: "Does FA support estimate?",
-  file_order: "Is file stack logical?",
-  da_quality: "Is DA report concise?",
-}
-
-const QUESTION_SECTIONS: Record<string, string> = {
-  cause_of_loss: "coverage",
-  coverage_applied: "coverage",
-  exclusions_addressed: "coverage",
-  policy_provisions: "coverage",
-  damage_accounted: "scope",
-  deferred_items: "scope",
-  payment_consistency: "financial",
-  deductible_correct: "financial",
-  photo_alignment: "documentation",
-  fa_support: "documentation",
-  file_order: "presentation",
-  da_quality: "presentation",
-}
-
-function getScoreColor(score: number, max: number): { text: string; bg: string; bar: string } {
-  const pct = max > 0 ? (score / max) * 100 : 0
+function getScoreColor(pct: number): { text: string; bg: string; bar: string } {
   if (pct >= 80) return { text: "#16a34a", bg: "#f0fdf4", bar: "#16a34a" }
   if (pct >= 60) return { text: BRAND.gold, bg: "#fef9ec", bar: BRAND.gold }
   return { text: "#dc2626", bg: "#fef2f2", bar: "#dc2626" }
 }
 
+function readinessColor(r: string): string {
+  if (r === "READY") return "#16a34a"
+  if (r === "REVIEW") return "#ca8a04"
+  return "#dc2626"
+}
+
+function readinessBg(r: string): string {
+  if (r === "READY") return "#f0fdf4"
+  if (r === "REVIEW") return "#fef9ec"
+  return "#fef2f2"
+}
+
+function answerBadge(answer: string) {
+  if (answer === "PASS" || answer === "pass") return { label: "PASS", color: "#16a34a", bg: "#f0fdf4" }
+  if (answer === "PARTIAL" || answer === "partial") return { label: "PARTIAL", color: "#ca8a04", bg: "#fef9ec" }
+  if (answer === "NOT_APPLICABLE" || answer === "na") return { label: "N/A", color: "#6b7280", bg: "#f3f4f6" }
+  return { label: "FAIL", color: "#dc2626", bg: "#fef2f2" }
+}
+
+function humanize(s: string): string {
+  return s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
 export default function ClaimDetailPage({ claimId }: { claimId: string }) {
-  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
-    defects: true,
-  })
   const [, setLocation] = useLocation()
   const [auditing, setAuditing] = useState(false)
   const [auditError, setAuditError] = useState<string | null>(null)
@@ -207,27 +180,30 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
 
   const { claim, documents: docs, audit } = data
   const claimDetails = claim as unknown as Record<string, string | undefined>
+
   const overallPercent = audit?.overallScore ?? 0
-  const technicalScore = audit?.technicalScore ?? 0
-  const technicalMax = audit?.technicalMax ?? 27
-  const presentationScore = audit?.presentationScore ?? 0
-  const presentationMax = audit?.presentationMax ?? 10
-  const sections = audit?.sections ?? []
-  const findings = audit?.findings ?? []
-
-  const sectionScoreMap: Record<string, number> = {}
-  const sectionMaxMap: Record<string, number> = {}
-  for (const s of sections) {
-    sectionScoreMap[s.section] = s.score
-    sectionMaxMap[s.section] = s.max ?? 0
-  }
-
-  const questionResults = findings.filter((f) => f.type === "question_result")
-  const defects = findings.filter((f) => f.type === "defect")
+  const daScore = audit?.daScore ?? 0
+  const faScore = audit?.faScore ?? 0
+  const daAwarded = audit?.daPointsAwarded ?? 0
+  const daPossible = audit?.daPointsPossible ?? 100
+  const faAwarded = audit?.faPointsAwarded ?? 0
+  const faPossible = audit?.faPointsPossible ?? 100
+  const readiness = audit?.readiness ?? audit?.approvalStatus ?? ""
+  const technicalRisk = audit?.technicalRisk ?? audit?.riskLevel ?? ""
+  const failedCount = audit?.failedCount ?? 0
+  const partialCount = audit?.partialCount ?? 0
+  const passedCount = audit?.passedCount ?? 0
+  const actionRequiredCount = audit?.actionRequiredCount ?? 0
+  const daCategories: ScorecardCategory[] = (audit?.daCategories ?? []) as ScorecardCategory[]
+  const faCategories: ScorecardCategory[] = (audit?.faCategories ?? []) as ScorecardCategory[]
+  const auditIssues: AuditIssue[] = (audit?.issues ?? []) as AuditIssue[]
+  const validationChecks: ValidationCheck[] = (audit?.validationChecks ?? []) as ValidationCheck[]
 
   const claimFile = docs.length > 0 ? docs[0] : null
   const claimFileMeta = claimFile?.metadata as Record<string, unknown> | undefined
   const claimFileName = claimFile ? (claimFileMeta?.fileName as string || claimFile.type || "Claim File") : null
+
+  const hasNewFormat = daCategories.length > 0 || faCategories.length > 0
 
   return (
     <main className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
@@ -443,18 +419,6 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
                   <DetailItem label="Insured" value={claim.insuredName} />
                   <DetailItem label="Date of Loss" value={claim.dateOfLoss ?? "N/A"} />
                   <DetailItem label="Carrier" value={claim.carrier ?? "N/A"} />
-                  {claimDetails.policyNumber && <DetailItem label="Policy Number" value={claimDetails.policyNumber} mono />}
-                  {claimDetails.lossType && <DetailItem label="Loss Type" value={claimDetails.lossType} />}
-                  {claimDetails.propertyAddress && <DetailItem label="Property Address" value={claimDetails.propertyAddress} />}
-                  {claimDetails.adjuster && <DetailItem label="Adjuster" value={claimDetails.adjuster} />}
-                  {claimDetails.totalClaimAmount && <DetailItem label="Total Claim Amount" value={claimDetails.totalClaimAmount} mono />}
-                  {claimDetails.deductible && <DetailItem label="Deductible" value={claimDetails.deductible} mono />}
-                  {claimDetails.summary && (
-                    <div className="flex flex-col gap-1">
-                      <span className="text-xs font-medium uppercase tracking-wider" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.body }}>Summary</span>
-                      <span className="text-xs leading-relaxed" style={{ color: BRAND.deepPurple, fontFamily: FONTS.body }}>{claimDetails.summary}</span>
-                    </div>
-                  )}
                   {claimFile && (
                     <>
                       <Separator style={{ backgroundColor: BRAND.greyLavender }} />
@@ -509,9 +473,9 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
                 <Card className="shadow-sm overflow-hidden relative" style={{ borderColor: BRAND.greyLavender, backgroundColor: BRAND.white }}>
                   <div className="absolute top-0 left-0 w-1.5 h-full" style={{ backgroundColor: BRAND.purple }} />
                   <CardContent className="p-6">
-                    <div className="flex flex-col md:flex-row items-center gap-6">
+                    <div className="flex flex-col md:flex-row items-start gap-6">
                       <div className="flex items-center gap-6">
-                        <div className="relative w-24 h-24 flex items-center justify-center rounded-full">
+                        <div className="relative w-24 h-24 flex items-center justify-center rounded-full shrink-0">
                           <svg className="w-full h-full transform -rotate-90 absolute top-0 left-0" viewBox="0 0 36 36">
                             <path strokeWidth="3" stroke={BRAND.lightPurpleGrey} fill="none" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
                             <path strokeWidth="3" strokeDasharray={`${overallPercent}, 100`} strokeLinecap="round" stroke={BRAND.purple} fill="none" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
@@ -522,42 +486,76 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
                           </div>
                         </div>
                         <div>
-                          <h2 className="text-xl font-bold mb-1" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>Carrier Audit Score</h2>
-                          <div className="flex gap-4 mb-2">
+                          <h2 className="text-xl font-bold mb-2" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>Carrier Audit Score</h2>
+                          <div className="grid grid-cols-2 gap-x-6 gap-y-1 mb-3">
                             <div>
-                              <span className="text-lg font-bold" style={{ color: BRAND.purple, fontFamily: FONTS.mono }}>{technicalScore}</span>
-                              <span className="text-xs ml-1" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.mono }}>/ {technicalMax}</span>
-                              <span className="text-xs block" style={{ color: BRAND.purpleSecondary }}>Technical</span>
+                              <span className="text-lg font-bold" style={{ color: getScoreColor(daScore).text, fontFamily: FONTS.mono }}>{daScore}%</span>
+                              <span className="text-xs block" style={{ color: BRAND.purpleSecondary }}>DA Score ({daAwarded}/{daPossible})</span>
                             </div>
                             <div>
-                              <span className="text-lg font-bold" style={{ color: BRAND.purple, fontFamily: FONTS.mono }}>{presentationScore}</span>
-                              <span className="text-xs ml-1" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.mono }}>/ {presentationMax}</span>
-                              <span className="text-xs block" style={{ color: BRAND.purpleSecondary }}>Presentation</span>
+                              <span className="text-lg font-bold" style={{ color: getScoreColor(faScore).text, fontFamily: FONTS.mono }}>{faScore}%</span>
+                              <span className="text-xs block" style={{ color: BRAND.purpleSecondary }}>FA Score ({faAwarded}/{faPossible})</span>
                             </div>
                           </div>
-                          <div className="flex gap-2">
+                          <div className="flex flex-wrap gap-2">
+                            <Badge className="shadow-none border" style={{ backgroundColor: readinessBg(readiness), color: readinessColor(readiness), borderColor: readinessBg(readiness) }}>
+                              {readiness || "N/A"}
+                            </Badge>
                             <Badge className="shadow-none border" style={{ backgroundColor: BRAND.lightPurpleGrey, color: BRAND.purple, borderColor: BRAND.purpleLight }}>
-                              {audit.riskLevel === "LOW" ? "Low Risk" : audit.riskLevel === "MEDIUM" ? "Medium Risk" : "High Risk"}
+                              {technicalRisk ? `${technicalRisk} Risk` : "N/A"}
                             </Badge>
-                            <Badge className="shadow-none border" style={{ backgroundColor: "#fef9ec", color: BRAND.gold, borderColor: BRAND.goldLight }}>
-                              {audit.approvalStatus === "APPROVE" ? "Recommend Approval"
-                                : audit.approvalStatus === "APPROVE WITH MINOR CHANGES" ? "Approve w/ Changes"
-                                : audit.approvalStatus === "REQUIRES REVIEW" ? "Needs Review"
-                                : audit.approvalStatus === "REJECT" ? "Recommend Denial"
-                                : audit.approvalStatus}
-                            </Badge>
+                            {actionRequiredCount > 0 && (
+                              <Badge className="shadow-none border" style={{ backgroundColor: "#fef2f2", color: "#dc2626", borderColor: "#fca5a5" }}>
+                                {actionRequiredCount} Action{actionRequiredCount !== 1 ? "s" : ""} Required
+                              </Badge>
+                            )}
                           </div>
                         </div>
                       </div>
+
+                      {hasNewFormat && (
+                        <div className="flex gap-4 text-xs mt-2 md:mt-0 md:ml-auto" style={{ color: BRAND.purpleSecondary }}>
+                          <div className="text-center">
+                            <span className="text-lg font-bold block" style={{ color: "#dc2626", fontFamily: FONTS.mono }}>{failedCount}</span>
+                            <span>Failed</span>
+                          </div>
+                          <div className="text-center">
+                            <span className="text-lg font-bold block" style={{ color: "#ca8a04", fontFamily: FONTS.mono }}>{partialCount}</span>
+                            <span>Partial</span>
+                          </div>
+                          <div className="text-center">
+                            <span className="text-lg font-bold block" style={{ color: "#16a34a", fontFamily: FONTS.mono }}>{passedCount}</span>
+                            <span>Passed</span>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </CardContent>
                 </Card>
 
-                <QuestionScorecardPanel
-                  sectionScoreMap={sectionScoreMap}
-                  sectionMaxMap={sectionMaxMap}
-                  questionResults={questionResults}
-                />
+                {hasNewFormat && (
+                  <>
+                    <ScorecardPanel
+                      title="Desk Adjuster Scorecard"
+                      icon={<Shield width={18} height={18} />}
+                      scorePct={daScore}
+                      awarded={daAwarded}
+                      possible={daPossible}
+                      categories={daCategories}
+                      accentColor={BRAND.purple}
+                    />
+
+                    <ScorecardPanel
+                      title="Field Adjuster Scorecard"
+                      icon={<PageSearch width={18} height={18} />}
+                      scorePct={faScore}
+                      awarded={faAwarded}
+                      possible={faPossible}
+                      categories={faCategories}
+                      accentColor={BRAND.gold}
+                    />
+                  </>
+                )}
 
                 <Card className="shadow-sm" style={{ borderColor: BRAND.greyLavender, backgroundColor: BRAND.white }}>
                   <CardHeader className="pb-3 pt-5 px-5">
@@ -576,22 +574,12 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
                   </CardContent>
                 </Card>
 
-                {defects.length > 0 && (
-                  <div className="pt-2 pb-10 space-y-3">
-                    <FindingsSection
-                      sectionKey="defects"
-                      title="Critical Failures"
-                      icon={<WarningTriangle width={16} height={16} />}
-                      accentColor="#dc2626"
-                      count={defects.length}
-                      expanded={expandedSections.defects}
-                      onToggle={() => setExpandedSections((s) => ({ ...s, defects: !s.defects }))}
-                    >
-                      {defects.map((f) => (
-                        <DefectCard key={f.id} severity="critical" title={f.title} description={f.description} category="Critical Failure" />
-                      ))}
-                    </FindingsSection>
-                  </div>
+                {auditIssues.length > 0 && (
+                  <IssueDetailsPanel issues={auditIssues} />
+                )}
+
+                {validationChecks.length > 0 && (
+                  <ValidationPanel checks={validationChecks} />
                 )}
               </>
             )}
@@ -755,116 +743,218 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
   )
 }
 
-function answerBadge(answer: string) {
-  if (answer === "PASS" || answer === "pass") return { label: "PASS", color: "#16a34a", bg: "#f0fdf4" }
-  if (answer === "PARTIAL" || answer === "partial") return { label: "PARTIAL", color: "#ca8a04", bg: "#fef9ec" }
-  if (answer === "NOT_APPLICABLE" || answer === "na") return { label: "N/A", color: "#6b7280", bg: "#f3f4f6" }
-  return { label: "FAIL", color: "#dc2626", bg: "#fef2f2" }
-}
-
-interface QuestionFinding {
-  id: string
+function ScorecardPanel({ title, icon, scorePct, awarded, possible, categories, accentColor }: {
   title: string
-  description: string
-  severity: string
-  answer?: string
-  issue?: string
-  impact?: string
-  fix?: string
-  location?: string
-  confidence?: number
-}
-
-function QuestionScorecardPanel({ sectionScoreMap, sectionMaxMap, questionResults }: {
-  sectionScoreMap: Record<string, number>
-  sectionMaxMap: Record<string, number>
-  questionResults: QuestionFinding[]
+  icon: React.ReactNode
+  scorePct: number
+  awarded: number
+  possible: number
+  categories: ScorecardCategory[]
+  accentColor: string
 }) {
-  const sectionKeys = ["coverage", "scope", "financial", "documentation", "presentation"]
+  const [expanded, setExpanded] = useState(true)
+  const colors = getScoreColor(scorePct)
 
   return (
-    <Card className="shadow-sm" style={{ borderColor: BRAND.greyLavender, backgroundColor: BRAND.white }}>
-      <CardHeader className="pb-2 pt-5 px-5">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-sm font-bold uppercase tracking-wider" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
-            Question-Level Audit
-          </CardTitle>
-          <Badge variant="outline" className="text-xs" style={{ color: BRAND.purple, backgroundColor: BRAND.lightPurpleGrey, borderColor: BRAND.purpleLight }}>
-            {questionResults.filter((q) => q.severity === "pass").length}/{questionResults.length} Passed
+    <Card className="shadow-sm overflow-hidden" style={{ borderColor: BRAND.greyLavender, backgroundColor: BRAND.white }}>
+      <button
+        className="w-full flex items-center justify-between p-5 hover:bg-black/[0.02] transition-colors"
+        onClick={() => setExpanded(!expanded)}
+      >
+        <div className="flex items-center gap-3">
+          <div className="p-1.5 rounded" style={{ backgroundColor: `${accentColor}14`, color: accentColor }}>
+            {icon}
+          </div>
+          <span className="text-sm font-bold uppercase tracking-wider" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
+            {title}
+          </span>
+          <Badge className="shadow-none border" style={{ backgroundColor: colors.bg, color: colors.text, borderColor: colors.bg }}>
+            {scorePct}% ({awarded}/{possible})
           </Badge>
         </div>
-      </CardHeader>
-      <CardContent className="px-5 pb-5">
-        <div className="space-y-5">
-          {sectionKeys.map((sKey) => {
-            const score = sectionScoreMap[sKey] ?? 0
-            const max = sectionMaxMap[sKey] ?? 0
-            const colors = getScoreColor(score, max)
-            const sectionQuestions = questionResults.filter((q) => QUESTION_SECTIONS[q.title] === sKey)
+        <NavArrowDown
+          width={16} height={16}
+          className="transition-transform duration-200"
+          style={{ color: BRAND.purpleSecondary, transform: expanded ? "rotate(180deg)" : "rotate(0deg)" }}
+        />
+      </button>
+      {expanded && (
+        <div className="px-5 pb-5 space-y-5" style={{ borderTop: `1px solid ${BRAND.greyLavender}` }}>
+          <div className="pt-3 space-y-5">
+            {categories.map((cat) => {
+              const catPct = cat.points_possible > 0 ? Math.round((cat.points_awarded / cat.points_possible) * 100) : 0
+              const catColors = getScoreColor(catPct)
 
-            return (
-              <div key={sKey}>
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    <div className="p-1 rounded" style={{ backgroundColor: colors.bg, color: colors.text }}>
-                      {SECTION_ICONS[sKey]}
-                    </div>
+              return (
+                <div key={cat.category_key}>
+                  <div className="flex items-center justify-between mb-2">
                     <span className="text-xs font-bold uppercase tracking-wider" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
-                      {SECTION_LABELS[sKey] || sKey}
+                      {cat.category_name}
+                    </span>
+                    <span className="text-sm font-bold" style={{ color: catColors.text, fontFamily: FONTS.mono }}>
+                      {cat.points_awarded}<span className="text-xs font-normal" style={{ color: BRAND.purpleSecondary }}>/{cat.points_possible}</span>
                     </span>
                   </div>
-                  <span className="text-sm font-bold" style={{ color: colors.text, fontFamily: FONTS.mono }}>
-                    {score}<span className="text-xs font-normal" style={{ color: BRAND.purpleSecondary }}>/{max}</span>
-                  </span>
-                </div>
 
-                <div className="w-full h-1.5 rounded-full overflow-hidden mb-2" style={{ backgroundColor: colors.bg }}>
-                  <div className="h-full rounded-full transition-all duration-500" style={{ width: `${max > 0 ? (score / max) * 100 : 0}%`, backgroundColor: colors.bar }} />
-                </div>
+                  <div className="w-full h-1.5 rounded-full overflow-hidden mb-2" style={{ backgroundColor: catColors.bg }}>
+                    <div className="h-full rounded-full transition-all duration-500" style={{ width: `${catPct}%`, backgroundColor: catColors.bar }} />
+                  </div>
 
-                <div className="space-y-2 pl-7">
-                  {sectionQuestions.map((q) => {
-                    const badge = answerBadge(q.answer || q.severity)
-                    const showDetails = q.answer !== "PASS" && q.answer !== "pass" && q.severity !== "pass"
-                    return (
-                      <div key={q.id} className="flex items-start gap-2">
-                        <span className="inline-flex items-center justify-center text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 mt-0.5" style={{ backgroundColor: badge.bg, color: badge.color, minWidth: "40px", textAlign: "center" }}>
-                          {badge.label}
-                        </span>
-                        <div className="flex-1 min-w-0">
-                          <span className="text-xs font-medium" style={{ color: BRAND.deepPurple, fontFamily: FONTS.body }}>
-                            {QUESTION_LABELS[q.title] || q.title}
+                  <div className="space-y-2 pl-4">
+                    {cat.questions.map((q) => {
+                      const badge = answerBadge(q.answer)
+                      const showDetails = q.answer !== "PASS" && q.answer !== "NOT_APPLICABLE"
+                      return (
+                        <div key={q.id} className="flex items-start gap-2">
+                          <span className="inline-flex items-center justify-center text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 mt-0.5" style={{ backgroundColor: badge.bg, color: badge.color, minWidth: "40px", textAlign: "center" }}>
+                            {badge.label}
                           </span>
-                          {showDetails && q.fix && (
-                            <p className="text-[11px] mt-0.5 leading-relaxed" style={{ color: "#16a34a", fontFamily: FONTS.body }}>
-                              <strong>Fix:</strong> {q.fix}
-                            </p>
-                          )}
-                          {showDetails && q.issue && (
-                            <p className="text-[11px] mt-0.5 leading-relaxed italic" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.body }}>
-                              {q.issue}
-                            </p>
-                          )}
-                          {showDetails && q.impact && (
-                            <p className="text-[10px] mt-0.5 leading-relaxed" style={{ color: "#dc2626", fontFamily: FONTS.body }}>
-                              <strong>Impact:</strong> {q.impact}
-                            </p>
-                          )}
-                          {showDetails && q.location && (
-                            <p className="text-[10px] mt-0.5 leading-relaxed pl-2" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.mono, borderLeft: `2px solid ${BRAND.greyLavender}` }}>
-                              {q.location}
-                            </p>
-                          )}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-medium" style={{ color: BRAND.deepPurple, fontFamily: FONTS.body }}>
+                                {humanize(q.id)}
+                              </span>
+                              <span className="text-[10px] font-bold ml-2 shrink-0" style={{ color: badge.color, fontFamily: FONTS.mono }}>
+                                {q.points_awarded}/{q.points_possible}
+                              </span>
+                            </div>
+                            {showDetails && q.fix && (
+                              <p className="text-[11px] mt-0.5 leading-relaxed" style={{ color: "#16a34a", fontFamily: FONTS.body }}>
+                                <strong>Fix:</strong> {q.fix}
+                              </p>
+                            )}
+                            {showDetails && q.issue && (
+                              <p className="text-[11px] mt-0.5 leading-relaxed italic" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.body }}>
+                                {q.issue}
+                              </p>
+                            )}
+                            {showDetails && q.impact && (
+                              <p className="text-[10px] mt-0.5 leading-relaxed" style={{ color: "#dc2626", fontFamily: FONTS.body }}>
+                                <strong>Impact:</strong> {q.impact}
+                              </p>
+                            )}
+                            {showDetails && q.evidence_locations && q.evidence_locations.length > 0 && (
+                              <p className="text-[10px] mt-0.5 leading-relaxed pl-2" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.mono, borderLeft: `2px solid ${BRAND.greyLavender}` }}>
+                                {q.evidence_locations.join(", ")}
+                              </p>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    )
-                  })}
+                      )
+                    })}
+                  </div>
                 </div>
-              </div>
-            )
-          })}
+              )
+            })}
+          </div>
         </div>
-      </CardContent>
+      )}
+    </Card>
+  )
+}
+
+function IssueDetailsPanel({ issues }: { issues: AuditIssue[] }) {
+  const [expanded, setExpanded] = useState(true)
+
+  return (
+    <Card className="shadow-sm overflow-hidden" style={{ borderColor: BRAND.greyLavender, backgroundColor: BRAND.white }}>
+      <button
+        className="w-full flex items-center justify-between p-4 hover:bg-black/[0.02] transition-colors"
+        onClick={() => setExpanded(!expanded)}
+      >
+        <div className="flex items-center gap-3">
+          <div className="p-1.5 rounded" style={{ backgroundColor: "#fef2f2", color: "#dc2626" }}>
+            <WarningTriangle width={16} height={16} />
+          </div>
+          <span className="text-sm font-semibold" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>Issue Details</span>
+          <span className="inline-flex items-center justify-center min-w-[22px] h-[22px] px-1.5 text-xs font-bold rounded-full" style={{ backgroundColor: "#dc2626", color: "#fff" }}>
+            {issues.length}
+          </span>
+        </div>
+        <NavArrowDown
+          width={16} height={16}
+          className="transition-transform duration-200"
+          style={{ color: BRAND.purpleSecondary, transform: expanded ? "rotate(180deg)" : "rotate(0deg)" }}
+        />
+      </button>
+      {expanded && (
+        <div className="px-4 pb-4 space-y-3" style={{ borderTop: `1px solid ${BRAND.greyLavender}` }}>
+          <div className="pt-3 space-y-3">
+            {issues.map((iss, i) => {
+              const isF = iss.severity === "fail"
+              return (
+                <Card key={i} className="shadow-sm" style={{ borderColor: isF ? "#fca5a5" : BRAND.greyLavender, backgroundColor: BRAND.white, borderLeftWidth: 3, borderLeftColor: isF ? "#dc2626" : BRAND.gold }}>
+                  <CardContent className="p-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Badge className="shadow-none text-[10px]" style={{ backgroundColor: iss.source_scorecard === "DA" ? BRAND.lightPurpleGrey : "#fef9ec", color: iss.source_scorecard === "DA" ? BRAND.purple : BRAND.gold, border: `1px solid ${iss.source_scorecard === "DA" ? BRAND.purpleLight : BRAND.goldLight}` }}>
+                        {iss.source_scorecard}
+                      </Badge>
+                      <h4 className="text-sm font-semibold flex-1" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>{humanize(iss.question_key)}</h4>
+                      <Badge className="shadow-none text-xs" style={{ backgroundColor: isF ? "#fef2f2" : "#fef9ec", color: isF ? "#dc2626" : "#ca8a04" }}>
+                        {isF ? "Fail" : "Partial"}
+                      </Badge>
+                    </div>
+                    {iss.issue && <p className="text-sm leading-relaxed mb-1" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.body }}><strong style={{ color: BRAND.deepPurple }}>Issue:</strong> {iss.issue}</p>}
+                    {iss.impact && <p className="text-sm leading-relaxed mb-1" style={{ color: "#dc2626", fontFamily: FONTS.body }}><strong>Impact:</strong> {iss.impact}</p>}
+                    {iss.fix && <p className="text-sm leading-relaxed mb-1" style={{ color: "#16a34a", fontFamily: FONTS.body }}><strong>Fix:</strong> {iss.fix}</p>}
+                    {iss.evidence_locations && iss.evidence_locations.length > 0 && (
+                      <p className="text-xs" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.mono }}>Evidence: {iss.evidence_locations.join(", ")}</p>
+                    )}
+                  </CardContent>
+                </Card>
+              )
+            })}
+          </div>
+        </div>
+      )}
+    </Card>
+  )
+}
+
+function ValidationPanel({ checks }: { checks: ValidationCheck[] }) {
+  const [expanded, setExpanded] = useState(false)
+
+  const severityColor = (s: string) => {
+    if (s === "critical") return "#dc2626"
+    if (s === "warning") return "#ca8a04"
+    return "#6b7280"
+  }
+
+  return (
+    <Card className="shadow-sm overflow-hidden" style={{ borderColor: BRAND.greyLavender, backgroundColor: BRAND.white }}>
+      <button
+        className="w-full flex items-center justify-between p-4 hover:bg-black/[0.02] transition-colors"
+        onClick={() => setExpanded(!expanded)}
+      >
+        <div className="flex items-center gap-3">
+          <div className="p-1.5 rounded" style={{ backgroundColor: "#fef9ec", color: "#ca8a04" }}>
+            <Notes width={16} height={16} />
+          </div>
+          <span className="text-sm font-semibold" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>Validation Checks</span>
+          <span className="inline-flex items-center justify-center min-w-[22px] h-[22px] px-1.5 text-xs font-bold rounded-full" style={{ backgroundColor: "#ca8a04", color: "#fff" }}>
+            {checks.length}
+          </span>
+        </div>
+        <NavArrowDown
+          width={16} height={16}
+          className="transition-transform duration-200"
+          style={{ color: BRAND.purpleSecondary, transform: expanded ? "rotate(180deg)" : "rotate(0deg)" }}
+        />
+      </button>
+      {expanded && (
+        <div className="px-4 pb-4" style={{ borderTop: `1px solid ${BRAND.greyLavender}` }}>
+          <div className="pt-3 space-y-2">
+            {checks.map((c, i) => (
+              <div key={i} className="flex items-start gap-2 p-2 rounded" style={{ backgroundColor: BRAND.offWhite }}>
+                <span className="inline-flex items-center justify-center text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 mt-0.5 uppercase" style={{ backgroundColor: `${severityColor(c.severity)}14`, color: severityColor(c.severity), minWidth: "50px" }}>
+                  {c.severity}
+                </span>
+                <span className="text-xs leading-relaxed" style={{ color: BRAND.deepPurple, fontFamily: FONTS.body }}>{c.message}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </Card>
   )
 }
@@ -875,58 +965,5 @@ function DetailItem({ label, value, mono = false }: { label: string; value: stri
       <span className="text-xs font-medium uppercase tracking-wider" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.body }}>{label}</span>
       <span className="text-sm font-semibold" style={{ color: BRAND.deepPurple, fontFamily: mono ? FONTS.mono : FONTS.body }}>{value}</span>
     </div>
-  )
-}
-
-function FindingsSection({ sectionKey, title, icon, accentColor, count, expanded, onToggle, children }: {
-  sectionKey: string; title: string; icon: React.ReactNode; accentColor: string; count: number; expanded: boolean; onToggle: () => void; children: React.ReactNode
-}) {
-  return (
-    <Card className="shadow-sm overflow-hidden" style={{ borderColor: BRAND.greyLavender, backgroundColor: BRAND.white }}>
-      <button
-        className="w-full flex items-center justify-between p-4 hover:bg-black/[0.02] transition-colors"
-        onClick={onToggle}
-        aria-expanded={expanded}
-        aria-controls={`findings-${sectionKey}`}
-      >
-        <div className="flex items-center gap-3">
-          <div className="p-1.5 rounded" style={{ backgroundColor: `${accentColor}14`, color: accentColor }}>{icon}</div>
-          <span className="text-sm font-semibold" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>{title}</span>
-          <span className="inline-flex items-center justify-center min-w-[22px] h-[22px] px-1.5 text-xs font-bold rounded-full" style={{ backgroundColor: count > 0 ? accentColor : BRAND.greyLavender, color: count > 0 ? "#fff" : BRAND.purpleSecondary }}>
-            {count}
-          </span>
-        </div>
-        <NavArrowDown
-          width={16} height={16}
-          className="transition-transform duration-200"
-          style={{ color: BRAND.purpleSecondary, transform: expanded ? "rotate(180deg)" : "rotate(0deg)" }}
-        />
-      </button>
-      {expanded && (
-        <div id={`findings-${sectionKey}`} className="px-4 pb-4 space-y-3" style={{ borderTop: `1px solid ${BRAND.greyLavender}` }}>
-          <div className="pt-3 space-y-3">
-            {children}
-          </div>
-        </div>
-      )}
-    </Card>
-  )
-}
-
-function DefectCard({ severity, title, description, category }: { severity: "warning" | "critical"; title: string; description: string; category: string }) {
-  const isC = severity === "critical"
-  return (
-    <Card className="shadow-sm" style={{ borderColor: isC ? "#fca5a5" : BRAND.greyLavender, backgroundColor: BRAND.white, borderLeftWidth: 3, borderLeftColor: isC ? "#dc2626" : BRAND.gold }}>
-      <CardContent className="p-4">
-        <div className="flex items-start justify-between mb-2">
-          <h4 className="text-sm font-semibold flex-1" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>{title}</h4>
-          <Badge className="shadow-none text-xs ml-2 shrink-0" style={{ backgroundColor: isC ? "#fef2f2" : "#fef9ec", color: isC ? "#dc2626" : BRAND.gold, border: `1px solid ${isC ? "#fca5a5" : BRAND.goldLight}` }}>
-            {isC ? "Critical" : "Warning"}
-          </Badge>
-        </div>
-        <p className="text-sm leading-relaxed" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.body }}>{description}</p>
-        <p className="text-xs mt-2 font-medium uppercase tracking-wider" style={{ color: BRAND.purpleSecondary }}>{category}</p>
-      </CardContent>
-    </Card>
   )
 }

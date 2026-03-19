@@ -99,33 +99,124 @@ router.get("/claims/:id", requireAuth, async (req, res) => {
       ]);
 
       const raw = audit.rawResponse as Record<string, unknown> | null;
-      const technicalMax = typeof raw?.technical_max === "number" ? raw.technical_max : 27;
-      const presentationMax = typeof raw?.presentation_max === "number" ? raw.presentation_max : 10;
-      const totalMax = typeof raw?.total_max === "number" ? raw.total_max : 37;
+
+      const overallAudit = raw?.overall_audit as Record<string, unknown> | undefined;
+      const daCard = raw?.desk_adjuster_scorecard as Record<string, unknown> | undefined;
+      const faCard = raw?.field_adjuster_scorecard as Record<string, unknown> | undefined;
+      const rawIssues = Array.isArray(raw?.issues) ? raw.issues as any[] : [];
+      const rawValidation = Array.isArray(raw?.validation_checks) ? raw.validation_checks as any[] : [];
+
+      const isNewFormat = !!overallAudit;
+
+      const overallScore = isNewFormat
+        ? Number(overallAudit?.overall_score_percent ?? 0)
+        : (audit.overallScore ? Number(audit.overallScore) : 0);
+      const daPercent = isNewFormat ? Number(daCard?.score_percent ?? 0) : (audit.technicalScore ? Number(audit.technicalScore) : 0);
+      const faPercent = isNewFormat ? Number(faCard?.score_percent ?? 0) : (audit.presentationScore ? Number(audit.presentationScore) : 0);
+      const daAwarded = isNewFormat ? Number(daCard?.points_awarded ?? 0) : daPercent;
+      const daPossible = isNewFormat ? Number(daCard?.points_possible ?? 100) : 100;
+      const faAwarded = isNewFormat ? Number(faCard?.points_awarded ?? 0) : faPercent;
+      const faPossible = isNewFormat ? Number(faCard?.points_possible ?? 100) : 100;
+      const denialApplicable = isNewFormat ? Boolean(daCard?.denial_letter_applicable) : false;
+
+      const readiness = isNewFormat
+        ? String(overallAudit?.readiness ?? audit.approvalStatus ?? "")
+        : (audit.approvalStatus ?? "");
+      const technicalRisk = isNewFormat
+        ? String(overallAudit?.technical_risk ?? audit.riskLevel ?? "")
+        : (audit.riskLevel ?? "");
+      const failedCount = isNewFormat ? Number(overallAudit?.failed_count ?? 0) : 0;
+      const partialCount = isNewFormat ? Number(overallAudit?.partial_count ?? 0) : 0;
+      const passedCount = isNewFormat ? Number(overallAudit?.passed_count ?? 0) : 0;
+      const warningCount = isNewFormat ? Number(overallAudit?.warning_count ?? 0) : 0;
+      const actionRequiredCount = isNewFormat ? Number(overallAudit?.action_required_count ?? 0) : 0;
+
+      const daCats = isNewFormat && Array.isArray(daCard?.categories) ? (daCard.categories as any[]) : [];
+      const faCats = isNewFormat && Array.isArray(faCard?.categories) ? (faCard.categories as any[]) : [];
 
       auditResult = {
         id: audit.id,
         claimId: audit.claimId ?? "",
-        overallScore: audit.overallScore ? Number(audit.overallScore) : 0,
-        technicalScore: audit.technicalScore ? Number(audit.technicalScore) : 0,
-        technicalMax,
-        presentationScore: audit.presentationScore ? Number(audit.presentationScore) : 0,
-        presentationMax,
-        totalMax,
-        riskLevel: audit.riskLevel ?? "",
-        approvalStatus: audit.approvalStatus ?? "",
+        overallScore,
+        daScore: daPercent,
+        daPointsAwarded: daAwarded,
+        daPointsPossible: daPossible,
+        denialLetterApplicable: denialApplicable,
+        faScore: faPercent,
+        faPointsAwarded: faAwarded,
+        faPointsPossible: faPossible,
+        readiness,
+        technicalRisk,
+        failedCount,
+        partialCount,
+        passedCount,
+        warningCount,
+        actionRequiredCount,
         executiveSummary: audit.executiveSummary ?? "",
-        sections: sectionRows.map((s) => {
-          const sectionMax = raw?.section_max as Record<string, number> | undefined;
-          return {
-            id: s.id,
-            auditId: s.auditId ?? "",
-            section: s.section ?? "",
-            score: s.score ? Number(s.score) : 0,
-            max: sectionMax?.[s.section ?? ""] ?? 0,
-            reasoning: s.reasoning ?? "",
-          };
-        }),
+        technicalScore: daPercent,
+        technicalMax: daPossible,
+        presentationScore: faPercent,
+        presentationMax: faPossible,
+        totalMax: daPossible + faPossible,
+        riskLevel: technicalRisk,
+        approvalStatus: readiness,
+        daCategories: daCats.map((c: any) => ({
+          category_key: c.category_key ?? "",
+          category_name: c.category_name ?? "",
+          points_awarded: Number(c.points_awarded ?? 0),
+          points_possible: Number(c.points_possible ?? 0),
+          questions: Array.isArray(c.questions) ? c.questions.map((q: any) => ({
+            id: q.id ?? "",
+            answer: q.answer ?? "FAIL",
+            points_awarded: Number(q.points_awarded ?? 0),
+            points_possible: Number(q.points_possible ?? 0),
+            issue: q.issue ?? "",
+            impact: q.impact ?? "",
+            fix: q.fix ?? "",
+            evidence_locations: Array.isArray(q.evidence_locations) ? q.evidence_locations : [],
+            confidence: Number(q.confidence ?? 0),
+          })) : [],
+        })),
+        faCategories: faCats.map((c: any) => ({
+          category_key: c.category_key ?? "",
+          category_name: c.category_name ?? "",
+          points_awarded: Number(c.points_awarded ?? 0),
+          points_possible: Number(c.points_possible ?? 0),
+          questions: Array.isArray(c.questions) ? c.questions.map((q: any) => ({
+            id: q.id ?? "",
+            answer: q.answer ?? "FAIL",
+            points_awarded: Number(q.points_awarded ?? 0),
+            points_possible: Number(q.points_possible ?? 0),
+            issue: q.issue ?? "",
+            impact: q.impact ?? "",
+            fix: q.fix ?? "",
+            evidence_locations: Array.isArray(q.evidence_locations) ? q.evidence_locations : [],
+            confidence: Number(q.confidence ?? 0),
+          })) : [],
+        })),
+        issues: rawIssues.map((iss: any) => ({
+          source_scorecard: iss.source_scorecard ?? "DA",
+          category_key: iss.category_key ?? "",
+          question_key: iss.question_key ?? "",
+          severity: iss.severity ?? "",
+          issue: iss.issue ?? "",
+          impact: iss.impact ?? "",
+          fix: iss.fix ?? "",
+          evidence_locations: Array.isArray(iss.evidence_locations) ? iss.evidence_locations : [],
+        })),
+        validationChecks: rawValidation.map((v: any) => ({
+          key: v.key ?? "",
+          severity: v.severity ?? "info",
+          message: v.message ?? "",
+        })),
+        sections: sectionRows.map((s) => ({
+          id: s.id,
+          auditId: s.auditId ?? "",
+          section: s.section ?? "",
+          score: s.score ? Number(s.score) : 0,
+          max: 0,
+          reasoning: s.reasoning ?? "",
+        })),
         findings: findingRows.map((f) => {
           const meta = f.metadata as Record<string, unknown> | null;
           return {
@@ -140,8 +231,12 @@ router.get("/claims/:id", requireAuth, async (req, res) => {
             issue: (meta?.issue as string) ?? undefined,
             impact: (meta?.impact as string) ?? undefined,
             fix: (meta?.fix as string) ?? undefined,
-            location: (meta?.location as string) ?? undefined,
+            evidence_locations: Array.isArray(meta?.evidence_locations) ? meta.evidence_locations as string[] : undefined,
             confidence: typeof meta?.confidence === "number" ? meta.confidence : undefined,
+            scorecard: (meta?.scorecard as string) ?? undefined,
+            category_key: (meta?.category_key as string) ?? undefined,
+            points_awarded: typeof meta?.points_awarded === "number" ? meta.points_awarded : undefined,
+            points_possible: typeof meta?.points_possible === "number" ? meta.points_possible : undefined,
           };
         }),
       };

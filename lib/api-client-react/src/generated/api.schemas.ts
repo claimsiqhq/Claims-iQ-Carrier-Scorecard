@@ -70,6 +70,43 @@ export interface Document {
   createdAt?: string;
 }
 
+export interface ScorecardQuestion {
+  id: string;
+  answer: string;
+  points_awarded: number;
+  points_possible: number;
+  issue?: string;
+  impact?: string;
+  fix?: string;
+  evidence_locations?: string[];
+  confidence?: number;
+}
+
+export interface ScorecardCategory {
+  category_key: string;
+  category_name: string;
+  points_awarded: number;
+  points_possible: number;
+  questions: ScorecardQuestion[];
+}
+
+export interface AuditIssue {
+  source_scorecard: string;
+  category_key: string;
+  question_key: string;
+  severity: string;
+  issue: string;
+  impact: string;
+  fix: string;
+  evidence_locations?: string[];
+}
+
+export interface ValidationCheck {
+  key: string;
+  severity: string;
+  message: string;
+}
+
 export interface AuditSection {
   id: string;
   auditId: string;
@@ -91,14 +128,32 @@ export interface AuditFinding {
   issue?: string;
   impact?: string;
   fix?: string;
-  location?: string;
+  evidence_locations?: string[];
   confidence?: number;
+  scorecard?: string;
+  category_key?: string;
+  points_awarded?: number;
+  points_possible?: number;
 }
 
 export interface AuditResult {
   id: string;
   claimId: string;
   overallScore: number;
+  daScore?: number;
+  daPointsAwarded?: number;
+  daPointsPossible?: number;
+  denialLetterApplicable?: boolean;
+  faScore?: number;
+  faPointsAwarded?: number;
+  faPointsPossible?: number;
+  readiness?: string;
+  technicalRisk?: string;
+  failedCount?: number;
+  partialCount?: number;
+  passedCount?: number;
+  warningCount?: number;
+  actionRequiredCount?: number;
   technicalScore: number;
   technicalMax?: number;
   presentationScore: number;
@@ -107,6 +162,10 @@ export interface AuditResult {
   riskLevel: string;
   approvalStatus: string;
   executiveSummary: string;
+  daCategories?: ScorecardCategory[];
+  faCategories?: ScorecardCategory[];
+  issues?: AuditIssue[];
+  validationChecks?: ValidationCheck[];
   sections: AuditSection[];
   findings: AuditFinding[];
 }

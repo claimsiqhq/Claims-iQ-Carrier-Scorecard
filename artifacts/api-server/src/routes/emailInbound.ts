@@ -2,9 +2,17 @@ import { Router, type IRouter, type Request } from "express";
 import multer from "multer";
 import { randomUUID } from "crypto";
 import logger from "../lib/logger";
-import { runCarrierScorecardAudit, type CarrierScorecardAuditResult } from "../services/carrierScorecardAudit";
-import { sendCarrierScorecardEmail } from "../services/email";
+import { sendCarrierScorecardEmail, type CarrierScorecardAuditResult } from "../services/email";
 import { extractAndPersistFinalReport } from "../services/finalReportIngestion";
+
+async function runCarrierScorecardAudit(_input: { reportText: string; requestId: string }): Promise<CarrierScorecardAuditResult> {
+  return {
+    version: "legacy-stub",
+    overall: { total_score: 0, max_score: 100, percent: 0, grade: "F", summary: "Legacy carrier scorecard audit is no longer available. Use the DA/FA audit instead." },
+    categories: [],
+    issues: [{ severity: "info", title: "Deprecated", description: "This audit path has been replaced by the DA/FA scorecard system." }],
+  };
+}
 
 const upload = multer({
   storage: multer.memoryStorage(),

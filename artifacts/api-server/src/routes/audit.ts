@@ -73,12 +73,20 @@ router.post("/claims/:id/audit", requireAuth, auditLimiter, async (req, res) => 
 
     let auditResult: AuditResponse;
     try {
-      auditResult = await runFinalAudit(reportText);
+      auditResult = await runFinalAudit(reportText, {
+        claim_number: claim.claimNumber ?? "",
+        insured_name: claim.insuredName ?? "",
+        carrier_name: claim.carrier ?? "",
+      });
     } catch (err) {
       logger.error({ err }, "OpenAI audit call failed");
       const { getFallbackAudit } = await import("../services/audit");
       auditResult = getFallbackAudit();
     }
+
+    const oa = auditResult.overall_audit;
+    const da = auditResult.desk_adjuster_scorecard;
+    const fa = auditResult.field_adjuster_scorecard;
 
     const client = await pool.connect();
     try {
@@ -103,28 +111,47 @@ router.post("/claims/:id/audit", requireAuth, auditLimiter, async (req, res) => 
         .insert(audits)
         .values({
           claimId: id,
-          overallScore: String(auditResult.percent),
-          technicalScore: String(auditResult.technical_score),
-          presentationScore: String(auditResult.presentation_score),
-          riskLevel: auditResult.risk_level,
-          approvalStatus: auditResult.approval_status,
-          executiveSummary: auditResult.executive_summary,
+          overallScore: String(oa.overall_score_percent),
+          technicalScore: String(da.points_awarded),
+          presentationScore: String(fa.points_awarded),
+          riskLevel: oa.technical_risk,
+          approvalStatus: oa.readiness,
+          executiveSummary: oa.executive_summary,
           rawResponse: auditResult as unknown as Record<string, unknown>,
         })
         .returning();
 
-      const sectionKeys = ["coverage", "scope", "financial", "documentation", "presentation"] as const;
-
-      await txDb.insert(auditSections).values(
-        sectionKeys.map((key) => ({
+      const sectionValues = [
+        ...da.categories.map((c) => ({
           auditId: newAudit.id,
-          section: key,
-          score: String(auditResult.section_scores[key] ?? 0),
-          reasoning: auditResult.section_reasoning[key] || null,
-        }))
-      );
+          section: `da_${c.category_key}`,
+          score: String(c.points_awarded),
+          reasoning: c.questions
+            .filter((q) => q.issue)
+            .map((q) => `${q.answer}: ${q.issue}${q.fix ? ` → ${q.fix}` : ""}`)
+            .join("\n") || null,
+        })),
+        ...fa.categories.map((c) => ({
+          auditId: newAudit.id,
+          section: `fa_${c.category_key}`,
+          score: String(c.points_awarded),
+          reasoning: c.questions
+            .filter((q) => q.issue)
+            .map((q) => `${q.answer}: ${q.issue}${q.fix ? ` → ${q.fix}` : ""}`)
+            .join("\n") || null,
+        })),
+      ];
 
-      const questionFindings = auditResult.questions.map((q) => ({
+      if (sectionValues.length > 0) {
+        await txDb.insert(auditSections).values(sectionValues);
+      }
+
+      const allQuestions = [
+        ...da.categories.flatMap((c) => c.questions.map((q) => ({ ...q, scorecard: "DA" as const, categoryKey: c.category_key }))),
+        ...fa.categories.flatMap((c) => c.questions.map((q) => ({ ...q, scorecard: "FA" as const, categoryKey: c.category_key }))),
+      ];
+
+      const questionFindings = allQuestions.map((q) => ({
         auditId: newAudit.id,
         type: "question_result",
         severity: q.answer === "PASS" ? "pass" : q.answer === "PARTIAL" ? "partial" : q.answer === "NOT_APPLICABLE" ? "na" : "fail",
@@ -132,25 +159,50 @@ router.post("/claims/:id/audit", requireAuth, auditLimiter, async (req, res) => 
         description: q.issue || "",
         metadata: {
           category: "question_result",
+          scorecard: q.scorecard,
+          category_key: q.categoryKey,
           answer: q.answer,
+          points_awarded: q.points_awarded,
+          points_possible: q.points_possible,
           issue: q.issue,
           impact: q.impact,
           fix: q.fix,
-          location: q.location,
+          evidence_locations: q.evidence_locations,
           confidence: q.confidence,
         } as Record<string, unknown>,
       }));
 
-      const criticalFindings = auditResult.critical_failures.map((f) => ({
+      const issueFindings = auditResult.issues.map((iss) => ({
         auditId: newAudit.id,
-        type: "defect",
-        severity: "critical",
-        title: f.substring(0, 200),
-        description: f,
-        metadata: { category: "defect" } as Record<string, unknown>,
+        type: "issue",
+        severity: iss.severity,
+        title: `[${iss.source_scorecard}] ${iss.question_key}`,
+        description: iss.issue,
+        metadata: {
+          category: "issue",
+          source_scorecard: iss.source_scorecard,
+          category_key: iss.category_key,
+          question_key: iss.question_key,
+          impact: iss.impact,
+          fix: iss.fix,
+          evidence_locations: iss.evidence_locations,
+        } as Record<string, unknown>,
       }));
 
-      const allFindings = [...questionFindings, ...criticalFindings];
+      const validationFindings = auditResult.validation_checks.map((v) => ({
+        auditId: newAudit.id,
+        type: "validation",
+        severity: v.severity,
+        title: v.key,
+        description: v.message,
+        metadata: {
+          category: "validation",
+          key: v.key,
+          severity: v.severity,
+        } as Record<string, unknown>,
+      }));
+
+      const allFindings = [...questionFindings, ...issueFindings, ...validationFindings];
 
       if (allFindings.length > 0) {
         await txDb.insert(auditFindings).values(allFindings);
@@ -178,17 +230,16 @@ router.post("/claims/:id/audit", requireAuth, auditLimiter, async (req, res) => 
 
       await client.query("COMMIT");
 
-      logger.info({ claimId: id, auditId: newAudit.id }, "Audit saved");
+      logger.info({ claimId: id, auditId: newAudit.id }, "DA/FA audit saved");
 
       res.json({
         success: true,
         auditId: newAudit.id,
-        overallScore: auditResult.percent,
-        technicalScore: auditResult.technical_score,
-        presentationScore: auditResult.presentation_score,
-        riskLevel: auditResult.risk_level,
-        approvalStatus: auditResult.approval_status,
-        ready: auditResult.ready,
+        overallScore: oa.overall_score_percent,
+        daScore: da.score_percent,
+        faScore: fa.score_percent,
+        readiness: oa.readiness,
+        technicalRisk: oa.technical_risk,
       });
     } catch (txErr) {
       await client.query("ROLLBACK");

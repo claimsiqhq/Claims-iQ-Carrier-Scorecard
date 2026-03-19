@@ -1,0 +1,598 @@
+You are updating the Claims iQ Carrier Audit system so it fully aligns with the carrier-specific DA and FA scorecard standards provided in the reference files and fixes the current implementation gaps.
+
+Your task is to refactor the audit logic, scoring model, JSON schema, UI payload, and email payload so the output matches the intent of the reference materials.
+
+FILES TO ALIGN TO
+1) "Claims iQ Audit — CLM-00060305 — Matthew Yee.pdf"
+2) "Re Andover “Standards”.pdf"
+
+PRIMARY PROBLEM TO FIX
+The current system is too flattened and generic. It currently blends Desk Adjuster (DA) and Field Adjuster (FA) evaluation into one simplified audit and uses overly flat scoring. It must be refactored into a carrier-grade QA model with:
+- separate DA and FA scorecards
+- weighted scoring
+- carrier-specific checks
+- explicit category scores out of 100
+- better issue labeling
+- better explanation of failures, partials, and passes
+- a cleaner summary for UI and email
+
+IMPORTANT
+Do NOT just tweak labels.
+Do NOT preserve the current flattened model.
+Do NOT keep a generic category structure if it conflicts with the carrier scorecard intent.
+Refactor the logic properly.
+
+==================================================
+TARGET AUDIT MODEL
+==================================================
+
+The system must produce TWO distinct scorecards:
+
+1) DESK ADJUSTER SCORECARD (DA)
+2) FIELD ADJUSTER SCORECARD (FA)
+
+Each scorecard must have its own:
+- categories
+- questions
+- weights
+- subtotal
+- percentage
+- failed items
+- partial-credit items
+- passed items
+- action items
+
+The system must also produce:
+- combined overall score
+- overall readiness
+- overall technical risk
+- executive summary
+- validation warnings
+- issue list
+- recommended actions
+
+==================================================
+DESK ADJUSTER SCORECARD REQUIREMENTS
+==================================================
+
+Implement the following DA categories and scoring logic based on the provided standards:
+
+1) File Stack Order
+Weight:
+- 10 points normally
+- 15 points if denial-letter category is not applicable
+
+Definition:
+The stack order should flow as:
+- DA report
+- Statement of Loss (SOL)
+- Payment Letter
+- Other Letters
+- Estimate
+- Photos
+- Sketch
+- Prior Loss Report
+
+Question key:
+- is_file_stack_order_correct
+
+Pass criteria:
+- documents are arranged in a logical and expected order
+- ordering improves desk review flow
+
+Partial criteria:
+- mostly logical but missing one or two expected placements
+
+Fail criteria:
+- materially disorganized or illogical sequence
+
+2) Payment Recommendations Match
+Weight:
+- 20 points normally
+- 25 points if denial-letter category is not applicable
+
+Definition:
+Payment figures on:
+- DA report
+- SOL
+- Payment letter
+must all agree, and deductible must be correctly applied.
+
+Question keys:
+- do_payment_values_match
+- is_deductible_correct
+
+Pass criteria:
+- all key payment values align
+- deductible correctly applied
+- no unexplained discrepancies
+
+Partial criteria:
+- minor discrepancy or unclear explanation, but likely reconcilable
+
+Fail criteria:
+- material mismatch in payment values
+- deductible incorrect
+- unexplained inconsistency
+
+3) DA Report Quality
+Weight:
+- 10 points normally
+- 15 points if denial-letter category is not applicable
+
+Definition:
+The DA report should summarize clearly and should not copy/paste too much from the FA report.
+The FA report tells the detailed story. The DA report should be a concise summary with recommendations.
+
+Question key:
+- is_da_report_concise_and_decisive
+
+Pass criteria:
+- concise
+- recommendation-focused
+- not redundant
+- clear disposition
+
+Partial criteria:
+- understandable but too long, repetitive, or vague
+
+Fail criteria:
+- bloated, copy-paste heavy, unclear recommendation, or missing concise summary
+
+4) Unique Policy Provisions Addressed
+Weight:
+- 25 points normally
+- 30 points if denial-letter category is not applicable
+
+Definition:
+The desk review should address policy-specific provisions where relevant.
+Examples in the standards include:
+- HO6 master policy included
+- landlord living in the home requires municipal lien certificate mention
+- HSB covered items not included in estimate
+- sublimits or endorsements that affect payment
+- commercial or form-specific provisions if applicable
+
+Question key:
+- are_unique_policy_provisions_addressed
+
+Pass criteria:
+- claim-specific policy provisions, endorsements, forms, sublimits, exclusions, and special handling items are actually recognized and discussed where relevant
+
+Partial criteria:
+- policy reviewed generally but important claim-specific provision not fully tied to claim outcome
+
+Fail criteria:
+- relevant special provision exists but is not recognized or addressed
+
+5) Prior Losses Addressed
+Weight:
+- 10 points normally
+- 15 points if denial-letter category is not applicable
+
+Definition:
+The stack should include prior loss / ISO reporting at the end, and priors within the past 5 years should be reviewed and either:
+- noted as not relevant
+or
+- noted as relevant and further requested/investigated
+
+Question key:
+- are_prior_losses_addressed
+
+Pass criteria:
+- prior losses reviewed and disposition stated
+
+Partial criteria:
+- prior loss material present but treatment not fully explained
+
+Fail criteria:
+- prior losses exist or ISO report expected and not addressed
+
+6) Denial Letters Correct
+Weight:
+- 25 points if applicable
+- if no denial applies, redistribute by using the “score if no denials exist” values above
+
+Definition:
+If denial letters are applicable, the denial letter must cite the correct policy language and correct reason.
+Example from the standard:
+- if flood waters entered the building, cite surface water exclusion, not wear and tear
+
+Question key:
+- is_denial_letter_correct
+
+Applicability logic:
+- This question is only applicable if the claim includes a denial or partial denial requiring denial language
+
+Pass criteria:
+- correct denial rationale
+- correct policy language
+- causation and exclusion match facts
+
+Partial criteria:
+- mostly correct but language or rationale needs tightening
+
+Fail criteria:
+- incorrect exclusion cited
+- wrong policy rationale
+- denial logic inconsistent with facts
+
+==================================================
+FIELD ADJUSTER SCORECARD REQUIREMENTS
+==================================================
+
+Implement the following FA categories and scoring logic:
+
+1) Estimate Operational Order
+Weight:
+- 20 points
+
+Definition:
+Estimate should follow a logical operational order, such as:
+- roof/exterior before interior where applicable
+- floors, walls, ceilings, accessories in logical sequence
+- debris removal near the end
+- line items grouped sensibly by area/trade/process
+
+Question key:
+- is_estimate_in_operational_order
+
+Pass criteria:
+- estimate reads in logical repair flow and supports review efficiency
+
+Partial criteria:
+- mostly logical but somewhat scattered
+
+Fail criteria:
+- estimate sequencing materially disorganized
+
+2) Photographs Clear and In Order
+Weight:
+- 20 points
+
+Definition:
+Photo labels, room order, and image sequence should generally follow the estimate flow.
+Photo quality should be clear and usable.
+
+Question key:
+- are_photographs_clear_and_in_order
+
+Pass criteria:
+- clear images
+- usable documentation
+- labeling/ordering generally follows estimate flow
+
+Partial criteria:
+- some photos weak, missing, out of order, or poorly labeled
+
+Fail criteria:
+- poor quality, inadequate support, or major sequencing/labelling problems
+
+3) FA Report Quality
+Weight:
+- 30 points
+
+Definition:
+The FA report should adequately describe what is seen in photos and written into the estimate and should correctly address:
+- observed damage
+- estimate support
+- coverage concerns
+- subrogation concerns where relevant
+- cause and scope consistency
+
+Question key:
+- does_fa_report_support_estimate_and_scope
+
+Pass criteria:
+- FA narrative clearly supports estimate and documentation
+
+Partial criteria:
+- generally supports estimate but has gaps in explanation
+
+Fail criteria:
+- estimate unsupported by FA narrative or material mismatch exists
+
+4) Unique Policy Provisions Addressed
+Weight:
+- 30 points
+
+Definition:
+FA handling should reflect policy provisions and sublimits where relevant.
+Examples in the standards:
+- tree debris limit
+- water backup limit
+- no storm-created opening
+- sublimits
+- endorsements
+- claim-specific special policy triggers
+
+Question key:
+- does_fa_address_unique_policy_provisions
+
+Pass criteria:
+- field report demonstrates awareness of relevant policy-related constraints or triggers
+
+Partial criteria:
+- provision likely relevant but incompletely handled
+
+Fail criteria:
+- relevant provision materially ignored
+
+==================================================
+SCORING RULES
+==================================================
+
+1) Each DA and FA scorecard must total to 100 points.
+2) If DA denial-letter category is not applicable, reweight DA categories exactly as follows:
+- File Stack Order = 15
+- Payment Recommendations Match = 25
+- DA Report Quality = 15
+- Unique Policy Provisions Addressed = 30
+- Prior Losses Addressed = 15
+- Denial Letters Correct = omitted as N/A
+3) Partial credit is allowed.
+4) Each question must return:
+- status: pass | partial | fail | not_applicable
+- points_awarded
+- max_points
+- issue
+- impact
+- fix
+- evidence_locations
+5) Category subtotal must be computed from the questions inside that category.
+6) DA percentage, FA percentage, and combined overall percentage must be returned.
+7) Combined overall score can be a weighted blend of DA and FA. Default to 50/50 unless configuration exists.
+8) Readiness label should be derived from overall score:
+- 90–100 = READY
+- 75–89 = REVIEW
+- below 75 = NOT READY
+9) Technical risk label should be derived from issue severity:
+- LOW
+- MEDIUM
+- HIGH
+10) Summary must explicitly count:
+- failed questions
+- partial-credit questions
+- passed questions
+- warnings
+
+==================================================
+NEW REQUIRED QUESTION INVENTORY
+==================================================
+
+The system must stop using the older simplified question set as the main model and must now support at least these canonical audit keys:
+
+DA:
+- is_file_stack_order_correct
+- do_payment_values_match
+- is_deductible_correct
+- is_da_report_concise_and_decisive
+- are_unique_policy_provisions_addressed
+- are_prior_losses_addressed
+- is_denial_letter_correct
+
+FA:
+- is_estimate_in_operational_order
+- are_photographs_clear_and_in_order
+- does_fa_report_support_estimate_and_scope
+- does_fa_address_unique_policy_provisions
+
+You may preserve older checks internally for validation or mapping, but the surfaced audit must use the above canonical structure.
+
+==================================================
+VALIDATION CHECKS TO ADD OR IMPROVE
+==================================================
+
+Add explicit validation warnings for:
+- multiple payment values detected
+- deductible inconsistency
+- deferred item detected without documented next step
+- prior loss references missing treatment
+- relevant endorsement or sublimit detected but not addressed
+- denial language may be inconsistent with facts
+- estimate order appears illogical
+- photos may not support estimate scope sufficiently
+- mismatch between FA narrative and estimate scope
+
+Validation warnings should not replace scorecard logic. They should supplement it.
+
+==================================================
+UI + EMAIL OUTPUT REQUIREMENTS
+==================================================
+
+The UI and email output must now show:
+
+TOP SUMMARY
+- Claim identifier
+- Insured name
+- Carrier name
+- Overall readiness
+- Overall score percent
+- DA score
+- FA score
+- Technical risk
+- Action Required count
+
+EXECUTIVE SUMMARY
+A concise paragraph stating:
+- overall score
+- whether file is ready
+- how many failed items
+- how many partials
+- highest-risk issues
+- what needs to happen next
+
+SCORECARD SECTIONS
+1) Desk Adjuster Scorecard
+2) Field Adjuster Scorecard
+
+For each section show:
+- category name
+- subtotal / max
+- each question
+- status icon equivalent
+- action/fix text for partial and fail items
+
+ISSUE DETAILS
+For each partial/fail item include:
+- issue
+- impact
+- fix
+- evidence locations
+
+VALIDATION CHECKS
+List warnings clearly.
+
+IMPORTANT UI CHANGE
+The current output is too generic and visually collapses DA and FA into one view.
+Refactor the UI payload so DA and FA are clearly separate blocks.
+
+==================================================
+JSON SCHEMA REQUIREMENTS
+==================================================
+
+Return a new structured JSON schema that supports all of the above.
+
+The top-level output must include at minimum:
+
+{
+  "claim_metadata": {
+    "claim_number": "",
+    "insured_name": "",
+    "carrier_name": ""
+  },
+  "overall_audit": {
+    "overall_score_percent": 0,
+    "overall_points_awarded": 0,
+    "overall_points_possible": 0,
+    "readiness": "READY|REVIEW|NOT READY",
+    "technical_risk": "LOW|MEDIUM|HIGH",
+    "failed_count": 0,
+    "partial_count": 0,
+    "passed_count": 0,
+    "warning_count": 0,
+    "action_required_count": 0,
+    "executive_summary": ""
+  },
+  "desk_adjuster_scorecard": {
+    "score_percent": 0,
+    "points_awarded": 0,
+    "points_possible": 100,
+    "denial_letter_applicable": true,
+    "categories": []
+  },
+  "field_adjuster_scorecard": {
+    "score_percent": 0,
+    "points_awarded": 0,
+    "points_possible": 100,
+    "categories": []
+  },
+  "issues": [],
+  "validation_checks": []
+}
+
+Each category must include:
+- category_key
+- category_name
+- points_awarded
+- points_possible
+- questions[]
+
+Each question must include:
+- question_key
+- question_label
+- status
+- points_awarded
+- points_possible
+- issue
+- impact
+- fix
+- evidence_locations[]
+
+Each issue object must include:
+- source_scorecard: DA | FA
+- category_key
+- question_key
+- severity
+- issue
+- impact
+- fix
+- evidence_locations
+
+Each validation object must include:
+- key
+- severity
+- message
+
+==================================================
+IMPLEMENTATION INSTRUCTIONS
+==================================================
+
+You must update the codebase comprehensively.
+
+Do all of the following:
+1) Find all current audit logic related to carrier audit, QA scorecards, file review, readiness, or email summary.
+2) Refactor scoring logic to support DA and FA scorecards separately.
+3) Add weighted scoring and denial-not-applicable reweighting for DA.
+4) Update type definitions/interfaces/schema validators.
+5) Update any prompt templates or extraction logic used to ask the LLM for audit results.
+6) Update any mapping layer that converts model output to UI/email payload.
+7) Update email template rendering so DA and FA are visually distinct.
+8) Update frontend display components to render:
+   - overall summary
+   - DA section
+   - FA section
+   - issue details
+   - validation warnings
+9) Preserve backward compatibility only if necessary, but prioritize correctness.
+10) Remove or deprecate the older flattened presentation/readiness category model where it conflicts with the new design.
+
+==================================================
+LLM / PROMPTING REQUIREMENTS
+==================================================
+
+If the audit relies on LLM prompts, rewrite the prompt so the model:
+- evaluates DA and FA separately
+- assigns weighted points
+- distinguishes pass vs partial vs fail
+- explicitly marks not_applicable
+- cites evidence locations
+- produces concise issue, impact, and fix text
+- avoids generic summaries
+- addresses carrier-specific policy provisions, prior losses, denial logic, estimate order, and photo order
+
+The prompt must be strict about returning valid JSON only.
+
+==================================================
+TESTING REQUIREMENTS
+==================================================
+
+Add or update tests for:
+1) DA denial letter applicable
+2) DA denial letter not applicable with correct reweighting
+3) prior loss addressed vs not addressed
+4) unique policy provisions addressed vs missed
+5) estimate order pass/partial/fail
+6) photo order and quality pass/partial/fail
+7) FA narrative support pass/partial/fail
+8) payment mismatch detection
+9) deductible mismatch detection
+10) correct rendering of separate DA and FA sections in UI/email payload
+
+Also add a representative fixture using the Matthew Yee / Andover-style audit scenario.
+
+==================================================
+DELIVERABLES REQUIRED
+==================================================
+
+When done, provide:
+1) summary of files changed
+2) explanation of scoring model
+3) final JSON schema
+4) final prompt text if prompt-driven
+5) notes on backward compatibility or migration risks
+
+Do not give high-level advice only.
+Do the actual implementation-oriented refactor.
+Do not simplify.
+Do not omit carrier-specific logic.

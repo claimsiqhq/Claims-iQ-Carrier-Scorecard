@@ -26,32 +26,53 @@ const router: IRouter = Router();
 
 function getAuditHtml(claim: any, audit: any): string {
   const raw = audit.rawResponse as Record<string, unknown>;
-  const sectionScores = (raw.section_scores ?? {}) as AuditResponse["section_scores"];
-  const sectionMax = (raw.section_max ?? {}) as AuditResponse["section_max"];
-  const sectionReasoning = (raw.section_reasoning ?? {}) as AuditResponse["section_reasoning"];
-  const questions = Array.isArray(raw.questions) ? raw.questions as AuditResponse["questions"] : [];
 
-  const validation = (raw.validation ?? { critical: [], warnings: [], info: [], ready: false }) as AuditResponse["validation"];
+  const auditResult = raw as unknown as AuditResponse;
 
-  const auditResult: AuditResponse = {
-    overall_score: Number(raw.overall_score ?? 0),
-    total_max: Number(raw.total_max ?? 37),
-    percent: Number(raw.percent ?? 0),
-    technical_score: Number(raw.technical_score ?? 0),
-    technical_max: Number(raw.technical_max ?? 27),
-    presentation_score: Number(raw.presentation_score ?? 0),
-    presentation_max: Number(raw.presentation_max ?? 10),
-    section_scores: sectionScores,
-    section_max: sectionMax,
-    section_reasoning: sectionReasoning,
-    risk_level: String(raw.risk_level ?? ""),
-    approval_status: String(raw.approval_status ?? ""),
-    critical_failures: Array.isArray(raw.critical_failures) ? raw.critical_failures : [],
-    executive_summary: String(raw.executive_summary ?? ""),
-    questions,
-    ready: Boolean(raw.ready ?? false),
-    validation,
-  };
+  if (!auditResult.overall_audit) {
+    const fallback: AuditResponse = {
+      claim_metadata: {
+        claim_number: claim.claimNumber ?? "",
+        insured_name: claim.insuredName ?? "",
+        carrier_name: claim.carrier ?? "",
+      },
+      overall_audit: {
+        overall_score_percent: Number(audit.overallScore ?? 0),
+        overall_points_awarded: 0,
+        overall_points_possible: 200,
+        readiness: "NOT READY",
+        technical_risk: String(audit.riskLevel ?? "MEDIUM") as any,
+        failed_count: 0,
+        partial_count: 0,
+        passed_count: 0,
+        warning_count: 0,
+        action_required_count: 0,
+        executive_summary: audit.executiveSummary ?? "",
+      },
+      desk_adjuster_scorecard: {
+        score_percent: 0,
+        points_awarded: 0,
+        points_possible: 100,
+        denial_letter_applicable: false,
+        categories: [],
+      },
+      field_adjuster_scorecard: {
+        score_percent: 0,
+        points_awarded: 0,
+        points_possible: 100,
+        categories: [],
+      },
+      issues: [],
+      validation_checks: [],
+    };
+    return renderAuditEmail({
+      claimNumber: claim.claimNumber ?? "",
+      insuredName: claim.insuredName ?? "",
+      carrier: claim.carrier ?? "",
+      auditResult: fallback,
+    });
+  }
+
   return renderAuditEmail({
     claimNumber: claim.claimNumber ?? "",
     insuredName: claim.insuredName ?? "",

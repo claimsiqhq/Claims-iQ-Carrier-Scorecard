@@ -42,6 +42,43 @@ export const GetClaimDetailParams = zod.object({
   id: zod.coerce.string().uuid(),
 });
 
+const ScorecardQuestion = zod.object({
+  id: zod.string(),
+  answer: zod.string(),
+  points_awarded: zod.number(),
+  points_possible: zod.number(),
+  issue: zod.string().optional(),
+  impact: zod.string().optional(),
+  fix: zod.string().optional(),
+  evidence_locations: zod.array(zod.string()).optional(),
+  confidence: zod.number().optional(),
+});
+
+const ScorecardCategory = zod.object({
+  category_key: zod.string(),
+  category_name: zod.string(),
+  points_awarded: zod.number(),
+  points_possible: zod.number(),
+  questions: zod.array(ScorecardQuestion),
+});
+
+const AuditIssue = zod.object({
+  source_scorecard: zod.string(),
+  category_key: zod.string(),
+  question_key: zod.string(),
+  severity: zod.string(),
+  issue: zod.string(),
+  impact: zod.string(),
+  fix: zod.string(),
+  evidence_locations: zod.array(zod.string()).optional(),
+});
+
+const ValidationCheck = zod.object({
+  key: zod.string(),
+  severity: zod.string(),
+  message: zod.string(),
+});
+
 export const GetClaimDetailResponse = zod.object({
   claim: zod.object({
     id: zod.string(),
@@ -75,6 +112,20 @@ export const GetClaimDetailResponse = zod.object({
       id: zod.string(),
       claimId: zod.string(),
       overallScore: zod.number(),
+      daScore: zod.number().optional(),
+      daPointsAwarded: zod.number().optional(),
+      daPointsPossible: zod.number().optional(),
+      denialLetterApplicable: zod.boolean().optional(),
+      faScore: zod.number().optional(),
+      faPointsAwarded: zod.number().optional(),
+      faPointsPossible: zod.number().optional(),
+      readiness: zod.string().optional(),
+      technicalRisk: zod.string().optional(),
+      failedCount: zod.number().optional(),
+      partialCount: zod.number().optional(),
+      passedCount: zod.number().optional(),
+      warningCount: zod.number().optional(),
+      actionRequiredCount: zod.number().optional(),
       technicalScore: zod.number(),
       technicalMax: zod.number().optional(),
       presentationScore: zod.number(),
@@ -83,6 +134,10 @@ export const GetClaimDetailResponse = zod.object({
       riskLevel: zod.string(),
       approvalStatus: zod.string(),
       executiveSummary: zod.string(),
+      daCategories: zod.array(ScorecardCategory).optional(),
+      faCategories: zod.array(ScorecardCategory).optional(),
+      issues: zod.array(AuditIssue).optional(),
+      validationChecks: zod.array(ValidationCheck).optional(),
       sections: zod.array(
         zod.object({
           id: zod.string(),
@@ -103,7 +158,15 @@ export const GetClaimDetailResponse = zod.object({
           description: zod.string(),
           category: zod.string().optional(),
           answer: zod.string().optional(),
-          evidence: zod.array(zod.string()).optional(),
+          issue: zod.string().optional(),
+          impact: zod.string().optional(),
+          fix: zod.string().optional(),
+          evidence_locations: zod.array(zod.string()).optional(),
+          confidence: zod.number().optional(),
+          scorecard: zod.string().optional(),
+          category_key: zod.string().optional(),
+          points_awarded: zod.number().optional(),
+          points_possible: zod.number().optional(),
         }),
       ),
     })
