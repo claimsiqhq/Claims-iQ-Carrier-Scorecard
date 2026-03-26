@@ -260,6 +260,7 @@ export default function DashboardPage() {
     if (processingRef.current) return
     processingRef.current = true
     setProcessing(true)
+    setUploadModalOpen(false)
     carrierOverrideRef.current = { enabled: carrierOverride, carrier: selectedCarrier }
 
     const email = emailTo.trim()
@@ -410,10 +411,7 @@ export default function DashboardPage() {
         onChange={handleInputChange}
       />
 
-      <Dialog open={uploadModalOpen} onOpenChange={(open) => {
-        if (!open && processing) return
-        setUploadModalOpen(open)
-      }}>
+      <Dialog open={uploadModalOpen} onOpenChange={setUploadModalOpen}>
         <DialogContent className="sm:max-w-[560px]" style={{ backgroundColor: BRAND.white, borderColor: BRAND.greyLavender }}>
           <DialogHeader>
             <DialogTitle style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
@@ -454,41 +452,22 @@ export default function DashboardPage() {
             <>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ backgroundColor: allDone ? "#e8f5e9" : `${BRAND.purple}14` }}>
-                    {processing ? (
-                      <div className="w-4 h-4 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: BRAND.purple, borderTopColor: "transparent" }} />
-                    ) : allDone ? (
-                      <CheckCircle width={18} height={18} style={{ color: "#16a34a" }} />
-                    ) : (
-                      <CloudUpload width={18} height={18} style={{ color: BRAND.purple }} />
-                    )}
+                  <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ backgroundColor: `${BRAND.purple}14` }}>
+                    <CloudUpload width={18} height={18} style={{ color: BRAND.purple }} />
                   </div>
-                  <div>
-                    <p className="text-sm font-bold" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
-                      {processing
-                        ? `Processing ${queue.length} file${queue.length > 1 ? "s" : ""}...`
-                        : allDone
-                          ? `${completedCount} of ${queue.length} complete${errorCount > 0 ? ` (${errorCount} failed)` : ""}`
-                          : `${queue.length} file${queue.length > 1 ? "s" : ""} ready`}
-                    </p>
-                    {processing && (
-                      <p className="text-xs" style={{ color: BRAND.purpleSecondary }}>
-                        {completedCount} done, {queue.filter((i) => i.status !== "queued" && i.status !== "complete" && i.status !== "error").length} in progress, {queue.filter((i) => i.status === "queued").length} waiting
-                      </p>
-                    )}
-                  </div>
+                  <p className="text-sm font-bold" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
+                    {queue.length} file{queue.length > 1 ? "s" : ""} ready
+                  </p>
                 </div>
-                {!processing && !allDone && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="shrink-0 text-xs"
-                    style={{ color: BRAND.purpleSecondary }}
-                    onClick={handleClearQueue}
-                  >
-                    Clear
-                  </Button>
-                )}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="shrink-0 text-xs"
+                  style={{ color: BRAND.purpleSecondary }}
+                  onClick={handleClearQueue}
+                >
+                  Clear
+                </Button>
               </div>
 
               <div className="space-y-2 max-h-48 overflow-y-auto">
@@ -498,12 +477,12 @@ export default function DashboardPage() {
                     item={item}
                     onRemove={removeFromQueue}
                     onView={(id) => { setUploadModalOpen(false); setLocation(`/claims/${id}`) }}
-                    canRemove={!processing && item.status === "queued"}
+                    canRemove={item.status === "queued"}
                   />
                 ))}
               </div>
 
-              {hasQueued && !processing && (
+              {hasQueued && (
                 <>
                   <Separator style={{ backgroundColor: BRAND.greyLavender }} />
 
@@ -596,26 +575,6 @@ export default function DashboardPage() {
                 </>
               )}
 
-              {allDone && (
-                <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    className="flex-1 gap-2"
-                    style={{ borderColor: BRAND.greyLavender, color: BRAND.deepPurple, fontFamily: FONTS.heading, fontWeight: 600 }}
-                    onClick={() => { handleClearQueue(); setUploadModalOpen(false) }}
-                  >
-                    Close
-                  </Button>
-                  <Button
-                    className="flex-1 gap-2 text-white"
-                    style={{ backgroundColor: BRAND.purple, fontFamily: FONTS.heading, fontWeight: 600 }}
-                    onClick={() => { handleClearQueue() }}
-                  >
-                    <RefreshDouble width={14} height={14} />
-                    Upload More
-                  </Button>
-                </div>
-              )}
             </>
           )}
         </DialogContent>
@@ -637,12 +596,77 @@ export default function DashboardPage() {
               className="gap-2 text-white shrink-0 px-5 py-2.5 text-sm"
               style={{ backgroundColor: "#16a34a", fontFamily: FONTS.heading, fontWeight: 600, borderRadius: 8 }}
               onClick={openUploadModal}
-              disabled={processing}
             >
               <Plus width={16} height={16} strokeWidth={2.5} />
               Upload Claims
             </Button>
           </div>
+
+          {(processing || allDone) && queue.length > 0 && (
+            <div
+              className="mb-6 rounded-xl border overflow-hidden"
+              style={{ borderColor: allDone ? "#bbf7d0" : BRAND.purpleLight, backgroundColor: allDone ? "#f0fdf4" : BRAND.white }}
+            >
+              <div className="px-4 py-3 flex items-center justify-between">
+                <div className="flex items-center gap-3 min-w-0">
+                  {processing ? (
+                    <div className="w-5 h-5 border-2 border-t-transparent rounded-full animate-spin shrink-0" style={{ borderColor: BRAND.purple, borderTopColor: "transparent" }} />
+                  ) : (
+                    <CheckCircle width={18} height={18} className="shrink-0" style={{ color: "#16a34a" }} />
+                  )}
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold truncate" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
+                      {processing
+                        ? `Processing ${queue.length} claim${queue.length > 1 ? "s" : ""}...`
+                        : `${completedCount} of ${queue.length} complete${errorCount > 0 ? ` (${errorCount} failed)` : ""}`}
+                    </p>
+                    <p className="text-xs truncate" style={{ color: BRAND.purpleSecondary }}>
+                      {processing
+                        ? `${completedCount} done · ${queue.filter((i) => i.status !== "queued" && i.status !== "complete" && i.status !== "error").length} active · ${queue.filter((i) => i.status === "queued").length} waiting`
+                        : errorCount > 0
+                          ? `${completedCount} succeeded, ${errorCount} failed`
+                          : "All claims processed successfully"}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {allDone && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-xs gap-1 h-7"
+                      style={{ color: BRAND.purpleSecondary }}
+                      onClick={handleClearQueue}
+                    >
+                      <Xmark width={14} height={14} />
+                      Dismiss
+                    </Button>
+                  )}
+                </div>
+              </div>
+              {processing && (
+                <div className="h-1.5 w-full" style={{ backgroundColor: BRAND.lightPurpleGrey }}>
+                  <div
+                    className="h-full rounded-r-full transition-all duration-500 ease-out"
+                    style={{
+                      width: `${queue.length > 0 ? Math.max(5, Math.round(((completedCount + errorCount) / queue.length) * 100)) : 0}%`,
+                      backgroundColor: BRAND.purple,
+                    }}
+                  />
+                </div>
+              )}
+              {queue.some((i) => i.status === "error") && (
+                <div className="px-4 py-2 space-y-1" style={{ borderTop: `1px solid ${BRAND.greyLavender}` }}>
+                  {queue.filter((i) => i.status === "error").map((item) => (
+                    <p key={item.id} className="text-xs flex items-center gap-1.5" style={{ color: "#dc2626" }}>
+                      <WarningTriangle width={12} height={12} />
+                      {item.file.name}: {item.error || "Failed"}
+                    </p>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
             <StatusCard
