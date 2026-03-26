@@ -1,0 +1,68 @@
+Are coverages proper?
+Coverage not opened timely
+Coverage exposure missed
+Coverage opened in error
+Coverage not closed timely
+Is coverage determination proper and timely?
+Depreciation proper (RC vs ACV)
+Policy limits applied correctly
+Policy Conditions/Endorsement/Exclusions identified and applied properly
+Correct deductible application based on peril
+Timely coverage investigation
+Were reserves adjusted timely and based on damages?
+Adjustments should be made as new information is received.
+Reserves should be adjusted within the set guidelines (timeliness)
+Reserve practices can be expense and loss reserves
+Are contacts proper?
+Timely initial contact
+If not contact, did we follow the process for contact attempts to reach the insured.
+Meaningful contacts
+Did we have a meaningful contact to help move the claim forward?
+Follow ups timely
+Did we schedule a follow up that the insured agreed to or per the guideline? 
+Is the follow up scheduled too far out based on the claim details?
+Third parties not contacted
+Did we reach out to vendors, contractors, etc.. to obtain what we need to move the claim forward.
+Was mitigation proper (if applicable)?
+We should identify and offer mitigation services
+We should engage in meaningful conversations with the vendors to ensure work performed aligns with the covered damages.
+Invoices submitted should be handled timely
+Mitigation should not have been set up because there is no coverage
+Loss investigation proper and timely?
+Photos/video missing or insufficient
+Cause of loss not determined
+SIU referral not submitted when necessary
+Prior loss review incomplete
+Claim transferred to a new adjuster and evaluation was not timely
+Investigation untimely
+Claim transferred to a new adjuster and evaluation was not timely
+Method of inspection was incorrect or determining proper method of inspection was untimely
+An example of this is if a claim goes to an inside adjuster to handle structure for what is initially thought to be a small loss, but after review it is a large loss that warrants an outside adjuster.  The inside adjuster should transfer the claim to the proper adjuster for handling.
+Another example is an inside adjuster receives a claim they can handle without an inspection, but the guidelines require photos due to the amount of damage.  If we did not request photos, that could be an incorrect method of inspection.
+Damage evaluation timely and accurate?  Did we address all known damages?
+Estimate uploaded to the system (Xact)
+Depreciation shown on the estimate
+Roof process form completed properly
+Did not develop a full scope
+Damage assessment is inaccurate
+Evaluation is not timely
+State requirements not followed
+Did not handle the vendor estimate correctly
+Was ALE handled properly?
+Did we obtain normal expenses
+Was Claim Xperience used
+Did we manage the duration of the ALE and type of accommodation
+Were payments proper and timely?
+Payment matches the estimate
+Payment was issued timely
+Payment was coded per guidelines 
+Payees are correct
+Were required letters sent?
+Denial
+CWP
+Under deductible
+Replacement Cost/ACV 
+Mold 
+Subro and salvage
+Was subro and salvage identified and referred per the process
+If not subro or salvage is the file documented properly
