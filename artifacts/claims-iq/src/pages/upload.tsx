@@ -1,8 +1,15 @@
-import React, { useState, useCallback, useRef } from "react"
+import React, { useState, useCallback, useRef, useEffect } from "react"
 import { useLocation } from "wouter"
 import { BRAND, FONTS } from "@/lib/brand"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import {
   CloudUpload,
   CheckCircle,
@@ -34,6 +41,11 @@ interface IngestResult {
   parsedData: ParsedClaimData
 }
 
+interface CarrierOption {
+  key: string
+  displayName: string
+}
+
 export default function UploadPage() {
   const [, setLocation] = useLocation()
   const [status, setStatus] = useState<IngestStatus>("idle")
@@ -41,8 +53,17 @@ export default function UploadPage() {
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<IngestResult | null>(null)
   const [dragOver, setDragOver] = useState(false)
+  const [carriers, setCarriers] = useState<CarrierOption[]>([])
+  const [selectedCarrier, setSelectedCarrier] = useState<string>("")
   const fileInputRef = useRef<HTMLInputElement>(null)
   const baseUrl = import.meta.env.VITE_API_URL || "/api"
+
+  useEffect(() => {
+    fetch(`${baseUrl}/carriers`)
+      .then((r) => r.ok ? r.json() : [])
+      .then((data: CarrierOption[]) => setCarriers(data))
+      .catch(() => setCarriers([]))
+  }, [baseUrl])
 
   const handleFile = useCallback(async (file: File) => {
     if (!file.name.toLowerCase().endsWith(".pdf") && file.type !== "application/pdf") {
@@ -61,6 +82,9 @@ export default function UploadPage() {
 
       const formData = new FormData()
       formData.append("file", file)
+      if (selectedCarrier) {
+        formData.append("carrier", selectedCarrier)
+      }
 
       const ingestRes = await fetch(`${baseUrl}/ingest`, {
         method: "POST",
@@ -80,7 +104,7 @@ export default function UploadPage() {
       setStatus("error")
       setError(err.message || "Failed to process file")
     }
-  }, [baseUrl])
+  }, [baseUrl, selectedCarrier])
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -151,6 +175,21 @@ export default function UploadPage() {
               <p className="text-sm mb-4 md:mb-6" style={{ color: BRAND.purpleSecondary }}>
                 Upload the complete claim PDF package and we'll extract everything automatically.
               </p>
+              {carriers.length > 0 && (
+                <div className="w-full max-w-xs mb-4" onClick={(e) => e.stopPropagation()}>
+                  <label className="text-xs font-bold uppercase tracking-wider mb-1 block" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>Carrier</label>
+                  <Select value={selectedCarrier} onValueChange={setSelectedCarrier}>
+                    <SelectTrigger className="w-full" style={{ borderColor: BRAND.greyLavender }}>
+                      <SelectValue placeholder="Select carrier..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {carriers.map((c) => (
+                        <SelectItem key={c.key} value={c.key}>{c.displayName}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
               <Button
                 className="gap-2 text-white px-6"
                 style={{ backgroundColor: BRAND.purple, fontFamily: FONTS.heading, fontWeight: 600 }}

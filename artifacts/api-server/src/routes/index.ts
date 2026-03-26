@@ -9,6 +9,7 @@ import storageRouter from "./storage";
 import documentsRouter from "./documents";
 import ingestRouter from "./ingest";
 import dashboardRouter from "./dashboard";
+import carriersRouter from "./carriers";
 
 const router: IRouter = Router();
 
@@ -22,5 +23,6 @@ router.use(emailRouter);
 router.use(storageRouter);
 router.use(documentsRouter);
 router.use(ingestRouter);
+router.use(carriersRouter);
 
 export default router;

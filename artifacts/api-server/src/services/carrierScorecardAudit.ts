@@ -124,7 +124,7 @@ export function buildCarrierScorecardFallback(params: {
   const categories = cats.map((c) => ({
     ...missingCategory(c.id as CarrierCategoryId),
     label: c.label,
-    max_score: c.max_score,
+    max_score: c.max_score as 5,
   }));
 
   return {

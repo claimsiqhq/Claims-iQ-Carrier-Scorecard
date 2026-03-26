@@ -34,10 +34,13 @@ router.post("/ingest", requireAuth, upload.single("file"), async (req, res) => {
 
     const storagePath = await uploadFile(fileBuffer, fileName, contentType);
 
+    const carrierFromForm = typeof req.body?.carrier === "string" ? req.body.carrier.trim() : null;
+
     const [newClaim] = await db.insert(claims).values({
       claimNumber: `CLM-${Date.now()}`,
       insuredName: "Processing…",
       status: "processing",
+      carrier: carrierFromForm || null,
     }).returning();
 
     const [doc] = await db.insert(documents).values({
@@ -61,7 +64,7 @@ router.post("/ingest", requireAuth, upload.single("file"), async (req, res) => {
       document: { id: doc.id, fileName, storagePath },
     });
 
-    processInBackground(newClaim.id, doc.id, fileBuffer, fileName, contentType, storagePath).catch((err) => {
+    processInBackground(newClaim.id, doc.id, fileBuffer, fileName, contentType, storagePath, carrierFromForm).catch((err) => {
       logger.error({ err, claimId: newClaim.id }, "Background processing crashed unexpectedly");
     });
   } catch (err) {
@@ -77,6 +80,7 @@ async function processInBackground(
   fileName: string,
   contentType: string,
   storagePath: string,
+  userSelectedCarrier?: string | null,
 ) {
   try {
     let extractedText = "";
@@ -111,7 +115,7 @@ async function processInBackground(
     await db.update(claims).set({
       claimNumber,
       insuredName,
-      carrier: parsedData.carrier || null,
+      carrier: userSelectedCarrier || parsedData.carrier || null,
       dateOfLoss: parsedData.dateOfLoss || null,
       status: "pending",
       policyNumber: parsedData.policyNumber || null,
