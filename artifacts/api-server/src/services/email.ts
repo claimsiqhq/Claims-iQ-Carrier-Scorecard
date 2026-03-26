@@ -40,9 +40,19 @@ function escapeHtml(text: string): string {
 }
 
 function scoreColor(pct: number): string {
-  if (pct >= 80) return "#16a34a";
+  if (pct >= 90) return "#16a34a";
+  if (pct >= 75) return "#84cc16";
   if (pct >= 60) return "#ca8a04";
+  if (pct >= 40) return "#ea580c";
   return "#dc2626";
+}
+
+function scoreLabel(pct: number): string {
+  if (pct >= 90) return "Excellent";
+  if (pct >= 75) return "Good";
+  if (pct >= 60) return "Fair";
+  if (pct >= 40) return "Poor";
+  return "Critical";
 }
 
 function answerIcon(answer: string): string {
@@ -115,16 +125,17 @@ function buildActionTable(r: AuditResponse): string {
   </div>`;
 }
 
-function buildScorecardTable(title: string, categories: CategoryScore[], scorePct: number, awarded: number, possible: number): string {
+function buildScorecardTable(title: string, categories: CategoryScore[], scorePct: number): string {
   let rows = "";
   for (const cat of categories) {
     const catPct = cat.points_possible > 0 ? Math.round((cat.points_awarded / cat.points_possible) * 100) : 0;
     const color = scoreColor(catPct);
+    const label = scoreLabel(catPct);
 
     rows += `<tr style="background-color:#f3f0f7;">
       <td colspan="3" style="padding:10px 12px;font-size:13px;font-weight:700;color:#342A4F;border-bottom:1px solid #e5e7eb;">
         ${escapeHtml(cat.category_name)}
-        <span style="float:right;color:${color};font-weight:700;">${cat.points_awarded}/${cat.points_possible}</span>
+        <span style="float:right;color:${color};font-weight:700;">${label}</span>
       </td>
     </tr>`;
 
@@ -142,11 +153,12 @@ function buildScorecardTable(title: string, categories: CategoryScore[], scorePc
   }
 
   const headColor = scoreColor(scorePct);
+  const headLabel = scoreLabel(scorePct);
 
   return `<div style="margin-bottom:24px;">
     <h3 style="font-size:15px;font-weight:700;color:#342A4F;margin:0 0 8px 0;">
       ${escapeHtml(title)}
-      <span style="float:right;font-size:14px;color:${headColor};">${scorePct}% (${awarded}/${possible})</span>
+      <span style="float:right;font-size:14px;color:${headColor};">${headLabel}</span>
     </h3>
     <table style="width:100%;border-collapse:collapse;">
       <thead><tr style="background-color:#fafafa;">
@@ -206,6 +218,76 @@ export function renderAuditEmail(data: EmailData): string {
   const riskColor = riskColors[oa.technical_risk] ?? "#6b7280";
   const daColor = scoreColor(da.score_percent);
   const faColor = scoreColor(fa.score_percent);
+  const isAllstate = carrier.toLowerCase().includes("allstate");
+
+  const headerTitle = isAllstate
+    ? "Allstate Carrier Quality Review"
+    : "Claims iQ Carrier Audit Result";
+
+  const overallLabel = scoreLabel(oa.overall_score_percent);
+  const overallColor = scoreColor(oa.overall_score_percent);
+
+  const failedCount = oa.failed_count ?? 0;
+  const partialCount = oa.partial_count ?? 0;
+  const passedCount = oa.passed_count ?? 0;
+
+  const summaryStats = isAllstate
+    ? `<table style="width:100%;border-collapse:collapse;margin-bottom:16px;">
+        <tr>
+          <td style="text-align:center;padding:10px 8px;width:25%;">
+            <div style="font-size:14px;font-weight:700;color:${rColor};padding:6px 12px;border-radius:6px;background-color:${rBg};display:inline-block;">${escapeHtml(oa.readiness)}</div>
+            <div style="font-size:10px;color:#9D8BBF;text-transform:uppercase;letter-spacing:0.05em;margin-top:4px;">Readiness</div>
+          </td>
+          <td style="text-align:center;padding:10px 8px;width:25%;">
+            <div style="font-size:22px;font-weight:700;color:${overallColor};">${overallLabel}</div>
+            <div style="font-size:10px;color:#9D8BBF;text-transform:uppercase;letter-spacing:0.05em;">Overall Rating</div>
+          </td>
+          <td style="text-align:center;padding:10px 8px;width:25%;">
+            <div style="font-size:16px;font-weight:700;color:${riskColor};">${escapeHtml(oa.technical_risk)} Risk</div>
+            <div style="font-size:10px;color:#9D8BBF;text-transform:uppercase;letter-spacing:0.05em;">Technical Risk</div>
+          </td>
+          <td style="text-align:center;padding:10px 8px;width:25%;">
+            <div style="font-size:13px;font-weight:600;color:#342A4F;">${passedCount} Pass &middot; ${partialCount} Partial &middot; ${failedCount} Fail</div>
+            <div style="font-size:10px;color:#9D8BBF;text-transform:uppercase;letter-spacing:0.05em;">Question Results</div>
+          </td>
+        </tr>
+      </table>
+      <table style="width:100%;border-collapse:collapse;">
+        <tr>
+          <td style="text-align:center;padding:8px 8px;width:50%;">
+            <div style="font-size:18px;font-weight:700;color:${daColor};">${scoreLabel(da.score_percent)}</div>
+            <div style="font-size:10px;color:#9D8BBF;text-transform:uppercase;letter-spacing:0.05em;">Desk Adjuster</div>
+          </td>
+          <td style="text-align:center;padding:8px 8px;width:50%;">
+            <div style="font-size:18px;font-weight:700;color:${faColor};">${scoreLabel(fa.score_percent)}</div>
+            <div style="font-size:10px;color:#9D8BBF;text-transform:uppercase;letter-spacing:0.05em;">Field Adjuster</div>
+          </td>
+        </tr>
+      </table>`
+    : `<table style="width:100%;border-collapse:collapse;">
+        <tr>
+          <td style="text-align:center;padding:8px 12px;border-right:1px solid #e3dfe8;">
+            <div style="font-size:14px;font-weight:700;color:${rColor};padding:6px 12px;border-radius:6px;background-color:${rBg};display:inline-block;">${escapeHtml(oa.readiness)}</div>
+            <div style="font-size:11px;color:#9D8BBF;text-transform:uppercase;letter-spacing:0.05em;margin-top:4px;">Readiness</div>
+          </td>
+          <td style="text-align:center;padding:8px 12px;border-right:1px solid #e3dfe8;">
+            <div style="font-size:24px;font-weight:700;color:${overallColor};">${overallLabel}</div>
+            <div style="font-size:11px;color:#9D8BBF;text-transform:uppercase;letter-spacing:0.05em;">Overall</div>
+          </td>
+          <td style="text-align:center;padding:8px 12px;border-right:1px solid #e3dfe8;">
+            <div style="font-size:20px;font-weight:700;color:${daColor};">${scoreLabel(da.score_percent)}</div>
+            <div style="font-size:11px;color:#9D8BBF;text-transform:uppercase;letter-spacing:0.05em;">DA Score</div>
+          </td>
+          <td style="text-align:center;padding:8px 12px;border-right:1px solid #e3dfe8;">
+            <div style="font-size:20px;font-weight:700;color:${faColor};">${scoreLabel(fa.score_percent)}</div>
+            <div style="font-size:11px;color:#9D8BBF;text-transform:uppercase;letter-spacing:0.05em;">FA Score</div>
+          </td>
+          <td style="text-align:center;padding:8px 12px;">
+            <div style="font-size:16px;font-weight:700;color:${riskColor};">${escapeHtml(oa.technical_risk)}</div>
+            <div style="font-size:11px;color:#9D8BBF;text-transform:uppercase;letter-spacing:0.05em;">Risk</div>
+          </td>
+        </tr>
+      </table>`;
 
   return `<!DOCTYPE html>
 <html>
@@ -213,50 +295,27 @@ export function renderAuditEmail(data: EmailData): string {
 <body style="margin:0;padding:0;background-color:#f0edf4;font-family:Arial,Helvetica,sans-serif;">
   <div style="max-width:640px;margin:0 auto;background-color:#ffffff;">
     <div style="background-color:#342A4F;padding:24px 32px;">
-      <h1 style="margin:0;font-size:22px;color:#ffffff;font-weight:700;">Claims iQ Carrier Audit Result</h1>
+      <h1 style="margin:0;font-size:22px;color:#ffffff;font-weight:700;">${escapeHtml(headerTitle)}</h1>
       <p style="margin:6px 0 0 0;font-size:13px;color:#CDBFF7;">Claim ${escapeHtml(claimNumber)} &mdash; ${escapeHtml(insuredName)} &mdash; ${escapeHtml(carrier)}</p>
     </div>
 
     <div style="padding:24px 32px;">
       <div style="background-color:#f3f0f7;border-radius:8px;padding:20px;margin-bottom:24px;">
-        <table style="width:100%;border-collapse:collapse;">
-          <tr>
-            <td style="text-align:center;padding:8px 12px;border-right:1px solid #e3dfe8;">
-              <div style="font-size:14px;font-weight:700;color:${rColor};padding:6px 12px;border-radius:6px;background-color:${rBg};display:inline-block;">${escapeHtml(oa.readiness)}</div>
-              <div style="font-size:11px;color:#9D8BBF;text-transform:uppercase;letter-spacing:0.05em;margin-top:4px;">Readiness</div>
-            </td>
-            <td style="text-align:center;padding:8px 12px;border-right:1px solid #e3dfe8;">
-              <div style="font-size:32px;font-weight:700;color:#342A4F;">${oa.overall_score_percent}%</div>
-              <div style="font-size:11px;color:#9D8BBF;text-transform:uppercase;letter-spacing:0.05em;">Overall</div>
-            </td>
-            <td style="text-align:center;padding:8px 12px;border-right:1px solid #e3dfe8;">
-              <div style="font-size:24px;font-weight:700;color:${daColor};">${da.score_percent}%</div>
-              <div style="font-size:11px;color:#9D8BBF;text-transform:uppercase;letter-spacing:0.05em;">DA Score</div>
-            </td>
-            <td style="text-align:center;padding:8px 12px;border-right:1px solid #e3dfe8;">
-              <div style="font-size:24px;font-weight:700;color:${faColor};">${fa.score_percent}%</div>
-              <div style="font-size:11px;color:#9D8BBF;text-transform:uppercase;letter-spacing:0.05em;">FA Score</div>
-            </td>
-            <td style="text-align:center;padding:8px 12px;">
-              <div style="font-size:16px;font-weight:700;color:${riskColor};">${escapeHtml(oa.technical_risk)}</div>
-              <div style="font-size:11px;color:#9D8BBF;text-transform:uppercase;letter-spacing:0.05em;">Risk</div>
-            </td>
-          </tr>
-        </table>
+        ${summaryStats}
       </div>
-
-      ${buildRootIssueSection(r)}
-
-      ${buildActionTable(r)}
 
       <div style="margin-bottom:24px;">
         <h3 style="font-size:15px;font-weight:700;color:#342A4F;margin:0 0 8px 0;">Executive Summary</h3>
         <p style="font-size:14px;line-height:1.6;color:#374151;margin:0;">${escapeHtml(oa.executive_summary)}</p>
       </div>
 
-      ${buildScorecardTable("Desk Adjuster Scorecard", da.categories, da.score_percent, da.points_awarded, da.points_possible)}
+      ${buildRootIssueSection(r)}
 
-      ${buildScorecardTable("Field Adjuster Scorecard", fa.categories, fa.score_percent, fa.points_awarded, fa.points_possible)}
+      ${buildActionTable(r)}
+
+      ${buildScorecardTable("Desk Adjuster Scorecard", da.categories, da.score_percent)}
+
+      ${buildScorecardTable("Field Adjuster Scorecard", fa.categories, fa.score_percent)}
 
       ${buildIssueDetails(r)}
 
