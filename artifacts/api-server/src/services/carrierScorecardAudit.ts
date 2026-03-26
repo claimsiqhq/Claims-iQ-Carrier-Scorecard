@@ -2,6 +2,8 @@ import { z } from "zod";
 import logger from "../lib/logger";
 import { env } from "../env";
 import { getPrompt } from "./promptLoader";
+import { getCarrierRuleset } from "./carrierRulesetService";
+import type { CarrierScorecardCategory } from "./carrierRulesetTypes";
 
 export const CARRIER_SCORECARD_VERSION = "carrier_scorecard_v1" as const;
 
@@ -116,9 +118,11 @@ export function buildCarrierScorecardFallback(params: {
   requestId: string;
   model: string;
   reason: string;
+  categories?: CarrierScorecardCategory[];
 }): CarrierScorecardAuditResult {
-  const categories = CARRIER_SCORECARD_CATEGORIES.map((c) => ({
-    ...missingCategory(c.id),
+  const cats = params.categories ?? CARRIER_SCORECARD_CATEGORIES;
+  const categories = cats.map((c) => ({
+    ...missingCategory(c.id as CarrierCategoryId),
     label: c.label,
     max_score: c.max_score,
   }));
@@ -127,7 +131,7 @@ export function buildCarrierScorecardFallback(params: {
     version: CARRIER_SCORECARD_VERSION,
     overall: {
       total_score: 0,
-      max_score: CARRIER_SCORECARD_CATEGORIES.length * 5,
+      max_score: cats.length * 5,
       percent: 0,
       grade: "F",
       summary: "Audit could not be completed; fallback result returned.",
@@ -152,16 +156,17 @@ export function buildCarrierScorecardFallback(params: {
 
 export function normalizeCarrierScorecard(
   parsed: CarrierScorecardRaw,
-  context: { requestId: string; model: string; validationOk: boolean },
+  context: { requestId: string; model: string; validationOk: boolean; categories?: CarrierScorecardCategory[] },
 ): CarrierScorecardAuditResult {
+  const cats = context.categories ?? CARRIER_SCORECARD_CATEGORIES;
   const categoryMap = new Map(parsed.categories.map((c) => [c.id, c]));
 
-  const categories = CARRIER_SCORECARD_CATEGORIES.map((base) => {
-    const value = categoryMap.get(base.id) ?? missingCategory(base.id);
+  const categories = cats.map((base) => {
+    const value = categoryMap.get(base.id as CarrierCategoryId) ?? missingCategory(base.id as CarrierCategoryId);
     return {
-      id: base.id,
+      id: base.id as CarrierCategoryId,
       label: base.label,
-      max_score: base.max_score,
+      max_score: base.max_score as 5,
       status: value.status,
       score: value.score,
       finding: value.finding,
@@ -214,7 +219,7 @@ export function normalizeCarrierScorecard(
 
 export function parseCarrierScorecardJson(
   content: string,
-  context: { requestId: string; model: string },
+  context: { requestId: string; model: string; categories?: CarrierScorecardCategory[] },
 ): CarrierScorecardAuditResult {
   let parsed: unknown;
 
@@ -225,6 +230,7 @@ export function parseCarrierScorecardJson(
       requestId: context.requestId,
       model: context.model,
       reason: "OpenAI response JSON parsing failed.",
+      categories: context.categories,
     });
   }
 
@@ -235,6 +241,7 @@ export function parseCarrierScorecardJson(
       requestId: context.requestId,
       model: context.model,
       reason: "OpenAI response failed schema validation.",
+      categories: context.categories,
     });
   }
 
@@ -242,19 +249,25 @@ export function parseCarrierScorecardJson(
     requestId: context.requestId,
     model: context.model,
     validationOk: true,
+    categories: context.categories,
   });
 }
 
 export async function runCarrierScorecardAudit(input: {
   reportText: string;
   requestId: string;
+  carrier?: string;
 }): Promise<CarrierScorecardAuditResult> {
   const startedAt = Date.now();
   const model = env.OPENAI_CARRIER_AUDIT_MODEL;
 
+  const ruleset = await getCarrierRuleset(input.carrier ?? "");
+  const categories = ruleset.scorecard_categories;
+  const promptOverride = ruleset.carrier_scorecard_prompt_override;
+
   try {
     const { openai } = await import("@workspace/integrations-openai-ai-server");
-    const systemPrompt = await getPrompt("carrier_scorecard_v1");
+    const systemPrompt = promptOverride ?? await getPrompt("carrier_scorecard_v1");
     const response = await openai.chat.completions.create({
       model,
       temperature: 0,
@@ -274,9 +287,11 @@ export async function runCarrierScorecardAudit(input: {
         requestId: input.requestId,
         model,
         reason: "OpenAI response was empty.",
+        categories,
       });
       logger.warn({
         requestId: input.requestId,
+        carrier: input.carrier ?? "default",
         model,
         durationMs: Date.now() - startedAt,
         validation_ok: false,
@@ -291,10 +306,12 @@ export async function runCarrierScorecardAudit(input: {
     const result = parseCarrierScorecardJson(content, {
       requestId: input.requestId,
       model,
+      categories,
     });
 
     logger.info({
       requestId: input.requestId,
+      carrier: input.carrier ?? "default",
       model,
       durationMs: Date.now() - startedAt,
       validation_ok: result.meta.validation_ok,
@@ -310,11 +327,13 @@ export async function runCarrierScorecardAudit(input: {
       requestId: input.requestId,
       model,
       reason: "OpenAI request failed during carrier scorecard audit.",
+      categories,
     });
 
     logger.error({
       err,
       requestId: input.requestId,
+      carrier: input.carrier ?? "default",
       model,
       durationMs: Date.now() - startedAt,
       validation_ok: false,

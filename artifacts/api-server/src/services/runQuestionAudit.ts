@@ -1,6 +1,7 @@
 import { openai } from "@workspace/integrations-openai-ai-server";
-import { DA_QUESTIONS, FA_QUESTIONS, type QuestionResult, type Answer } from "./questionBank";
+import { DA_QUESTIONS, FA_QUESTIONS, type Question, type QuestionResult, type Answer } from "./questionBank";
 import { SYSTEM_PROMPT, USER_PROMPT_TEMPLATE } from "./prompts";
+import { getCarrierRuleset } from "./carrierRulesetService";
 import logger from "../lib/logger";
 
 const VALID_ANSWERS: Answer[] = ["PASS", "PARTIAL", "FAIL", "NOT_APPLICABLE"];
@@ -12,7 +13,7 @@ export interface QuestionAuditOutput {
   executive_summary: string;
 }
 
-function normalizeResult(questions: typeof DA_QUESTIONS, rawResults: any[]): QuestionResult[] {
+function normalizeResult(questions: Question[], rawResults: any[]): QuestionResult[] {
   return questions.map((q) => {
     const match = rawResults.find((r: any) => r?.id === q.id);
     if (!match) {
@@ -55,10 +56,10 @@ function normalizeResult(questions: typeof DA_QUESTIONS, rawResults: any[]): Que
   });
 }
 
-function buildFallback(): QuestionAuditOutput {
+function buildFallback(daQuestions: Question[], faQuestions: Question[]): QuestionAuditOutput {
   return {
     denial_letter_applicable: false,
-    da_results: DA_QUESTIONS.map((q) => ({
+    da_results: daQuestions.map((q) => ({
       id: q.id,
       answer: "FAIL" as Answer,
       points_awarded: 0,
@@ -70,7 +71,7 @@ function buildFallback(): QuestionAuditOutput {
       evidence_locations: [],
       confidence: 0,
     })),
-    fa_results: FA_QUESTIONS.map((q) => ({
+    fa_results: faQuestions.map((q) => ({
       id: q.id,
       answer: "FAIL" as Answer,
       points_awarded: 0,
@@ -86,9 +87,14 @@ function buildFallback(): QuestionAuditOutput {
   };
 }
 
-export async function runQuestionAudit(reportText: string): Promise<QuestionAuditOutput> {
-  const daQuestionsText = DA_QUESTIONS.map((q) => `- ${q.id}: ${q.text}`).join("\n");
-  const faQuestionsText = FA_QUESTIONS.map((q) => `- ${q.id}: ${q.text}`).join("\n");
+export async function runQuestionAudit(reportText: string, carrier?: string): Promise<QuestionAuditOutput> {
+  const ruleset = await getCarrierRuleset(carrier ?? "");
+  const daQuestions = ruleset.da_questions;
+  const faQuestions = ruleset.fa_questions;
+  const systemPrompt = ruleset.system_prompt_override ?? SYSTEM_PROMPT;
+
+  const daQuestionsText = daQuestions.map((q) => `- ${q.id}: ${q.text}`).join("\n");
+  const faQuestionsText = faQuestions.map((q) => `- ${q.id}: ${q.text}`).join("\n");
 
   const userPrompt = USER_PROMPT_TEMPLATE
     .replace("{{DA_QUESTIONS}}", daQuestionsText)
@@ -96,8 +102,9 @@ export async function runQuestionAudit(reportText: string): Promise<QuestionAudi
     .replace("{{REPORT}}", reportText);
 
   logger.info({
-    daQuestionCount: DA_QUESTIONS.length,
-    faQuestionCount: FA_QUESTIONS.length,
+    carrier: carrier ?? "default",
+    daQuestionCount: daQuestions.length,
+    faQuestionCount: faQuestions.length,
   }, "Running DA/FA question-level audit");
 
   let response;
@@ -106,19 +113,19 @@ export async function runQuestionAudit(reportText: string): Promise<QuestionAudi
       model: "gpt-4o",
       max_completion_tokens: 8192,
       messages: [
-        { role: "system", content: SYSTEM_PROMPT },
+        { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
       ],
     }, { signal: AbortSignal.timeout(120_000) });
   } catch (err) {
     logger.error({ err }, "OpenAI request failed");
-    return buildFallback();
+    return buildFallback(daQuestions, faQuestions);
   }
 
   const content = response.choices[0]?.message?.content;
   if (!content) {
     logger.error("Empty AI response for question audit");
-    return buildFallback();
+    return buildFallback(daQuestions, faQuestions);
   }
 
   const cleaned = content
@@ -131,7 +138,7 @@ export async function runQuestionAudit(reportText: string): Promise<QuestionAudi
     parsed = JSON.parse(cleaned);
   } catch {
     logger.error({ contentPreview: content.substring(0, 300) }, "Question audit: invalid JSON");
-    return buildFallback();
+    return buildFallback(daQuestions, faQuestions);
   }
 
   const denialApplicable = typeof parsed.denial_letter_applicable === "boolean"
@@ -141,8 +148,8 @@ export async function runQuestionAudit(reportText: string): Promise<QuestionAudi
   const daRaw = Array.isArray(parsed.da_results) ? parsed.da_results : [];
   const faRaw = Array.isArray(parsed.fa_results) ? parsed.fa_results : [];
 
-  const daResults = normalizeResult(DA_QUESTIONS, daRaw);
-  const faResults = normalizeResult(FA_QUESTIONS, faRaw);
+  const daResults = normalizeResult(daQuestions, daRaw);
+  const faResults = normalizeResult(faQuestions, faRaw);
 
   const executiveSummary = typeof parsed.executive_summary === "string"
     ? parsed.executive_summary
@@ -150,6 +157,7 @@ export async function runQuestionAudit(reportText: string): Promise<QuestionAudi
 
   const allResults = [...daResults, ...faResults];
   logger.info({
+    carrier: carrier ?? "default",
     denialApplicable,
     pass: allResults.filter((r) => r.answer === "PASS").length,
     partial: allResults.filter((r) => r.answer === "PARTIAL").length,

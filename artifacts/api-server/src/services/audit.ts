@@ -170,7 +170,7 @@ export async function runFinalAudit(
     }
   }
 
-  const qResult = await runQuestionAudit(reportText);
+  const qResult = await runQuestionAudit(reportText, claimMeta?.carrier_name);
   const scoring = computeScore(
     qResult.da_results,
     qResult.fa_results,
