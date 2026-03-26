@@ -18,6 +18,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { Checkbox } from "@/components/ui/checkbox"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { BRAND, FONTS } from "@/lib/brand"
@@ -27,9 +28,19 @@ import { useLocation } from "wouter"
 import type { ScorecardCategory, ScorecardQuestion, AuditIssue, ValidationCheck } from "@workspace/api-client-react/src/generated/api.schemas"
 
 function getScoreColor(pct: number): { text: string; bg: string; bar: string } {
-  if (pct >= 80) return { text: "#16a34a", bg: "#f0fdf4", bar: "#16a34a" }
+  if (pct >= 90) return { text: "#16a34a", bg: "#f0fdf4", bar: "#16a34a" }
+  if (pct >= 75) return { text: "#65a30d", bg: "#f7fee7", bar: "#65a30d" }
   if (pct >= 60) return { text: BRAND.gold, bg: "#fef9ec", bar: BRAND.gold }
+  if (pct >= 40) return { text: "#ea580c", bg: "#fff7ed", bar: "#ea580c" }
   return { text: "#dc2626", bg: "#fef2f2", bar: "#dc2626" }
+}
+
+function scoreLabel(pct: number): string {
+  if (pct >= 90) return "Excellent"
+  if (pct >= 75) return "Good"
+  if (pct >= 60) return "Fair"
+  if (pct >= 40) return "Poor"
+  return "Critical"
 }
 
 function readinessColor(r: string): string {
@@ -71,6 +82,7 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
   const [mobileDetailsOpen, setMobileDetailsOpen] = useState(false)
   const [mobileDocOpen, setMobileDocOpen] = useState(false)
   const [docPanelOpen, setDocPanelOpen] = useState(true)
+  const [hideScores, setHideScores] = useState(false)
 
   const queryClient = useQueryClient()
   const { data, isLoading, error, refetch } = useGetClaimDetail(claimId)
@@ -475,6 +487,17 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
 
             {audit && (
               <>
+                <div className="flex items-center justify-end gap-2 px-1">
+                  <Checkbox
+                    id="hide-scores"
+                    checked={hideScores}
+                    onCheckedChange={(checked) => setHideScores(checked === true)}
+                  />
+                  <label htmlFor="hide-scores" className="text-xs font-medium cursor-pointer select-none" style={{ color: BRAND.purpleSecondary }}>
+                    Hide numeric scores
+                  </label>
+                </div>
+
                 <Card className="shadow-sm overflow-hidden relative" style={{ borderColor: BRAND.greyLavender, backgroundColor: BRAND.white }}>
                   <div className="absolute top-0 left-0 w-1.5 h-full" style={{ backgroundColor: BRAND.purple }} />
                   <CardContent className="p-6">
@@ -483,23 +506,37 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
                         <div className="relative w-24 h-24 flex items-center justify-center rounded-full shrink-0">
                           <svg className="w-full h-full transform -rotate-90 absolute top-0 left-0" viewBox="0 0 36 36">
                             <path strokeWidth="3" stroke={BRAND.lightPurpleGrey} fill="none" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
-                            <path strokeWidth="3" strokeDasharray={`${overallPercent}, 100`} strokeLinecap="round" stroke={BRAND.purple} fill="none" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+                            <path strokeWidth="3" strokeDasharray={`${overallPercent}, 100`} strokeLinecap="round" stroke={getScoreColor(overallPercent).bar} fill="none" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
                           </svg>
                           <div className="text-center">
-                            <span className="text-3xl font-bold" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>{overallPercent}</span>
-                            <span className="text-xs block -mt-1" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.mono }}>%</span>
+                            {hideScores ? (
+                              <span className="text-sm font-bold" style={{ color: getScoreColor(overallPercent).text, fontFamily: FONTS.heading }}>{scoreLabel(overallPercent)}</span>
+                            ) : (
+                              <>
+                                <span className="text-3xl font-bold" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>{overallPercent}</span>
+                                <span className="text-xs block -mt-1" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.mono }}>%</span>
+                              </>
+                            )}
                           </div>
                         </div>
                         <div>
                           <h2 className="text-xl font-bold mb-2" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>Carrier Audit Score</h2>
                           <div className="grid grid-cols-2 gap-x-6 gap-y-1 mb-3">
                             <div>
-                              <span className="text-lg font-bold" style={{ color: getScoreColor(daScore).text, fontFamily: FONTS.mono }}>{daScore}%</span>
-                              <span className="text-xs block" style={{ color: BRAND.purpleSecondary }}>DA Score ({daAwarded}/{daPossible})</span>
+                              {hideScores ? (
+                                <span className="text-lg font-bold" style={{ color: getScoreColor(daScore).text, fontFamily: FONTS.heading }}>{scoreLabel(daScore)}</span>
+                              ) : (
+                                <span className="text-lg font-bold" style={{ color: getScoreColor(daScore).text, fontFamily: FONTS.mono }}>{daScore}%</span>
+                              )}
+                              <span className="text-xs block" style={{ color: BRAND.purpleSecondary }}>DA Score{hideScores ? "" : ` (${daAwarded}/${daPossible})`}</span>
                             </div>
                             <div>
-                              <span className="text-lg font-bold" style={{ color: getScoreColor(faScore).text, fontFamily: FONTS.mono }}>{faScore}%</span>
-                              <span className="text-xs block" style={{ color: BRAND.purpleSecondary }}>FA Score ({faAwarded}/{faPossible})</span>
+                              {hideScores ? (
+                                <span className="text-lg font-bold" style={{ color: getScoreColor(faScore).text, fontFamily: FONTS.heading }}>{scoreLabel(faScore)}</span>
+                              ) : (
+                                <span className="text-lg font-bold" style={{ color: getScoreColor(faScore).text, fontFamily: FONTS.mono }}>{faScore}%</span>
+                              )}
+                              <span className="text-xs block" style={{ color: BRAND.purpleSecondary }}>FA Score{hideScores ? "" : ` (${faAwarded}/${faPossible})`}</span>
                             </div>
                           </div>
                           <div className="flex flex-wrap gap-2">
@@ -548,6 +585,7 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
                       possible={daPossible}
                       categories={daCategories}
                       accentColor={BRAND.purple}
+                      hideScores={hideScores}
                     />
 
                     <ScorecardPanel
@@ -558,6 +596,7 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
                       possible={faPossible}
                       categories={faCategories}
                       accentColor={BRAND.gold}
+                      hideScores={hideScores}
                     />
                   </>
                 )}
@@ -782,7 +821,7 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
   )
 }
 
-function ScorecardPanel({ title, icon, scorePct, awarded, possible, categories, accentColor }: {
+function ScorecardPanel({ title, icon, scorePct, awarded, possible, categories, accentColor, hideScores = false }: {
   title: string
   icon: React.ReactNode
   scorePct: number
@@ -790,6 +829,7 @@ function ScorecardPanel({ title, icon, scorePct, awarded, possible, categories, 
   possible: number
   categories: ScorecardCategory[]
   accentColor: string
+  hideScores?: boolean
 }) {
   const [expanded, setExpanded] = useState(true)
   const colors = getScoreColor(scorePct)
@@ -808,7 +848,7 @@ function ScorecardPanel({ title, icon, scorePct, awarded, possible, categories, 
             {title}
           </span>
           <Badge className="shadow-none border" style={{ backgroundColor: colors.bg, color: colors.text, borderColor: colors.bg }}>
-            {scorePct}% ({awarded}/{possible})
+            {hideScores ? scoreLabel(scorePct) : `${scorePct}% (${awarded}/${possible})`}
           </Badge>
         </div>
         <NavArrowDown
@@ -830,9 +870,15 @@ function ScorecardPanel({ title, icon, scorePct, awarded, possible, categories, 
                     <span className="text-xs font-bold uppercase tracking-wider" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
                       {cat.category_name}
                     </span>
-                    <span className="text-sm font-bold" style={{ color: catColors.text, fontFamily: FONTS.mono }}>
-                      {cat.points_awarded}<span className="text-xs font-normal" style={{ color: BRAND.purpleSecondary }}>/{cat.points_possible}</span>
-                    </span>
+                    {hideScores ? (
+                      <span className="text-xs font-bold" style={{ color: catColors.text, fontFamily: FONTS.heading }}>
+                        {scoreLabel(catPct)}
+                      </span>
+                    ) : (
+                      <span className="text-sm font-bold" style={{ color: catColors.text, fontFamily: FONTS.mono }}>
+                        {cat.points_awarded}<span className="text-xs font-normal" style={{ color: BRAND.purpleSecondary }}>/{cat.points_possible}</span>
+                      </span>
+                    )}
                   </div>
 
                   <div className="w-full h-1.5 rounded-full overflow-hidden mb-2" style={{ backgroundColor: catColors.bg }}>
@@ -853,9 +899,11 @@ function ScorecardPanel({ title, icon, scorePct, awarded, possible, categories, 
                               <span className="text-xs font-medium" style={{ color: BRAND.deepPurple, fontFamily: FONTS.body }}>
                                 {humanize(q.id)}
                               </span>
-                              <span className="text-[10px] font-bold ml-2 shrink-0" style={{ color: badge.color, fontFamily: FONTS.mono }}>
-                                {q.points_awarded}/{q.points_possible}
-                              </span>
+                              {!hideScores && (
+                                <span className="text-[10px] font-bold ml-2 shrink-0" style={{ color: badge.color, fontFamily: FONTS.mono }}>
+                                  {q.points_awarded}/{q.points_possible}
+                                </span>
+                              )}
                             </div>
                             {showDetails && q.fix && (
                               <p className="text-[11px] mt-0.5 leading-relaxed" style={{ color: "#16a34a", fontFamily: FONTS.body }}>
