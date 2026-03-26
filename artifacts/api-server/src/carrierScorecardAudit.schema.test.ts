@@ -113,3 +113,74 @@ test("fallback result is returned when JSON parsing fails", () => {
   assert.equal(result.meta.validation_ok, false);
   assert.equal(result.categories.length, 7);
 });
+
+test("dynamic category schema accepts non-default carrier category ids", () => {
+  const customCategories = [
+    { id: "financial_performance", label: "Financial Performance", max_score: 5 },
+    { id: "customer_service", label: "Customer Service", max_score: 5 },
+    { id: "estimate_quality", label: "Estimate & Quality", max_score: 5 },
+    { id: "timeliness", label: "Timeliness", max_score: 5 },
+  ];
+
+  const payload = {
+    overall: {
+      summary: "Wawanesa file is mostly complete with minor timeliness gaps.",
+      confidence: 0.79,
+    },
+    categories: [
+      {
+        id: "financial_performance",
+        status: "pass",
+        score: 5,
+        finding: "Pricing is within benchmark range.",
+        evidence: ["Pricing table shows +/-5% variance"],
+        recommendations: [],
+      },
+      {
+        id: "customer_service",
+        status: "minor_issues",
+        score: 3,
+        finding: "Escalations are slightly above preferred threshold.",
+        evidence: ["Two escalation references found"],
+        recommendations: ["Reduce escalation handling delays."],
+      },
+      {
+        id: "estimate_quality",
+        status: "pass",
+        score: 4,
+        finding: "Estimate quality meets expectations.",
+        evidence: [],
+        recommendations: [],
+      },
+      {
+        id: "timeliness",
+        status: "major_issues",
+        score: 1,
+        finding: "SLA targets were repeatedly missed.",
+        evidence: ["Contact and inspection timestamps exceed SLA"],
+        recommendations: ["Improve response-time process controls."],
+      },
+    ],
+    issues: [
+      {
+        severity: "high",
+        category_id: "timeliness",
+        title: "SLA breach cluster",
+        description: "EM and GEN timelines were not met.",
+      },
+    ],
+    missing_info: [],
+    assumptions: [],
+  };
+
+  const result = parseCarrierScorecardJson(JSON.stringify(payload), {
+    requestId: "req_test_wawanesa",
+    model: "gpt-4o",
+    categories: customCategories,
+  });
+
+  assert.equal(result.meta.validation_ok, true);
+  assert.equal(result.categories.length, 4);
+  assert.deepEqual(result.categories.map((c) => c.id), customCategories.map((c) => c.id));
+  assert.equal(result.issues[0]?.category_id, "timeliness");
+});
