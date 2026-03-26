@@ -249,7 +249,7 @@ router.post("/claims/:id/retry", requireAuth, async (req, res) => {
 
     res.status(202).json({ status: "processing", claimId: id });
 
-    processInBackground(id, doc.id, fileBuffer, fileName, contentType, storagePath).catch((err) => {
+    processInBackground(id, doc.id, fileBuffer, fileName, contentType, storagePath, claim.carrier).catch((err) => {
       logger.error({ err, claimId: id }, "Retry: background processing crashed unexpectedly");
     });
   } catch (err) {

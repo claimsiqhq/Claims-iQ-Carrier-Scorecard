@@ -113,9 +113,11 @@ export async function runQuestionAudit(reportText: string, carrier?: string): Pr
 
   let response;
   try {
+    const totalQuestions = daQuestions.length + faQuestions.length;
+    const maxTokens = totalQuestions > 20 ? 16384 : 8192;
     response = await openai.chat.completions.create({
       model: "gpt-4o",
-      max_completion_tokens: 8192,
+      max_completion_tokens: maxTokens,
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
