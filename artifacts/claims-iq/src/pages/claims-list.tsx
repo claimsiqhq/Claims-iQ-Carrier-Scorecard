@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { useListClaims } from "@workspace/api-client-react"
 import { useLocation } from "wouter"
 import { useQueryClient } from "@tanstack/react-query"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   PageEdit,
   CloudUpload,
@@ -71,8 +72,12 @@ export default function ClaimsListPage() {
   const [result, setResult] = useState<IngestResult | null>(null)
   const [dragOver, setDragOver] = useState(false)
   const [retryingClaims, setRetryingClaims] = useState<Record<string, string>>({})
+  const [carrierOverride, setCarrierOverride] = useState(false)
+  const [selectedCarrier, setSelectedCarrier] = useState("Allstate")
   const fileInputRef = useRef<HTMLInputElement>(null)
   const baseUrl = import.meta.env.VITE_API_URL || "/api"
+
+  const CARRIER_OPTIONS = ["Allstate", "State Farm", "USAA", "Liberty Mutual", "Travelers", "Nationwide", "Progressive", "Farmers", "American Family", "Erie"]
 
   const handleFile = useCallback(async (file: File) => {
     if (!file.name.toLowerCase().endsWith(".pdf") && file.type !== "application/pdf") {
@@ -91,6 +96,9 @@ export default function ClaimsListPage() {
 
       const formData = new FormData()
       formData.append("file", file)
+      if (carrierOverride && selectedCarrier) {
+        formData.append("carrier", selectedCarrier)
+      }
 
       const ingestRes = await fetch(`${baseUrl}/ingest`, {
         method: "POST",
@@ -140,7 +148,7 @@ export default function ClaimsListPage() {
       setStatus("error")
       setError(err.message || "Failed to process file")
     }
-  }, [baseUrl, queryClient])
+  }, [baseUrl, queryClient, carrierOverride, selectedCarrier, toast])
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -262,6 +270,38 @@ export default function ClaimsListPage() {
             className="hidden"
             onChange={handleInputChange}
           />
+
+          {(status === "idle" || status === "error") && (
+            <div className="flex items-center gap-3 px-1">
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="carrier-override"
+                  checked={carrierOverride}
+                  onCheckedChange={(checked) => setCarrierOverride(checked === true)}
+                />
+                <label htmlFor="carrier-override" className="text-xs font-medium cursor-pointer select-none" style={{ color: BRAND.purpleSecondary }}>
+                  Override carrier
+                </label>
+              </div>
+              {carrierOverride && (
+                <select
+                  value={selectedCarrier}
+                  onChange={(e) => setSelectedCarrier(e.target.value)}
+                  className="text-xs rounded-md border px-2 py-1 outline-none"
+                  style={{ borderColor: BRAND.greyLavender, color: BRAND.deepPurple, backgroundColor: BRAND.white, fontFamily: FONTS.body }}
+                >
+                  {CARRIER_OPTIONS.map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              )}
+              {carrierOverride && (
+                <span className="text-xs italic" style={{ color: BRAND.gold }}>
+                  Testing mode — carrier will be forced to "{selectedCarrier}"
+                </span>
+              )}
+            </div>
+          )}
 
           {(status === "idle" || status === "error") && (!claims || claims.length === 0) && !isLoading && (
             <div
