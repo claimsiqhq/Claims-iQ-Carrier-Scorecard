@@ -490,18 +490,22 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
               const headerTitle = isAllstate ? "Allstate Quality Review" : "Carrier Audit Score"
               const totalQuestions = failedCount + partialCount + passedCount
 
+              const effectiveHide = isAllstate || hideScores
+
               return (
               <>
-                <div className="flex items-center justify-end gap-2 px-1">
-                  <Checkbox
-                    id="hide-scores"
-                    checked={hideScores}
-                    onCheckedChange={(checked) => setHideScores(checked === true)}
-                  />
-                  <label htmlFor="hide-scores" className="text-xs font-medium cursor-pointer select-none" style={{ color: BRAND.purpleSecondary }}>
-                    {hideScores ? "Show numeric scores" : "Hide numeric scores"}
-                  </label>
-                </div>
+                {!isAllstate && (
+                  <div className="flex items-center justify-end gap-2 px-1">
+                    <Checkbox
+                      id="hide-scores"
+                      checked={hideScores}
+                      onCheckedChange={(checked) => setHideScores(checked === true)}
+                    />
+                    <label htmlFor="hide-scores" className="text-xs font-medium cursor-pointer select-none" style={{ color: BRAND.purpleSecondary }}>
+                      {hideScores ? "Show numeric scores" : "Hide numeric scores"}
+                    </label>
+                  </div>
+                )}
 
                 <Card className="shadow-sm overflow-hidden relative" style={{ borderColor: BRAND.greyLavender, backgroundColor: BRAND.white }}>
                   <div className="absolute top-0 left-0 w-1.5 h-full" style={{ backgroundColor: BRAND.purple }} />
@@ -514,7 +518,7 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
                             <path strokeWidth="3" strokeDasharray={`${overallPercent}, 100`} strokeLinecap="round" stroke={getScoreColor(overallPercent).bar} fill="none" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
                           </svg>
                           <div className="text-center">
-                            {hideScores ? (
+                            {effectiveHide ? (
                               <span className="text-sm font-bold" style={{ color: getScoreColor(overallPercent).text, fontFamily: FONTS.heading }}>{scoreLabel(overallPercent)}</span>
                             ) : (
                               <>
@@ -610,7 +614,7 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
                       possible={daPossible}
                       categories={daCategories}
                       accentColor={BRAND.purple}
-                      hideScores={isAllstate ? true : hideScores}
+                      hideScores={effectiveHide}
                       carrierMode={isAllstate ? "allstate" : "default"}
                     />
 
@@ -622,7 +626,7 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
                       possible={faPossible}
                       categories={faCategories}
                       accentColor={BRAND.gold}
-                      hideScores={isAllstate ? true : hideScores}
+                      hideScores={effectiveHide}
                       carrierMode={isAllstate ? "allstate" : "default"}
                     />
                   </>
