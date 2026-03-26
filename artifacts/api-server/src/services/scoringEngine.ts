@@ -143,9 +143,11 @@ function buildCategories(
         return { ...r, points_awarded: pts, points_possible: maxPts };
       });
 
+      const catName = catQuestions[0]?.categoryName ?? getCategoryName(key);
+
       return {
         category_key: key,
-        category_name: getCategoryName(key),
+        category_name: catName,
         points_awarded: catResults.reduce((s, r) => s + r.points_awarded, 0),
         points_possible: catResults.reduce((s, r) => s + r.points_possible, 0),
         questions: catResults,
@@ -159,7 +161,17 @@ export function computeScore(
   denialApplicable: boolean,
   warningCount: number = 0,
   validationChecks: ValidationIssue[] = [],
+  carrierQuestions?: { da: Question[]; fa: Question[] },
 ): ScoringResult {
+  const daQs = carrierQuestions?.da ?? DA_QUESTIONS;
+  const faQs = carrierQuestions?.fa ?? FA_QUESTIONS;
+  const daCatKeys = carrierQuestions?.da
+    ? [...new Set(carrierQuestions.da.map((q) => q.categoryKey))]
+    : DA_CATEGORY_KEYS;
+  const faCatKeys = carrierQuestions?.fa
+    ? [...new Set(carrierQuestions.fa.map((q) => q.categoryKey))]
+    : FA_CATEGORY_KEYS;
+
   const guardedDa = applyPolicyProvisionGuard(daResults);
   const guardedFa = applyPolicyProvisionGuard(faResults);
 
@@ -167,8 +179,8 @@ export function computeScore(
   const adjDa = allAdjusted.filter((r) => guardedDa.some((d) => d.id === r.id));
   const adjFa = allAdjusted.filter((r) => guardedFa.some((f) => f.id === r.id));
 
-  const daCategories = buildCategories(DA_QUESTIONS, adjDa, DA_CATEGORY_KEYS, denialApplicable);
-  const faCategories = buildCategories(FA_QUESTIONS, adjFa, FA_CATEGORY_KEYS, denialApplicable);
+  const daCategories = buildCategories(daQs, adjDa, daCatKeys, denialApplicable);
+  const faCategories = buildCategories(faQs, adjFa, faCatKeys, denialApplicable);
 
   const daAwarded = daCategories.reduce((s, c) => s + c.points_awarded, 0);
   const daPossible = daCategories.reduce((s, c) => s + c.points_possible, 0);

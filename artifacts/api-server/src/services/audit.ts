@@ -5,6 +5,7 @@ import { runValidation, runVisionValidation, type ValidationResult, type Validat
 import { buildRootIssueGroups, type RootIssueGroup } from "./rootIssueEngine";
 import { runPhotoAnalysis, type VisionAnalysisResult } from "./visionAnalysis";
 import type { QuestionResult } from "./questionBank";
+import { getCarrierRuleset } from "./carrierRulesetService";
 
 export interface AuditResponse {
   claim_metadata: {

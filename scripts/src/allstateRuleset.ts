@@ -26,123 +26,117 @@ interface AllstateRulesetConfig {
 
 export const ALLSTATE_RULESET: AllstateRulesetConfig = {
   version: "1.0",
+
   da_questions: [
-    {
-      id: "is_file_stack_order_correct",
-      text: "Is the file stack in the correct Allstate-required order (DA report, SOL, Payment Letter, Other Letters, Estimate, Photos, Sketch, Prior Loss)?",
-      weight: 10,
-      weightIfNoDenial: 15,
-      section: "da",
-      scorecard: "DA",
-      categoryKey: "file_stack_order",
-      categoryName: "File Stack Order",
-    },
-    {
-      id: "do_payment_values_match",
-      text: "Do payment figures on the DA report, SOL, and Payment Letter all agree per Allstate reconciliation standards?",
-      weight: 15,
-      weightIfNoDenial: 20,
-      section: "da",
-      scorecard: "DA",
-      categoryKey: "payment_recommendations",
-      categoryName: "Payment Recommendations Match",
-    },
-    {
-      id: "is_deductible_correct",
-      text: "Is the deductible correctly applied across all documents per the Allstate policy declarations page?",
-      weight: 5,
-      weightIfNoDenial: 5,
-      section: "da",
-      scorecard: "DA",
-      categoryKey: "payment_recommendations",
-      categoryName: "Payment Recommendations Match",
-    },
-    {
-      id: "is_da_report_concise_and_decisive",
-      text: "Is the DA report concise, recommendation-focused, and not copy-paste heavy from the FA report? Does it follow Allstate's preferred report format?",
-      weight: 10,
-      weightIfNoDenial: 15,
-      section: "da",
-      scorecard: "DA",
-      categoryKey: "da_report_quality",
-      categoryName: "DA Report Quality",
-    },
-    {
-      id: "are_unique_policy_provisions_addressed",
-      text: "Are Allstate-specific policy provisions (HO6, sublimits, endorsements, HSB items, municipal lien, exclusions, Allstate-specific riders) addressed where relevant?",
-      weight: 25,
-      weightIfNoDenial: 30,
-      section: "da",
-      scorecard: "DA",
-      categoryKey: "policy_provisions",
-      categoryName: "Unique Policy Provisions Addressed",
-    },
-    {
-      id: "are_prior_losses_addressed",
-      text: "Are prior losses reviewed with disposition stated (not relevant or requires investigation)? Is the ISO/CLUE report included per Allstate requirements?",
-      weight: 10,
-      weightIfNoDenial: 15,
-      section: "da",
-      scorecard: "DA",
-      categoryKey: "prior_losses",
-      categoryName: "Prior Losses Addressed",
-    },
-    {
-      id: "is_denial_letter_correct",
-      text: "If a denial letter is applicable, does it cite the correct Allstate policy language and reason? Does it follow Allstate's denial letter template requirements?",
-      weight: 25,
-      weightIfNoDenial: 0,
-      section: "da",
-      scorecard: "DA",
-      categoryKey: "denial_letters",
-      categoryName: "Denial Letters Correct",
-    },
+
+    // 1. Coverage Integrity
+    { id: "was_coverage_opened_timely", text: "Was the correct coverage opened timely upon claim receipt?", weight: 10, section: "da", scorecard: "DA", categoryKey: "coverage_integrity", categoryName: "Coverage Integrity" },
+    { id: "was_coverage_exposure_identified", text: "Was all applicable coverage exposure identified? (No coverage missed.)", weight: 10, section: "da", scorecard: "DA", categoryKey: "coverage_integrity", categoryName: "Coverage Integrity" },
+    { id: "no_coverage_opened_in_error", text: "Was coverage free of any coverages opened in error?", weight: 5, section: "da", scorecard: "DA", categoryKey: "coverage_integrity", categoryName: "Coverage Integrity" },
+    { id: "was_coverage_closed_timely", text: "Was coverage closed timely once resolved?", weight: 5, section: "da", scorecard: "DA", categoryKey: "coverage_integrity", categoryName: "Coverage Integrity" },
+
+    // 2. Coverage Determination
+    { id: "is_depreciation_correct_rc_vs_acv", text: "Was RC vs. ACV depreciation properly applied and documented?", weight: 10, section: "da", scorecard: "DA", categoryKey: "coverage_determination", categoryName: "Coverage Determination" },
+    { id: "are_policy_limits_applied_correctly", text: "Were policy limits applied correctly across all coverages?", weight: 10, section: "da", scorecard: "DA", categoryKey: "coverage_determination", categoryName: "Coverage Determination" },
+    { id: "are_policy_conditions_endorsements_applied", text: "Were policy conditions, endorsements, and exclusions identified and applied properly?", weight: 15, section: "da", scorecard: "DA", categoryKey: "coverage_determination", categoryName: "Coverage Determination" },
+    { id: "is_deductible_correct_for_peril", text: "Was the correct deductible applied based on the reported peril?", weight: 10, section: "da", scorecard: "DA", categoryKey: "coverage_determination", categoryName: "Coverage Determination" },
+    { id: "was_coverage_investigation_timely", text: "Was the coverage investigation completed timely?", weight: 5, section: "da", scorecard: "DA", categoryKey: "coverage_determination", categoryName: "Coverage Determination" },
+
+    // 3. Reserve Management
+    { id: "were_reserves_adjusted_as_new_info_received", text: "Were reserves adjusted as new information was received throughout the life of the claim?", weight: 10, section: "da", scorecard: "DA", categoryKey: "reserve_management", categoryName: "Reserve Management" },
+    { id: "were_reserves_adjusted_within_guidelines", text: "Were reserves adjusted within Allstate's timeliness guidelines?", weight: 10, section: "da", scorecard: "DA", categoryKey: "reserve_management", categoryName: "Reserve Management" },
+    { id: "were_both_expense_and_loss_reserves_managed", text: "Were both expense and loss reserves properly established and maintained?", weight: 5, section: "da", scorecard: "DA", categoryKey: "reserve_management", categoryName: "Reserve Management" },
+
+    // 4. Contact Compliance
+    { id: "was_initial_contact_timely", text: "Was initial contact with the insured made within Allstate's timeliness guidelines (1 business day)?", weight: 10, section: "da", scorecard: "DA", categoryKey: "contact_compliance", categoryName: "Contact Compliance" },
+    { id: "were_contact_attempts_documented", text: "If initial contact was not made, were attempts documented per the contact attempt process?", weight: 10, section: "da", scorecard: "DA", categoryKey: "contact_compliance", categoryName: "Contact Compliance" },
+    { id: "were_contacts_meaningful", text: "Were contacts meaningful — did they advance the claim toward resolution?", weight: 10, section: "da", scorecard: "DA", categoryKey: "contact_compliance", categoryName: "Contact Compliance" },
+    { id: "were_follow_ups_scheduled_appropriately", text: "Were follow-ups scheduled within appropriate timeframes and agreed to by the insured or per guidelines?", weight: 5, section: "da", scorecard: "DA", categoryKey: "contact_compliance", categoryName: "Contact Compliance" },
+    { id: "were_third_parties_contacted", text: "Were relevant third parties (vendors, contractors, attorneys) contacted to advance the claim?", weight: 5, section: "da", scorecard: "DA", categoryKey: "contact_compliance", categoryName: "Contact Compliance" },
+
+    // 5. Mitigation Management
+    { id: "was_mitigation_identified_and_offered", text: "Were mitigation services identified and offered to the insured when applicable?", weight: 10, section: "da", scorecard: "DA", categoryKey: "mitigation_management", categoryName: "Mitigation Management" },
+    { id: "were_vendor_conversations_meaningful", text: "Were vendor conversations meaningful and did they confirm work aligned with covered damages?", weight: 10, section: "da", scorecard: "DA", categoryKey: "mitigation_management", categoryName: "Mitigation Management" },
+    { id: "were_mitigation_invoices_handled_timely", text: "Were mitigation invoices reviewed and handled timely?", weight: 5, section: "da", scorecard: "DA", categoryKey: "mitigation_management", categoryName: "Mitigation Management" },
+    { id: "no_mitigation_without_coverage", text: "Was mitigation NOT set up on a claim where there was no applicable coverage?", weight: 10, section: "da", scorecard: "DA", categoryKey: "mitigation_management", categoryName: "Mitigation Management" },
+
+    // 6. Loss Investigation
+    { id: "was_siu_referred_when_warranted", text: "Was an SIU referral submitted when indicators warranted it?", weight: 15, section: "da", scorecard: "DA", categoryKey: "investigation_quality", categoryName: "Loss Investigation Quality" },
+    { id: "was_prior_loss_review_complete", text: "Was a prior loss review completed and documented with appropriate disposition?", weight: 10, section: "da", scorecard: "DA", categoryKey: "investigation_quality", categoryName: "Loss Investigation Quality" },
+    { id: "was_investigation_timely", text: "Was the overall loss investigation completed timely?", weight: 10, section: "da", scorecard: "DA", categoryKey: "investigation_quality", categoryName: "Loss Investigation Quality" },
+
+    // 7. ALE Management
+    { id: "were_normal_expenses_obtained", text: "Were the insured's normal living expenses obtained to establish ALE baseline?", weight: 10, section: "da", scorecard: "DA", categoryKey: "ale_management", categoryName: "ALE Management" },
+    { id: "was_claim_xperience_used", text: "Was Claim Xperience used to manage the ALE?", weight: 10, section: "da", scorecard: "DA", categoryKey: "ale_management", categoryName: "ALE Management" },
+    { id: "was_ale_duration_and_accommodation_managed", text: "Was the duration and type of accommodation appropriately managed and documented?", weight: 10, section: "da", scorecard: "DA", categoryKey: "ale_management", categoryName: "ALE Management" },
+
+    // 8. Payment Accuracy
+    { id: "does_payment_match_estimate", text: "Does the payment amount match the approved estimate?", weight: 15, section: "da", scorecard: "DA", categoryKey: "payment_accuracy", categoryName: "Payment Accuracy" },
+    { id: "was_payment_issued_timely", text: "Was payment issued within Allstate's timeliness guidelines?", weight: 10, section: "da", scorecard: "DA", categoryKey: "payment_accuracy", categoryName: "Payment Accuracy" },
+    { id: "was_payment_coded_correctly", text: "Was the payment coded correctly per Allstate guidelines (coverage code, payment type)?", weight: 5, section: "da", scorecard: "DA", categoryKey: "payment_accuracy", categoryName: "Payment Accuracy" },
+    { id: "are_payees_correct", text: "Are the payees on the payment correct (insured, lienholder, contractor as required)?", weight: 10, section: "da", scorecard: "DA", categoryKey: "payment_accuracy", categoryName: "Payment Accuracy" },
+
+    // 9. Required Letters
+    { id: "was_denial_letter_sent_if_required", text: "Was a denial letter sent with correct policy language when coverage was denied?", weight: 25, weightIfNoDenial: 0, section: "da", scorecard: "DA", categoryKey: "required_letters", categoryName: "Required Letters" },
+    { id: "was_cwp_letter_sent_if_required", text: "Was a Close Without Payment (CWP) letter sent when the claim was closed without payment?", weight: 10, section: "da", scorecard: "DA", categoryKey: "required_letters", categoryName: "Required Letters" },
+    { id: "was_under_deductible_letter_sent", text: "Was an under-deductible letter sent when damages did not exceed the deductible?", weight: 10, section: "da", scorecard: "DA", categoryKey: "required_letters", categoryName: "Required Letters" },
+    { id: "was_rc_acv_letter_sent", text: "Was an RC/ACV letter sent notifying the insured of recoverable depreciation rights?", weight: 10, section: "da", scorecard: "DA", categoryKey: "required_letters", categoryName: "Required Letters" },
+    { id: "was_mold_letter_sent_if_required", text: "Was a mold notification letter sent when mold was identified or suspected?", weight: 10, section: "da", scorecard: "DA", categoryKey: "required_letters", categoryName: "Required Letters" },
+
+    // 10. Subro & Salvage
+    { id: "was_subro_salvage_identified_and_referred", text: "Was subro/salvage potential identified and referred per Allstate's process?", weight: 15, section: "da", scorecard: "DA", categoryKey: "subro_salvage", categoryName: "Subro & Salvage" },
+    { id: "is_subro_not_applicable_documented", text: "If subro/salvage is not applicable, is the file documented with the reason?", weight: 10, section: "da", scorecard: "DA", categoryKey: "subro_salvage", categoryName: "Subro & Salvage" },
   ],
+
   fa_questions: [
-    {
-      id: "is_estimate_in_operational_order",
-      text: "Does the estimate follow Allstate's required operational order (roof before interior, debris at end, grouped by area/trade)?",
-      weight: 20,
-      section: "fa",
-      scorecard: "FA",
-      categoryKey: "estimate_order",
-      categoryName: "Estimate Operational Order",
-    },
-    {
-      id: "are_photographs_clear_and_in_order",
-      text: "Are photographs clear, properly labeled per Allstate photo standards, and sequenced to follow the estimate flow?",
-      weight: 20,
-      section: "fa",
-      scorecard: "FA",
-      categoryKey: "photo_quality",
-      categoryName: "Photographs Clear and In Order",
-    },
-    {
-      id: "does_fa_report_support_estimate_and_scope",
-      text: "Does the FA report adequately describe observed damage, support the estimate, and address Allstate coverage/subrogation concerns?",
-      weight: 30,
-      section: "fa",
-      scorecard: "FA",
-      categoryKey: "fa_report_quality",
-      categoryName: "FA Report Quality",
-    },
-    {
-      id: "does_fa_address_unique_policy_provisions",
-      text: "Does the FA field report reflect awareness of Allstate-specific policy provisions, sublimits, and special triggers?",
-      weight: 30,
-      section: "fa",
-      scorecard: "FA",
-      categoryKey: "fa_policy_provisions",
-      categoryName: "Unique Policy Provisions (FA)",
-    },
+    { id: "is_estimate_in_operational_order", text: "Does the estimate follow a logical operational order (roof before interior, debris at end, grouped by area/trade)?", weight: 15, section: "fa", scorecard: "FA", categoryKey: "estimate_order", categoryName: "Estimate Operational Order" },
+    { id: "is_depreciation_shown_on_estimate", text: "Is depreciation clearly shown on the estimate with appropriate line-item detail?", weight: 10, section: "fa", scorecard: "FA", categoryKey: "estimate_order", categoryName: "Estimate Operational Order" },
+    { id: "was_roof_process_form_completed", text: "Was the Allstate roof process form completed properly where applicable?", weight: 10, section: "fa", scorecard: "FA", categoryKey: "estimate_order", categoryName: "Estimate Operational Order" },
+    { id: "was_full_scope_developed", text: "Was a full scope of damage developed with no known damages left unaddressed?", weight: 15, section: "fa", scorecard: "FA", categoryKey: "estimate_order", categoryName: "Estimate Operational Order" },
+    { id: "was_vendor_estimate_handled_correctly", text: "Was any contractor or vendor estimate reviewed, reconciled, and documented correctly?", weight: 10, section: "fa", scorecard: "FA", categoryKey: "estimate_order", categoryName: "Estimate Operational Order" },
+    { id: "are_photographs_clear_and_in_order", text: "Are photographs clear, properly labeled, and sequenced to follow the estimate flow?", weight: 20, section: "fa", scorecard: "FA", categoryKey: "photo_quality", categoryName: "Photographs Clear and In Order" },
+    { id: "was_inspection_method_appropriate", text: "Was the method of inspection appropriate for the loss type and severity? (e.g., inside adjuster escalated to outside for large loss)", weight: 15, section: "fa", scorecard: "FA", categoryKey: "photo_quality", categoryName: "Photographs Clear and In Order" },
+    { id: "was_cause_of_loss_determined", text: "Was the cause of loss clearly determined and documented in the field report?", weight: 15, section: "fa", scorecard: "FA", categoryKey: "fa_report_quality", categoryName: "FA Report Quality" },
+    { id: "does_fa_report_support_estimate_and_scope", text: "Does the FA report adequately describe observed damage, support the estimate, and address coverage/subrogation concerns?", weight: 20, section: "fa", scorecard: "FA", categoryKey: "fa_report_quality", categoryName: "FA Report Quality" },
+    { id: "does_fa_address_unique_policy_provisions", text: "Does the FA field report reflect awareness of relevant policy provisions, sublimits, endorsements, and special triggers?", weight: 20, section: "fa", scorecard: "FA", categoryKey: "fa_policy_provisions", categoryName: "Unique Policy Provisions (FA)" },
+    { id: "were_state_requirements_followed", text: "Were all applicable state-specific requirements followed in the inspection and documentation?", weight: 10, section: "fa", scorecard: "FA", categoryKey: "fa_policy_provisions", categoryName: "Unique Policy Provisions (FA)" },
   ],
+
   scorecard_categories: [
-    { id: "file_stack_order", label: "File Stack Order", max_score: 5 },
-    { id: "payment_recommendations_match", label: "Payment Recommendations Match", max_score: 5 },
-    { id: "estimate_operational_order", label: "Estimate is in operational order", max_score: 5 },
-    { id: "photographs_clear_in_order", label: "Photographs are clear and in order", max_score: 5 },
-    { id: "da_report_not_cumbersome", label: "DA report is not cumbersome", max_score: 5 },
-    { id: "fa_report_detailed_enough", label: "FA report is detailed enough", max_score: 5 },
-    { id: "unique_policy_provisions_addressed", label: "Allstate Policy Provisions Addressed", max_score: 5 },
+    { id: "coverage_integrity",        label: "Coverage Integrity",           max_score: 5 },
+    { id: "coverage_determination",    label: "Coverage Determination",       max_score: 5 },
+    { id: "reserve_management",        label: "Reserve Management",           max_score: 5 },
+    { id: "contact_compliance",        label: "Contact Compliance",           max_score: 5 },
+    { id: "mitigation_management",     label: "Mitigation Management",        max_score: 5 },
+    { id: "investigation_quality",     label: "Loss Investigation Quality",   max_score: 5 },
+    { id: "estimate_and_damage_eval",  label: "Estimate & Damage Evaluation", max_score: 5 },
+    { id: "ale_management",            label: "ALE Management",               max_score: 5 },
+    { id: "payment_accuracy",          label: "Payment Accuracy",             max_score: 5 },
+    { id: "required_letters",          label: "Required Letters",             max_score: 5 },
+    { id: "subro_salvage",             label: "Subro & Salvage",              max_score: 5 },
   ],
+
+  system_prompt_override: `You are a carrier-grade insurance audit assistant evaluating a finalized Allstate claim file.
+
+Evaluate TWO separate scorecards:
+1. DESK ADJUSTER (DA) — covers coverage, reserves, contacts, mitigation, investigation, ALE, payments, letters, subro/salvage
+2. FIELD ADJUSTER (FA) — covers estimate quality, damage documentation, photos, inspection method, policy provisions
+
+For each question return:
+- answer: PASS, PARTIAL, FAIL, or NOT_APPLICABLE
+- root_issue: short snake_case key grouping related problems
+- issue: the specific problem found (empty if PASS)
+- impact: why it matters to Allstate (empty if PASS)
+- fix: exact actionable fix — no vague language (empty if PASS)
+- evidence_locations: where in the document evidence was found
+- confidence: 0-100
+
+ALLSTATE-SPECIFIC RULES:
+- Initial contact required within 1 business day of assignment.
+- Flag if Claim Xperience is not referenced on a claim with displacement.
+- Flag any required letter type missing from the file (denial, CWP, under-deductible, RC/ACV, mold).
+- Flag third-party negligence indicators not referred to subro.
+- Flag significant damage changes not accompanied by a reserve adjustment note.
+- Multiple questions sharing the same root cause MUST share the same root_issue value.
+- Return JSON only. No markdown, no code fences.`,
 };
