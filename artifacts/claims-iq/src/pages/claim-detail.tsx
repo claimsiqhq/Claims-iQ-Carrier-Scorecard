@@ -82,7 +82,7 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
   const [mobileDetailsOpen, setMobileDetailsOpen] = useState(false)
   const [mobileDocOpen, setMobileDocOpen] = useState(false)
   const [docPanelOpen, setDocPanelOpen] = useState(true)
-  const [hideScores, setHideScores] = useState(false)
+  const [hideScores, setHideScores] = useState(true)
 
   const queryClient = useQueryClient()
   const { data, isLoading, error, refetch } = useGetClaimDetail(claimId)
