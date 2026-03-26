@@ -100,7 +100,7 @@ interface ProcessingStatus {
   dateOfLoss?: string
 }
 
-const CARRIER_OPTIONS = ["Allstate", "State Farm", "USAA", "Liberty Mutual", "Travelers", "Nationwide", "Progressive", "Farmers", "American Family", "Erie"]
+const CARRIER_OPTIONS = ["Allstate"]
 
 function formatDate(iso: string | null) {
   if (!iso) return "—"
