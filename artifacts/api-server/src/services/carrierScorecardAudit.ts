@@ -23,32 +23,40 @@ const CATEGORY_IDS = CARRIER_SCORECARD_CATEGORIES.map((c) => c.id) as [CarrierCa
 const CATEGORY_STATUS = ["pass", "minor_issues", "major_issues", "missing_info"] as const;
 const ISSUE_SEVERITY = ["low", "medium", "high"] as const;
 
-const carrierCategoryRawSchema = z.object({
-  id: z.enum(CATEGORY_IDS),
-  status: z.enum(CATEGORY_STATUS),
-  score: z.number().int().min(0).max(5),
-  finding: z.string().min(1),
-  evidence: z.array(z.string()),
-  recommendations: z.array(z.string()),
-}).strict();
+function buildCarrierScorecardRawSchema(categories: CarrierScorecardCategory[]) {
+  const categoryIds = categories.map((c) => c.id) as [string, ...string[]];
 
-const carrierIssueRawSchema = z.object({
-  severity: z.enum(ISSUE_SEVERITY),
-  category_id: z.enum(CATEGORY_IDS).optional(),
-  title: z.string().min(1),
-  description: z.string().min(1),
-}).strict();
+  const categoryRaw = z.object({
+    id: z.enum(categoryIds),
+    status: z.enum(CATEGORY_STATUS),
+    score: z.number().int().min(0).max(5),
+    finding: z.string().min(1),
+    evidence: z.array(z.string()),
+    recommendations: z.array(z.string()),
+  }).strict();
 
-export const carrierScorecardRawSchema = z.object({
-  overall: z.object({
-    summary: z.string().min(1),
-    confidence: z.number().min(0).max(1),
-  }).strict(),
-  categories: z.array(carrierCategoryRawSchema),
-  issues: z.array(carrierIssueRawSchema),
-  missing_info: z.array(z.string()),
-  assumptions: z.array(z.string()),
-}).strict();
+  const issueRaw = z.object({
+    severity: z.enum(ISSUE_SEVERITY),
+    category_id: z.enum(categoryIds).optional(),
+    title: z.string().min(1),
+    description: z.string().min(1),
+  }).strict();
+
+  return z.object({
+    overall: z.object({
+      summary: z.string().min(1),
+      confidence: z.number().min(0).max(1),
+    }).strict(),
+    categories: z.array(categoryRaw),
+    issues: z.array(issueRaw),
+    missing_info: z.array(z.string()),
+    assumptions: z.array(z.string()),
+  }).strict();
+}
+
+export const carrierScorecardRawSchema = buildCarrierScorecardRawSchema(
+  [...CARRIER_SCORECARD_CATEGORIES]
+);
 
 export const carrierScorecardNormalizedSchema = z.object({
   version: z.literal(CARRIER_SCORECARD_VERSION),
@@ -61,7 +69,7 @@ export const carrierScorecardNormalizedSchema = z.object({
     confidence: z.number().min(0).max(1),
   }).strict(),
   categories: z.array(z.object({
-    id: z.enum(CATEGORY_IDS),
+    id: z.string(),
     label: z.string(),
     max_score: z.literal(5),
     status: z.enum(CATEGORY_STATUS),
@@ -72,7 +80,7 @@ export const carrierScorecardNormalizedSchema = z.object({
   }).strict()),
   issues: z.array(z.object({
     severity: z.enum(ISSUE_SEVERITY),
-    category_id: z.enum(CATEGORY_IDS).optional(),
+    category_id: z.string().optional(),
     title: z.string(),
     description: z.string(),
   }).strict()),
@@ -85,7 +93,26 @@ export const carrierScorecardNormalizedSchema = z.object({
 }).strict();
 
 export type CarrierScorecardAuditResult = z.infer<typeof carrierScorecardNormalizedSchema>;
-type CarrierScorecardRaw = z.infer<typeof carrierScorecardRawSchema>;
+
+interface CarrierScorecardRaw {
+  overall: { summary: string; confidence: number };
+  categories: Array<{
+    id: string;
+    status: "pass" | "minor_issues" | "major_issues" | "missing_info";
+    score: number;
+    finding: string;
+    evidence: string[];
+    recommendations: string[];
+  }>;
+  issues: Array<{
+    severity: "low" | "medium" | "high";
+    category_id?: string;
+    title: string;
+    description: string;
+  }>;
+  missing_info: string[];
+  assumptions: string[];
+}
 
 function getGrade(percent: number): CarrierScorecardAuditResult["overall"]["grade"] {
   if (percent >= 90) return "A";
@@ -99,7 +126,7 @@ function normalizePercent(totalScore: number, maxScore: number): number {
   return Math.round((totalScore / maxScore) * 1000) / 10;
 }
 
-function missingCategory(categoryId: CarrierCategoryId) {
+function missingCategory(categoryId: string) {
   return {
     id: categoryId,
     status: "missing_info" as const,
@@ -122,7 +149,7 @@ export function buildCarrierScorecardFallback(params: {
 }): CarrierScorecardAuditResult {
   const cats = params.categories ?? CARRIER_SCORECARD_CATEGORIES;
   const categories = cats.map((c) => ({
-    ...missingCategory(c.id as CarrierCategoryId),
+    ...missingCategory(c.id),
     label: c.label,
     max_score: c.max_score as 5,
   }));
@@ -162,9 +189,9 @@ export function normalizeCarrierScorecard(
   const categoryMap = new Map(parsed.categories.map((c) => [c.id, c]));
 
   const categories = cats.map((base) => {
-    const value = categoryMap.get(base.id as CarrierCategoryId) ?? missingCategory(base.id as CarrierCategoryId);
+    const value = categoryMap.get(base.id) ?? missingCategory(base.id);
     return {
-      id: base.id as CarrierCategoryId,
+      id: base.id,
       label: base.label,
       max_score: base.max_score as 5,
       status: value.status,
@@ -234,7 +261,10 @@ export function parseCarrierScorecardJson(
     });
   }
 
-  const validated = carrierScorecardRawSchema.safeParse(parsed);
+  const schema = buildCarrierScorecardRawSchema(
+    context.categories ?? [...CARRIER_SCORECARD_CATEGORIES]
+  );
+  const validated = schema.safeParse(parsed);
   if (!validated.success) {
     logger.error({ requestId: context.requestId, issues: validated.error.issues }, "Carrier scorecard validation failed");
     return buildCarrierScorecardFallback({
@@ -245,7 +275,7 @@ export function parseCarrierScorecardJson(
     });
   }
 
-  return normalizeCarrierScorecard(validated.data, {
+  return normalizeCarrierScorecard(validated.data as CarrierScorecardRaw, {
     requestId: context.requestId,
     model: context.model,
     validationOk: true,

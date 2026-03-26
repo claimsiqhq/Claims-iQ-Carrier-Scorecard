@@ -219,10 +219,17 @@ export function renderAuditEmail(data: EmailData): string {
   const daColor = scoreColor(da.score_percent);
   const faColor = scoreColor(fa.score_percent);
   const isAllstate = carrier.toLowerCase().includes("allstate");
+  const isWawanesa = carrier.toLowerCase().includes("wawanesa");
 
   const headerTitle = isAllstate
     ? "Allstate Carrier Quality Review"
+    : isWawanesa
+    ? "Wawanesa Vendor Performance Review"
     : "Claims iQ Carrier Audit Result";
+
+  const carrierLabel = isWawanesa
+    ? `${escapeHtml(carrier)} &middot; Vendor Performance Scorecard`
+    : escapeHtml(carrier);
 
   const overallLabel = scoreLabel(oa.overall_score_percent);
   const overallColor = scoreColor(oa.overall_score_percent);
@@ -296,7 +303,7 @@ export function renderAuditEmail(data: EmailData): string {
   <div style="max-width:640px;margin:0 auto;background-color:#ffffff;">
     <div style="background-color:#342A4F;padding:24px 32px;">
       <h1 style="margin:0;font-size:22px;color:#ffffff;font-weight:700;">${escapeHtml(headerTitle)}</h1>
-      <p style="margin:6px 0 0 0;font-size:13px;color:#CDBFF7;">Claim ${escapeHtml(claimNumber)} &mdash; ${escapeHtml(insuredName)} &mdash; ${escapeHtml(carrier)}</p>
+      <p style="margin:6px 0 0 0;font-size:13px;color:#CDBFF7;">Claim ${escapeHtml(claimNumber)} &mdash; ${escapeHtml(insuredName)} &mdash; ${carrierLabel}</p>
     </div>
 
     <div style="padding:24px 32px;">

@@ -6,6 +6,7 @@ export const claims = pgTable("claims", {
   claimNumber: text("claim_number").notNull(), /* PII: claim identifier */
   insuredName: text("insured_name").notNull(), /* PII: personal name — subject to GDPR right-to-erasure */
   carrier: text("carrier"),
+  jobType: text("job_type"),
   dateOfLoss: date("date_of_loss"),
   status: text("status").notNull().default("pending"),
   policyNumber: text("policy_number"), /* PII: policy identifier */
