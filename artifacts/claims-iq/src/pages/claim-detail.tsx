@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react"
+import React, { useState, useCallback, useEffect } from "react"
 import {
   Shield,
   CheckCircle,
@@ -14,6 +14,7 @@ import {
   Notes,
   Camera,
   MediaImage,
+  Refresh,
 } from "iconoir-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -79,6 +80,11 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
   const [emailError, setEmailError] = useState<string | null>(null)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [showReprocessModal, setShowReprocessModal] = useState(false)
+  const [reprocessCarrier, setReprocessCarrier] = useState("")
+  const [reprocessing, setReprocessing] = useState(false)
+  const [reprocessError, setReprocessError] = useState<string | null>(null)
+  const [carrierOptions, setCarrierOptions] = useState<{ key: string; displayName: string }[]>([])
   const [mobileDetailsOpen, setMobileDetailsOpen] = useState(false)
   const [mobileDocOpen, setMobileDocOpen] = useState(false)
   const [docPanelOpen, setDocPanelOpen] = useState(true)
@@ -174,6 +180,46 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
     }
   }, [claimId, emailTo])
 
+  const handleOpenReprocessModal = useCallback(async () => {
+    setShowReprocessModal(true)
+    setReprocessError(null)
+    setReprocessCarrier("")
+    try {
+      const baseUrl = import.meta.env.VITE_API_URL || "/api"
+      const res = await fetch(`${baseUrl}/carriers`, { credentials: "include" })
+      if (res.ok) {
+        const list = await res.json()
+        setCarrierOptions(list)
+      }
+    } catch {}
+  }, [])
+
+  const handleReprocess = useCallback(async () => {
+    if (!reprocessCarrier) return
+    setReprocessing(true)
+    setReprocessError(null)
+    try {
+      const baseUrl = import.meta.env.VITE_API_URL || "/api"
+      const res = await fetch(`${baseUrl}/claims/${claimId}/reprocess`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ carrier: reprocessCarrier }),
+        credentials: "include",
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body.error || "Reprocess failed")
+      }
+      setShowReprocessModal(false)
+      await refetch()
+      queryClient.invalidateQueries({ queryKey: getListClaimsQueryKey() })
+    } catch (err: any) {
+      setReprocessError(err.message || "Failed to reprocess claim")
+    } finally {
+      setReprocessing(false)
+    }
+  }, [claimId, reprocessCarrier, refetch, queryClient])
+
   if (isLoading) {
     return (
       <div className="flex-1 flex items-center justify-center" style={{ backgroundColor: BRAND.offWhite }}>
@@ -232,6 +278,15 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
         </div>
 
         <div className="flex items-center gap-2 md:gap-3 shrink-0">
+          <Button
+            size="sm"
+            className="gap-1 md:gap-2 border-transparent text-xs md:text-sm"
+            style={{ backgroundColor: BRAND.lightPurpleGrey, color: BRAND.deepPurple, fontFamily: FONTS.heading, fontWeight: 600 }}
+            onClick={handleOpenReprocessModal}
+          >
+            <Refresh width={16} height={16} />
+            <span className="hidden sm:inline">Reprocess</span>
+          </Button>
           {audit && (
             <Button
               size="sm"
@@ -756,6 +811,80 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
           </div>
         </div>
       </div>
+
+      {showReprocessModal && (
+        <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center" style={{ backgroundColor: "rgba(52, 42, 79, 0.5)" }} onClick={() => setShowReprocessModal(false)} role="dialog" aria-label="Reprocess claim">
+          <div className="w-full md:max-w-md rounded-t-xl md:rounded-xl shadow-2xl flex flex-col overflow-hidden" style={{ backgroundColor: BRAND.white }} onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-4 shrink-0" style={{ borderBottom: `1px solid ${BRAND.greyLavender}` }}>
+              <h3 className="text-lg font-bold flex items-center gap-2" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
+                <Refresh width={20} height={20} style={{ color: BRAND.purple }} />
+                Reprocess Claim
+              </h3>
+              <button onClick={() => setShowReprocessModal(false)} className="p-1 rounded hover:opacity-70 transition-opacity" style={{ color: BRAND.purpleSecondary }} aria-label="Close reprocess modal">
+                <Xmark width={20} height={20} />
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              <p className="text-sm" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.body }}>
+                Select a carrier profile to re-audit this claim with that carrier's specific guidelines and scorecard.
+              </p>
+              {claim.carrier && (
+                <div className="text-xs px-3 py-2 rounded" style={{ backgroundColor: BRAND.lightPurpleGrey, color: BRAND.purpleSecondary }}>
+                  Current carrier: <strong style={{ color: BRAND.deepPurple }}>{claim.carrier}</strong>
+                </div>
+              )}
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
+                  Carrier Profile
+                </label>
+                <select
+                  value={reprocessCarrier}
+                  onChange={(e) => setReprocessCarrier(e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-lg border text-sm focus:outline-none focus:ring-2"
+                  style={{ borderColor: BRAND.greyLavender, color: BRAND.deepPurple, fontFamily: FONTS.body, backgroundColor: BRAND.white }}
+                >
+                  <option value="">Select a carrier...</option>
+                  {carrierOptions.map((c) => (
+                    <option key={c.key} value={c.displayName}>{c.displayName}</option>
+                  ))}
+                </select>
+              </div>
+              {reprocessError && (
+                <p className="text-sm text-red-600">{reprocessError}</p>
+              )}
+              <div className="flex gap-3 pt-1">
+                <Button
+                  size="sm"
+                  className="flex-1 border-transparent"
+                  style={{ backgroundColor: BRAND.lightPurpleGrey, color: BRAND.purpleSecondary, fontFamily: FONTS.heading }}
+                  onClick={() => setShowReprocessModal(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  className="flex-1 text-white border-transparent gap-2"
+                  style={{ backgroundColor: reprocessCarrier ? BRAND.purple : BRAND.greyLavender, color: reprocessCarrier ? "#fff" : BRAND.purpleSecondary, fontFamily: FONTS.heading, fontWeight: 600 }}
+                  onClick={handleReprocess}
+                  disabled={!reprocessCarrier || reprocessing}
+                >
+                  {reprocessing ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: "#fff", borderTopColor: "transparent" }} />
+                      Processing...
+                    </>
+                  ) : (
+                    <>
+                      <Refresh width={16} height={16} />
+                      Reprocess
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showEmailModal && (
         <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center" style={{ backgroundColor: "rgba(52, 42, 79, 0.5)" }} onClick={() => { setShowEmailModal(false); setEmailPreviewHtml(null) }} role="dialog" aria-label="Email scorecard">

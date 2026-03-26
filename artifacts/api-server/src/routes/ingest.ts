@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { randomUUID } from "crypto";
 import { db } from "@workspace/db";
-import { claims, documents } from "@workspace/db";
+import { claims, documents, audits } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { uploadFile, downloadFile, fileExists } from "../lib/supabaseStorage";
 import { parseClaimFromText } from "../services/ingest";
@@ -255,6 +255,87 @@ router.post("/claims/:id/retry", requireAuth, async (req, res) => {
   } catch (err) {
     logger.error({ err }, "Retry endpoint error");
     res.status(500).json({ error: "Failed to retry claim processing" });
+  }
+});
+
+router.post("/claims/:id/reprocess", requireAuth, async (req, res) => {
+  try {
+    const id = req.params.id as string;
+    if (!UUID_RE.test(id)) {
+      res.status(400).json({ error: "Invalid claim ID format" });
+      return;
+    }
+
+    const { carrier } = req.body as { carrier?: string };
+    if (!carrier || typeof carrier !== "string" || carrier.trim().length === 0) {
+      res.status(400).json({ error: "carrier is required" });
+      return;
+    }
+
+    const [claim] = await db.select().from(claims).where(eq(claims.id, id));
+    if (!claim) {
+      res.status(404).json({ error: "Claim not found" });
+      return;
+    }
+
+    if (claim.status === "processing") {
+      res.status(409).json({ error: "Claim is already being processed" });
+      return;
+    }
+
+    const claimDocs = await db.select().from(documents).where(eq(documents.claimId, id));
+    const doc = claimDocs.find((d) => d.type === "claim_file" && d.fileUrl);
+    if (!doc || !doc.fileUrl) {
+      res.status(400).json({ error: "No document file found for this claim" });
+      return;
+    }
+
+    const storagePath = doc.fileUrl;
+    const check = await fileExists(storagePath);
+    if (!check.exists) {
+      if (check.error) {
+        logger.warn({ claimId: id, storagePath, storageError: check.error }, "Reprocess: storage check failed");
+        res.status(500).json({ error: "Could not verify file in storage — please try again" });
+      } else {
+        res.status(400).json({ error: "Original file not found in storage — please re-upload the claim" });
+      }
+      return;
+    }
+
+    let fileBuffer: Buffer;
+    try {
+      fileBuffer = await downloadFile(storagePath);
+    } catch (dlErr) {
+      logger.error({ err: dlErr, claimId: id }, "Reprocess: failed to download file from storage");
+      res.status(500).json({ error: "Failed to download file from storage" });
+      return;
+    }
+
+    const trimmedCarrier = carrier.trim();
+
+    await db.delete(audits).where(eq(audits.claimId, id));
+
+    await db.update(claims).set({
+      status: "processing",
+      carrier: trimmedCarrier,
+      summary: null,
+      insuredName: "Processing…",
+    }).where(eq(claims.id, id));
+
+    const meta = doc.metadata as Record<string, unknown> | null;
+    const fileName = (meta?.fileName as string) || "claim.pdf";
+    const contentType = (meta?.contentType as string) || "application/pdf";
+
+    logger.info({ claimId: id, carrier: trimmedCarrier, storagePath, fileName }, "Reprocess: re-processing with new carrier");
+
+    res.status(202).json({ status: "processing", claimId: id, carrier: trimmedCarrier });
+
+    processInBackground(id, doc.id, fileBuffer, fileName, contentType, storagePath, trimmedCarrier).catch((err) => {
+      logger.error({ err, claimId: id }, "Reprocess: background processing crashed unexpectedly");
+    });
+  } catch (err) {
+    logger.error({ err }, "Reprocess endpoint error");
+    res.status(500).json({ error: "Failed to reprocess claim" });
   }
 });
 
