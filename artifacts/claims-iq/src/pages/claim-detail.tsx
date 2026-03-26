@@ -485,7 +485,12 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
               </Card>
             )}
 
-            {audit && (
+            {audit && (() => {
+              const isAllstate = (claim.carrier || "").toLowerCase().includes("allstate")
+              const headerTitle = isAllstate ? "Allstate Quality Review" : "Carrier Audit Score"
+              const totalQuestions = failedCount + partialCount + passedCount
+
+              return (
               <>
                 <div className="flex items-center justify-end gap-2 px-1">
                   <Checkbox
@@ -494,7 +499,7 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
                     onCheckedChange={(checked) => setHideScores(checked === true)}
                   />
                   <label htmlFor="hide-scores" className="text-xs font-medium cursor-pointer select-none" style={{ color: BRAND.purpleSecondary }}>
-                    Hide numeric scores
+                    {hideScores ? "Show numeric scores" : "Hide numeric scores"}
                   </label>
                 </div>
 
@@ -520,25 +525,45 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
                           </div>
                         </div>
                         <div>
-                          <h2 className="text-xl font-bold mb-2" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>Carrier Audit Score</h2>
-                          <div className="grid grid-cols-2 gap-x-6 gap-y-1 mb-3">
-                            <div>
-                              {hideScores ? (
-                                <span className="text-lg font-bold" style={{ color: getScoreColor(daScore).text, fontFamily: FONTS.heading }}>{scoreLabel(daScore)}</span>
-                              ) : (
-                                <span className="text-lg font-bold" style={{ color: getScoreColor(daScore).text, fontFamily: FONTS.mono }}>{daScore}%</span>
+                          <h2 className="text-xl font-bold mb-2" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>{headerTitle}</h2>
+                          {isAllstate ? (
+                            <div className="space-y-2 mb-3">
+                              <div className="grid grid-cols-2 gap-x-6 gap-y-1">
+                                <div>
+                                  <span className="text-lg font-bold" style={{ color: getScoreColor(daScore).text, fontFamily: FONTS.heading }}>{scoreLabel(daScore)}</span>
+                                  <span className="text-xs block" style={{ color: BRAND.purpleSecondary }}>Desk Adjuster ({daCategories.length} categories)</span>
+                                </div>
+                                <div>
+                                  <span className="text-lg font-bold" style={{ color: getScoreColor(faScore).text, fontFamily: FONTS.heading }}>{scoreLabel(faScore)}</span>
+                                  <span className="text-xs block" style={{ color: BRAND.purpleSecondary }}>Field Adjuster ({faCategories.length} categories)</span>
+                                </div>
+                              </div>
+                              {totalQuestions > 0 && (
+                                <p className="text-xs" style={{ color: BRAND.purpleSecondary }}>
+                                  {totalQuestions} questions evaluated &middot; {passedCount} passed &middot; {partialCount} partial &middot; {failedCount} failed
+                                </p>
                               )}
-                              <span className="text-xs block" style={{ color: BRAND.purpleSecondary }}>DA Score{hideScores ? "" : ` (${daAwarded}/${daPossible})`}</span>
                             </div>
-                            <div>
-                              {hideScores ? (
-                                <span className="text-lg font-bold" style={{ color: getScoreColor(faScore).text, fontFamily: FONTS.heading }}>{scoreLabel(faScore)}</span>
-                              ) : (
-                                <span className="text-lg font-bold" style={{ color: getScoreColor(faScore).text, fontFamily: FONTS.mono }}>{faScore}%</span>
-                              )}
-                              <span className="text-xs block" style={{ color: BRAND.purpleSecondary }}>FA Score{hideScores ? "" : ` (${faAwarded}/${faPossible})`}</span>
+                          ) : (
+                            <div className="grid grid-cols-2 gap-x-6 gap-y-1 mb-3">
+                              <div>
+                                {hideScores ? (
+                                  <span className="text-lg font-bold" style={{ color: getScoreColor(daScore).text, fontFamily: FONTS.heading }}>{scoreLabel(daScore)}</span>
+                                ) : (
+                                  <span className="text-lg font-bold" style={{ color: getScoreColor(daScore).text, fontFamily: FONTS.mono }}>{daScore}%</span>
+                                )}
+                                <span className="text-xs block" style={{ color: BRAND.purpleSecondary }}>DA Score{hideScores ? "" : ` (${daAwarded}/${daPossible})`}</span>
+                              </div>
+                              <div>
+                                {hideScores ? (
+                                  <span className="text-lg font-bold" style={{ color: getScoreColor(faScore).text, fontFamily: FONTS.heading }}>{scoreLabel(faScore)}</span>
+                                ) : (
+                                  <span className="text-lg font-bold" style={{ color: getScoreColor(faScore).text, fontFamily: FONTS.mono }}>{faScore}%</span>
+                                )}
+                                <span className="text-xs block" style={{ color: BRAND.purpleSecondary }}>FA Score{hideScores ? "" : ` (${faAwarded}/${faPossible})`}</span>
+                              </div>
                             </div>
-                          </div>
+                          )}
                           <div className="flex flex-wrap gap-2">
                             <Badge className="shadow-none border" style={{ backgroundColor: readinessBg(readiness), color: readinessColor(readiness), borderColor: readinessBg(readiness) }}>
                               {readiness || "N/A"}
@@ -555,7 +580,7 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
                         </div>
                       </div>
 
-                      {hasNewFormat && (
+                      {hasNewFormat && !isAllstate && (
                         <div className="flex gap-4 text-xs mt-2 md:mt-0 md:ml-auto" style={{ color: BRAND.purpleSecondary }}>
                           <div className="text-center">
                             <span className="text-lg font-bold block" style={{ color: "#dc2626", fontFamily: FONTS.mono }}>{failedCount}</span>
@@ -578,25 +603,27 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
                 {hasNewFormat && (
                   <>
                     <ScorecardPanel
-                      title="Desk Adjuster Scorecard"
+                      title={isAllstate ? "Allstate DA Scorecard" : "Desk Adjuster Scorecard"}
                       icon={<Shield width={18} height={18} />}
                       scorePct={daScore}
                       awarded={daAwarded}
                       possible={daPossible}
                       categories={daCategories}
                       accentColor={BRAND.purple}
-                      hideScores={hideScores}
+                      hideScores={isAllstate ? true : hideScores}
+                      carrierMode={isAllstate ? "allstate" : "default"}
                     />
 
                     <ScorecardPanel
-                      title="Field Adjuster Scorecard"
+                      title={isAllstate ? "Allstate FA Scorecard" : "Field Adjuster Scorecard"}
                       icon={<PageSearch width={18} height={18} />}
                       scorePct={faScore}
                       awarded={faAwarded}
                       possible={faPossible}
                       categories={faCategories}
                       accentColor={BRAND.gold}
-                      hideScores={hideScores}
+                      hideScores={isAllstate ? true : hideScores}
+                      carrierMode={isAllstate ? "allstate" : "default"}
                     />
                   </>
                 )}
@@ -634,7 +661,7 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
                   <VisionAnalysisPanel vision={visionAnalysis} />
                 )}
               </>
-            )}
+            )})()}
 
             {!audit && (
               <Card className="shadow-sm" style={{ borderColor: BRAND.greyLavender, backgroundColor: BRAND.white }}>
@@ -821,7 +848,7 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
   )
 }
 
-function ScorecardPanel({ title, icon, scorePct, awarded, possible, categories, accentColor, hideScores = false }: {
+function ScorecardPanel({ title, icon, scorePct, awarded, possible, categories, accentColor, hideScores = false, carrierMode = "default" }: {
   title: string
   icon: React.ReactNode
   scorePct: number
@@ -830,7 +857,9 @@ function ScorecardPanel({ title, icon, scorePct, awarded, possible, categories, 
   categories: ScorecardCategory[]
   accentColor: string
   hideScores?: boolean
+  carrierMode?: "allstate" | "default"
 }) {
+  const isAllstate = carrierMode === "allstate"
   const [expanded, setExpanded] = useState(true)
   const colors = getScoreColor(scorePct)
 
@@ -848,8 +877,13 @@ function ScorecardPanel({ title, icon, scorePct, awarded, possible, categories, 
             {title}
           </span>
           <Badge className="shadow-none border" style={{ backgroundColor: colors.bg, color: colors.text, borderColor: colors.bg }}>
-            {hideScores ? scoreLabel(scorePct) : `${scorePct}% (${awarded}/${possible})`}
+            {(hideScores || isAllstate) ? scoreLabel(scorePct) : `${scorePct}% (${awarded}/${possible})`}
           </Badge>
+          {isAllstate && (
+            <span className="text-[10px] ml-1" style={{ color: BRAND.purpleSecondary }}>
+              {categories.reduce((sum, c) => sum + c.questions.length, 0)} questions
+            </span>
+          )}
         </div>
         <NavArrowDown
           width={16} height={16}
