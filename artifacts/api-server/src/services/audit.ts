@@ -48,6 +48,7 @@ export interface AuditResponse {
 export interface RootIssueGroupOutput {
   root_issue: string;
   affects: string[];
+  issue: string;
   fix: string;
   impact: string;
   evidence_locations: string[];
@@ -191,8 +192,9 @@ export async function runFinalAudit(
   const rootIssueGroupsOutput: RootIssueGroupOutput[] = rootGroups.map((g) => ({
     root_issue: g.root_issue,
     affects: g.affects,
-    fix: g.fix,
-    impact: g.impact,
+    issue: g.primary.issue || g.all.map((q) => q.issue).filter(Boolean).join("; "),
+    fix: g.fix || g.all.map((q) => q.fix).filter(Boolean).join("; "),
+    impact: g.impact || g.all.map((q) => q.impact).filter(Boolean).join("; "),
     evidence_locations: g.evidence_locations,
   }));
 

@@ -78,6 +78,7 @@ const AuditIssue = zod.object({
 const RootIssueGroup = zod.object({
   root_issue: zod.string(),
   affects: zod.array(zod.string()),
+  issue: zod.string().optional(),
   fix: zod.string(),
   impact: zod.string(),
   evidence_locations: zod.array(zod.string()).optional(),

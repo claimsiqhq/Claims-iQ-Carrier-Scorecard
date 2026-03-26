@@ -106,6 +106,7 @@ export interface AuditIssue {
 export interface RootIssueGroup {
   root_issue: string;
   affects: string[];
+  issue?: string;
   fix: string;
   impact: string;
   evidence_locations?: string[];

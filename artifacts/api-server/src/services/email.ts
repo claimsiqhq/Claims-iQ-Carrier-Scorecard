@@ -76,11 +76,13 @@ function buildRootIssueSection(r: AuditResponse): string {
 
   const cards = r.root_issue_groups.map((g) => {
     const affectsStr = g.affects.map((a) => escapeHtml(a.replace(/_/g, " "))).join(", ");
+    const showAffects = g.affects.length > 1 || (g.affects.length === 1 && g.affects[0] !== g.root_issue);
     return `<div style="margin-bottom:12px;padding:12px 16px;border-left:3px solid #dc2626;background-color:#fef2f2;border-radius:4px;">
       <p style="margin:0 0 4px 0;font-size:14px;font-weight:700;color:#342A4F;">${escapeHtml(g.root_issue.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase()))}</p>
-      <p style="margin:0 0 4px 0;font-size:12px;color:#6b7280;">Affects: ${affectsStr}</p>
+      ${"issue" in g && (g as any).issue ? `<p style="margin:0 0 4px 0;font-size:13px;color:#374151;">${escapeHtml((g as any).issue)}</p>` : ""}
       ${g.impact ? `<p style="margin:0 0 4px 0;font-size:13px;color:#dc2626;"><strong>Impact:</strong> ${escapeHtml(g.impact)}</p>` : ""}
       ${g.fix ? `<p style="margin:0 0 4px 0;font-size:13px;color:#16a34a;"><strong>Fix:</strong> ${escapeHtml(g.fix)}</p>` : ""}
+      ${showAffects ? `<p style="margin:0 0 4px 0;font-size:12px;color:#6b7280;">Affects ${g.affects.length} checks: ${affectsStr}</p>` : ""}
       ${g.evidence_locations.length > 0 ? `<p style="margin:0;font-size:11px;color:#6b7280;">Evidence: ${escapeHtml(g.evidence_locations.join(", "))}</p>` : ""}
     </div>`;
   }).join("");

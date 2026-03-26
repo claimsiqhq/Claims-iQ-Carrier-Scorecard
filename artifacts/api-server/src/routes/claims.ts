@@ -200,6 +200,7 @@ router.get("/claims/:id", requireAuth, async (req, res) => {
         rootIssueGroups: rawRootIssueGroups.map((g: any) => ({
           root_issue: g.root_issue ?? "",
           affects: Array.isArray(g.affects) ? g.affects : [],
+          issue: g.issue ?? "",
           fix: g.fix ?? "",
           impact: g.impact ?? "",
           evidence_locations: Array.isArray(g.evidence_locations) ? g.evidence_locations : [],

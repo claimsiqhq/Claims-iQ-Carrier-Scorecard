@@ -943,6 +943,13 @@ function ScorecardPanel({ title, icon, scorePct, awarded, possible, categories, 
 function RootIssuePanel({ groups }: { groups: any[] }) {
   const [expanded, setExpanded] = useState(true)
 
+  const affectsAreDifferent = (g: any) => {
+    const affects = (g.affects || []) as string[]
+    if (affects.length <= 1 && affects[0] === g.root_issue) return false
+    if (affects.length <= 1) return true
+    return true
+  }
+
   return (
     <Card className="shadow-sm overflow-hidden" style={{ borderColor: BRAND.greyLavender, backgroundColor: BRAND.white }}>
       <button
@@ -969,21 +976,30 @@ function RootIssuePanel({ groups }: { groups: any[] }) {
           <div className="pt-3 space-y-3">
             {groups.map((g: any, i: number) => (
               <Card key={i} className="shadow-sm" style={{ borderColor: "#fca5a5", backgroundColor: BRAND.white, borderLeftWidth: 3, borderLeftColor: "#dc2626" }}>
-                <CardContent className="p-4">
-                  <h4 className="text-sm font-bold mb-2" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
+                <CardContent className="p-4 space-y-2">
+                  <h4 className="text-sm font-bold" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
                     {humanize(g.root_issue)}
                   </h4>
-                  <p className="text-xs mb-2" style={{ color: BRAND.purpleSecondary }}>
-                    Affects: {(g.affects || []).map((a: string) => humanize(a)).join(", ")}
-                  </p>
-                  {g.impact && (
-                    <p className="text-sm leading-relaxed mb-1" style={{ color: "#dc2626", fontFamily: FONTS.body }}>
-                      <strong>Impact:</strong> {g.impact}
+                  {g.issue && (
+                    <p className="text-sm leading-relaxed" style={{ color: BRAND.deepPurple, fontFamily: FONTS.body }}>
+                      {g.issue}
                     </p>
                   )}
+                  {g.impact && (
+                    <div className="flex gap-2 items-start text-sm leading-relaxed" style={{ color: "#b91c1c", fontFamily: FONTS.body }}>
+                      <span className="font-semibold shrink-0">Impact:</span>
+                      <span>{g.impact}</span>
+                    </div>
+                  )}
                   {g.fix && (
-                    <p className="text-sm leading-relaxed mb-1" style={{ color: "#16a34a", fontFamily: FONTS.body }}>
-                      <strong>Fix:</strong> {g.fix}
+                    <div className="flex gap-2 items-start text-sm leading-relaxed" style={{ color: "#15803d", fontFamily: FONTS.body }}>
+                      <span className="font-semibold shrink-0">Fix:</span>
+                      <span>{g.fix}</span>
+                    </div>
+                  )}
+                  {affectsAreDifferent(g) && (
+                    <p className="text-xs pt-1" style={{ color: BRAND.purpleSecondary }}>
+                      Affects {(g.affects || []).length > 1 ? `${g.affects.length} audit checks: ` : ""}{(g.affects as string[]).map((a: string) => humanize(a)).join(", ")}
                     </p>
                   )}
                   {g.evidence_locations && g.evidence_locations.length > 0 && (
