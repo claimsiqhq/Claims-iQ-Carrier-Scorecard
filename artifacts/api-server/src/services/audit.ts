@@ -179,6 +179,7 @@ export async function runFinalAudit(
     qResult.denial_letter_applicable,
     validation.checks.length,
     validation.checks,
+    { da: qResult.da_questions, fa: qResult.fa_questions },
   );
 
   const issues = buildIssues(scoring);

@@ -11,6 +11,8 @@ export interface QuestionAuditOutput {
   da_results: QuestionResult[];
   fa_results: QuestionResult[];
   executive_summary: string;
+  da_questions: Question[];
+  fa_questions: Question[];
 }
 
 function normalizeResult(questions: Question[], rawResults: any[]): QuestionResult[] {
@@ -84,6 +86,8 @@ function buildFallback(daQuestions: Question[], faQuestions: Question[]): Questi
       confidence: 0,
     })),
     executive_summary: "The audit could not be completed successfully.",
+    da_questions: daQuestions,
+    fa_questions: faQuestions,
   };
 }
 
@@ -165,5 +169,5 @@ export async function runQuestionAudit(reportText: string, carrier?: string): Pr
     na: allResults.filter((r) => r.answer === "NOT_APPLICABLE").length,
   }, "DA/FA question audit complete");
 
-  return { denial_letter_applicable: denialApplicable, da_results: daResults, fa_results: faResults, executive_summary: executiveSummary };
+  return { denial_letter_applicable: denialApplicable, da_results: daResults, fa_results: faResults, executive_summary: executiveSummary, da_questions: daQuestions, fa_questions: faQuestions };
 }
