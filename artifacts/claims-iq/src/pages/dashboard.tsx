@@ -1,6 +1,22 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import { useLocation } from "wouter"
 import { BRAND, FONTS } from "@/lib/brand"
+
+function scoreLabel(pct: number): string {
+  if (pct >= 90) return "Excellent"
+  if (pct >= 75) return "Good"
+  if (pct >= 60) return "Fair"
+  if (pct >= 40) return "Poor"
+  return "Critical"
+}
+
+function scoreColor(pct: number): string {
+  if (pct >= 90) return "#16a34a"
+  if (pct >= 75) return "#84cc16"
+  if (pct >= 60) return "#ca8a04"
+  if (pct >= 40) return "#ea580c"
+  return "#dc2626"
+}
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -717,7 +733,7 @@ export default function DashboardPage() {
                     <SortableTh label="Status" sortKey="status" currentKey={sortKey} dir={sortDir} onSort={handleSort} />
                     <SortableTh label="Date of Loss" sortKey="dateOfLoss" currentKey={sortKey} dir={sortDir} onSort={handleSort} />
                     <SortableTh label="Received Date" sortKey="createdAt" currentKey={sortKey} dir={sortDir} onSort={handleSort} />
-                    <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.heading }}>Score</th>
+                    <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.heading }}>Rating</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -748,11 +764,12 @@ export default function DashboardPage() {
                       </td>
                       <td className="px-4 py-3">
                         {c.overallScore !== null ? (
-                          <span className="text-sm font-bold" style={{
-                            color: c.overallScore >= 80 ? "#16a34a" : c.overallScore >= 60 ? BRAND.gold : "#dc2626",
-                            fontFamily: FONTS.mono,
+                          <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{
+                            color: scoreColor(c.overallScore),
+                            backgroundColor: `${scoreColor(c.overallScore)}14`,
+                            fontFamily: FONTS.heading,
                           }}>
-                            {c.overallScore}
+                            {scoreLabel(c.overallScore)}
                           </span>
                         ) : (
                           <span className="text-sm" style={{ color: BRAND.purpleSecondary }}>—</span>
