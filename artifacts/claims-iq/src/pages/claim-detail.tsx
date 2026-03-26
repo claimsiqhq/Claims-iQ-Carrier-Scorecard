@@ -852,6 +852,114 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
   )
 }
 
+function CollapsibleCategory({ cat, hideScores, defaultExpanded }: {
+  cat: ScorecardCategory
+  hideScores: boolean
+  defaultExpanded: boolean
+}) {
+  const [catExpanded, setCatExpanded] = useState(defaultExpanded)
+  const catPct = cat.points_possible > 0 ? Math.round((cat.points_awarded / cat.points_possible) * 100) : 0
+  const catColors = getScoreColor(catPct)
+  const hasIssues = cat.questions.some((q: any) => q.answer === "FAIL" || q.answer === "PARTIAL")
+  const questionCount = cat.questions.length
+  const passCount = cat.questions.filter((q: any) => q.answer === "PASS").length
+  const naCount = cat.questions.filter((q: any) => q.answer === "NOT_APPLICABLE").length
+
+  return (
+    <div key={cat.category_key}>
+      <button
+        className="w-full flex items-center justify-between py-2 hover:bg-black/[0.02] transition-colors rounded px-1 -mx-1"
+        onClick={() => setCatExpanded(!catExpanded)}
+      >
+        <div className="flex items-center gap-2">
+          <NavArrowDown
+            width={12} height={12}
+            className="transition-transform duration-200 shrink-0"
+            style={{ color: BRAND.purpleSecondary, transform: catExpanded ? "rotate(180deg)" : "rotate(0deg)" }}
+          />
+          <span className="text-xs font-bold uppercase tracking-wider" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
+            {cat.category_name}
+          </span>
+          {!catExpanded && (
+            <span className="text-[10px]" style={{ color: BRAND.purpleSecondary }}>
+              {questionCount}q{passCount > 0 ? ` · ${passCount} pass` : ""}{naCount > 0 ? ` · ${naCount} n/a` : ""}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          {hasIssues && !catExpanded && (
+            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded" style={{ backgroundColor: "#fef2f2", color: "#dc2626" }}>
+              ISSUES
+            </span>
+          )}
+          {hideScores ? (
+            <span className="text-xs font-bold" style={{ color: catColors.text, fontFamily: FONTS.heading }}>
+              {scoreLabel(catPct)}
+            </span>
+          ) : (
+            <span className="text-sm font-bold" style={{ color: catColors.text, fontFamily: FONTS.mono }}>
+              {cat.points_awarded}<span className="text-xs font-normal" style={{ color: BRAND.purpleSecondary }}>/{cat.points_possible}</span>
+            </span>
+          )}
+        </div>
+      </button>
+
+      <div className="w-full h-1.5 rounded-full overflow-hidden mb-1" style={{ backgroundColor: catColors.bg }}>
+        <div className="h-full rounded-full transition-all duration-500" style={{ width: `${catPct}%`, backgroundColor: catColors.bar }} />
+      </div>
+
+      {catExpanded && (
+        <div className="space-y-2 pl-4 mt-2 mb-1">
+          {cat.questions.map((q) => {
+            const badge = answerBadge(q.answer)
+            const isNA = q.answer === "NOT_APPLICABLE"
+            const showDetails = q.answer !== "PASS" && !isNA
+            return (
+              <div key={q.id} className="flex items-start gap-2" style={isNA ? { opacity: 0.5 } : undefined}>
+                <span className="inline-flex items-center justify-center text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 mt-0.5" style={{ backgroundColor: badge.bg, color: badge.color, minWidth: "40px", textAlign: "center" }}>
+                  {badge.label}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium" style={{ color: isNA ? BRAND.purpleSecondary : BRAND.deepPurple, fontFamily: FONTS.body }}>
+                      {humanize(q.id)}
+                    </span>
+                    {!hideScores && (
+                      <span className="text-[10px] font-bold ml-2 shrink-0" style={{ color: badge.color, fontFamily: FONTS.mono }}>
+                        {q.points_awarded}/{q.points_possible}
+                      </span>
+                    )}
+                  </div>
+                  {showDetails && q.fix && (
+                    <p className="text-[11px] mt-0.5 leading-relaxed" style={{ color: "#16a34a", fontFamily: FONTS.body }}>
+                      <strong>Fix:</strong> {q.fix}
+                    </p>
+                  )}
+                  {showDetails && q.issue && (
+                    <p className="text-[11px] mt-0.5 leading-relaxed italic" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.body }}>
+                      {q.issue}
+                    </p>
+                  )}
+                  {showDetails && q.impact && (
+                    <p className="text-[10px] mt-0.5 leading-relaxed" style={{ color: "#dc2626", fontFamily: FONTS.body }}>
+                      <strong>Impact:</strong> {q.impact}
+                    </p>
+                  )}
+                  {showDetails && q.evidence_locations && q.evidence_locations.length > 0 && (
+                    <p className="text-[10px] mt-0.5 leading-relaxed pl-2" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.mono, borderLeft: `2px solid ${BRAND.greyLavender}` }}>
+                      {q.evidence_locations.join(", ")}
+                    </p>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function ScorecardPanel({ title, icon, scorePct, awarded, possible, categories, accentColor, hideScores = false, carrierMode = "default" }: {
   title: string
   icon: React.ReactNode
@@ -866,6 +974,7 @@ function ScorecardPanel({ title, icon, scorePct, awarded, possible, categories, 
   const isAllstate = carrierMode === "allstate"
   const [expanded, setExpanded] = useState(true)
   const colors = getScoreColor(scorePct)
+  const effectiveHide = hideScores || isAllstate
 
   return (
     <Card className="shadow-sm overflow-hidden" style={{ borderColor: BRAND.greyLavender, backgroundColor: BRAND.white }}>
@@ -881,7 +990,7 @@ function ScorecardPanel({ title, icon, scorePct, awarded, possible, categories, 
             {title}
           </span>
           <Badge className="shadow-none border" style={{ backgroundColor: colors.bg, color: colors.text, borderColor: colors.bg }}>
-            {(hideScores || isAllstate) ? scoreLabel(scorePct) : `${scorePct}% (${awarded}/${possible})`}
+            {effectiveHide ? scoreLabel(scorePct) : `${scorePct}% (${awarded}/${possible})`}
           </Badge>
           {isAllstate && (
             <span className="text-[10px] ml-1" style={{ color: BRAND.purpleSecondary }}>
@@ -896,79 +1005,17 @@ function ScorecardPanel({ title, icon, scorePct, awarded, possible, categories, 
         />
       </button>
       {expanded && (
-        <div className="px-5 pb-5 space-y-5" style={{ borderTop: `1px solid ${BRAND.greyLavender}` }}>
-          <div className="pt-3 space-y-5">
+        <div className="px-5 pb-5 space-y-3" style={{ borderTop: `1px solid ${BRAND.greyLavender}` }}>
+          <div className="pt-3 space-y-3">
             {categories.map((cat) => {
-              const catPct = cat.points_possible > 0 ? Math.round((cat.points_awarded / cat.points_possible) * 100) : 0
-              const catColors = getScoreColor(catPct)
-
+              const allPassing = cat.questions.every((q: any) => q.answer === "PASS" || q.answer === "NOT_APPLICABLE")
               return (
-                <div key={cat.category_key}>
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-bold uppercase tracking-wider" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
-                      {cat.category_name}
-                    </span>
-                    {hideScores ? (
-                      <span className="text-xs font-bold" style={{ color: catColors.text, fontFamily: FONTS.heading }}>
-                        {scoreLabel(catPct)}
-                      </span>
-                    ) : (
-                      <span className="text-sm font-bold" style={{ color: catColors.text, fontFamily: FONTS.mono }}>
-                        {cat.points_awarded}<span className="text-xs font-normal" style={{ color: BRAND.purpleSecondary }}>/{cat.points_possible}</span>
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="w-full h-1.5 rounded-full overflow-hidden mb-2" style={{ backgroundColor: catColors.bg }}>
-                    <div className="h-full rounded-full transition-all duration-500" style={{ width: `${catPct}%`, backgroundColor: catColors.bar }} />
-                  </div>
-
-                  <div className="space-y-2 pl-4">
-                    {cat.questions.map((q) => {
-                      const badge = answerBadge(q.answer)
-                      const showDetails = q.answer !== "PASS" && q.answer !== "NOT_APPLICABLE"
-                      return (
-                        <div key={q.id} className="flex items-start gap-2">
-                          <span className="inline-flex items-center justify-center text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 mt-0.5" style={{ backgroundColor: badge.bg, color: badge.color, minWidth: "40px", textAlign: "center" }}>
-                            {badge.label}
-                          </span>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center justify-between">
-                              <span className="text-xs font-medium" style={{ color: BRAND.deepPurple, fontFamily: FONTS.body }}>
-                                {humanize(q.id)}
-                              </span>
-                              {!hideScores && (
-                                <span className="text-[10px] font-bold ml-2 shrink-0" style={{ color: badge.color, fontFamily: FONTS.mono }}>
-                                  {q.points_awarded}/{q.points_possible}
-                                </span>
-                              )}
-                            </div>
-                            {showDetails && q.fix && (
-                              <p className="text-[11px] mt-0.5 leading-relaxed" style={{ color: "#16a34a", fontFamily: FONTS.body }}>
-                                <strong>Fix:</strong> {q.fix}
-                              </p>
-                            )}
-                            {showDetails && q.issue && (
-                              <p className="text-[11px] mt-0.5 leading-relaxed italic" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.body }}>
-                                {q.issue}
-                              </p>
-                            )}
-                            {showDetails && q.impact && (
-                              <p className="text-[10px] mt-0.5 leading-relaxed" style={{ color: "#dc2626", fontFamily: FONTS.body }}>
-                                <strong>Impact:</strong> {q.impact}
-                              </p>
-                            )}
-                            {showDetails && q.evidence_locations && q.evidence_locations.length > 0 && (
-                              <p className="text-[10px] mt-0.5 leading-relaxed pl-2" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.mono, borderLeft: `2px solid ${BRAND.greyLavender}` }}>
-                                {q.evidence_locations.join(", ")}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
+                <CollapsibleCategory
+                  key={cat.category_key}
+                  cat={cat}
+                  hideScores={effectiveHide}
+                  defaultExpanded={!allPassing}
+                />
               )
             })}
           </div>
