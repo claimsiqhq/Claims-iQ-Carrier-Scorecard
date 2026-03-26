@@ -4,10 +4,18 @@ import { BRAND, FONTS } from "@/lib/brand"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Separator } from "@/components/ui/separator"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog"
 import { useListClaims } from "@workspace/api-client-react"
 import { useLocation } from "wouter"
 import { useQueryClient } from "@tanstack/react-query"
-import { Checkbox } from "@/components/ui/checkbox"
 import {
   PageEdit,
   CloudUpload,
@@ -52,6 +60,8 @@ const statusColors: Record<string, { bg: string; color: string }> = {
   review: { bg: BRAND.lightPurpleGrey, color: BRAND.purple },
 }
 
+const CARRIER_OPTIONS = ["Allstate", "State Farm", "USAA", "Liberty Mutual", "Travelers", "Nationwide", "Progressive", "Farmers", "American Family", "Erie"]
+
 export default function ClaimsListPage() {
   const { data: claims, isLoading } = useListClaims({
     query: {
@@ -66,8 +76,10 @@ export default function ClaimsListPage() {
   const queryClient = useQueryClient()
   const { toast } = useToast()
 
+  const [modalOpen, setModalOpen] = useState(false)
   const [status, setStatus] = useState<IngestStatus>("idle")
   const [fileName, setFileName] = useState("")
+  const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<IngestResult | null>(null)
   const [dragOver, setDragOver] = useState(false)
@@ -77,25 +89,28 @@ export default function ClaimsListPage() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const baseUrl = import.meta.env.VITE_API_URL || "/api"
 
-  const CARRIER_OPTIONS = ["Allstate", "State Farm", "USAA", "Liberty Mutual", "Travelers", "Nationwide", "Progressive", "Farmers", "American Family", "Erie"]
-
-  const handleFile = useCallback(async (file: File) => {
+  const handleFileSelected = useCallback((file: File) => {
     if (!file.name.toLowerCase().endsWith(".pdf") && file.type !== "application/pdf") {
       setError("Please upload a PDF file.")
-      setStatus("error")
       return
     }
+    setSelectedFile(file)
+    setFileName(file.name)
+    setError(null)
+  }, [])
+
+  const handleUpload = useCallback(async () => {
+    if (!selectedFile) return
 
     setStatus("uploading")
     setError(null)
-    setFileName(file.name)
     setResult(null)
 
     try {
       setStatus("extracting")
 
       const formData = new FormData()
-      formData.append("file", file)
+      formData.append("file", selectedFile)
       if (carrierOverride && selectedCarrier) {
         formData.append("carrier", selectedCarrier)
       }
@@ -138,6 +153,8 @@ export default function ClaimsListPage() {
         setStatus("complete")
         queryClient.invalidateQueries({ queryKey: ["/claims"] })
         toast({ title: "Still processing", description: "The PDF is large and still being analyzed. The list will update automatically when it finishes." })
+        setModalOpen(false)
+        handleReset()
         return
       }
 
@@ -148,27 +165,34 @@ export default function ClaimsListPage() {
       setStatus("error")
       setError(err.message || "Failed to process file")
     }
-  }, [baseUrl, queryClient, carrierOverride, selectedCarrier, toast])
+  }, [selectedFile, baseUrl, queryClient, carrierOverride, selectedCarrier, toast])
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault()
     setDragOver(false)
     const file = e.dataTransfer.files[0]
-    if (file) handleFile(file)
-  }, [handleFile])
+    if (file) handleFileSelected(file)
+  }, [handleFileSelected])
 
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
-    if (file) handleFile(file)
+    if (file) handleFileSelected(file)
     if (e.target) e.target.value = ""
-  }, [handleFile])
+  }, [handleFileSelected])
 
   const handleReset = useCallback(() => {
     setStatus("idle")
     setFileName("")
+    setSelectedFile(null)
     setError(null)
     setResult(null)
+    setCarrierOverride(false)
   }, [])
+
+  const openModal = useCallback(() => {
+    handleReset()
+    setModalOpen(true)
+  }, [handleReset])
 
   const handleRetry = useCallback(async (claimId: string, e: React.MouseEvent) => {
     e.stopPropagation()
@@ -241,27 +265,48 @@ export default function ClaimsListPage() {
     error: error || "Processing failed",
   }
 
+  const handleListDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    setDragOver(false)
+    const file = e.dataTransfer.files[0]
+    if (file) {
+      handleReset()
+      setModalOpen(true)
+      setTimeout(() => handleFileSelected(file), 100)
+    }
+  }, [handleFileSelected, handleReset])
+
   return (
     <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
       <header className="h-14 md:h-16 flex items-center justify-between px-4 md:px-6 shrink-0" style={{ backgroundColor: BRAND.white, borderBottom: `1px solid ${BRAND.greyLavender}` }}>
         <h1 className="text-base md:text-lg font-bold" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
           Claims
         </h1>
-        {status === "idle" && (
-          <Button
-            className="gap-2 text-white text-sm"
-            style={{ backgroundColor: BRAND.purple, fontFamily: FONTS.heading, fontWeight: 600 }}
-            onClick={() => fileInputRef.current?.click()}
-          >
-            <CloudUpload width={16} height={16} />
-            <span className="hidden sm:inline">New Claim</span>
-            <span className="sm:hidden">Upload</span>
-          </Button>
-        )}
+        <Button
+          className="gap-2 text-white text-sm"
+          style={{ backgroundColor: BRAND.purple, fontFamily: FONTS.heading, fontWeight: 600 }}
+          onClick={openModal}
+        >
+          <CloudUpload width={16} height={16} />
+          <span className="hidden sm:inline">New Claim</span>
+          <span className="sm:hidden">Upload</span>
+        </Button>
       </header>
 
-      <div className="flex-1 overflow-y-auto p-4 md:p-6" style={{ backgroundColor: BRAND.offWhite }}>
-        <div className="max-w-4xl mx-auto space-y-4">
+      <Dialog open={modalOpen} onOpenChange={(open) => {
+        if (!open && isBusy) return
+        setModalOpen(open)
+        if (!open) handleReset()
+      }}>
+        <DialogContent className="sm:max-w-[520px]" style={{ backgroundColor: BRAND.white, borderColor: BRAND.greyLavender }}>
+          <DialogHeader>
+            <DialogTitle style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
+              Upload New Claim
+            </DialogTitle>
+            <DialogDescription style={{ color: BRAND.purpleSecondary }}>
+              Upload a claim PDF and optionally select a carrier for targeted analysis.
+            </DialogDescription>
+          </DialogHeader>
 
           <input
             ref={fileInputRef}
@@ -271,181 +316,246 @@ export default function ClaimsListPage() {
             onChange={handleInputChange}
           />
 
-          {(status === "idle" || status === "error") && (
-            <div className="flex items-center gap-3 px-1">
-              <div className="flex items-center gap-2">
-                <Checkbox
-                  id="carrier-override"
-                  checked={carrierOverride}
-                  onCheckedChange={(checked) => setCarrierOverride(checked === true)}
-                />
-                <label htmlFor="carrier-override" className="text-xs font-medium cursor-pointer select-none" style={{ color: BRAND.purpleSecondary }}>
-                  Override carrier
-                </label>
+          {status === "idle" && !selectedFile && (
+            <>
+              <div
+                className="border-2 border-dashed rounded-xl p-6 flex flex-col items-center justify-center text-center transition-all cursor-pointer"
+                style={{
+                  borderColor: dragOver ? BRAND.purple : BRAND.greyLavender,
+                  backgroundColor: dragOver ? BRAND.lightPurpleGrey : BRAND.offWhite,
+                }}
+                onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={handleDrop}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <div className="w-12 h-12 rounded-full flex items-center justify-center mb-3" style={{ backgroundColor: BRAND.lightPurpleGrey }}>
+                  <CloudUpload width={24} height={24} style={{ color: BRAND.purple }} />
+                </div>
+                <p className="text-sm font-semibold mb-1" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
+                  {dragOver ? "Drop it here" : "Drop a PDF here or click to browse"}
+                </p>
+                <p className="text-xs" style={{ color: BRAND.purpleSecondary }}>
+                  Supported format: PDF
+                </p>
               </div>
-              {carrierOverride && (
-                <select
-                  value={selectedCarrier}
-                  onChange={(e) => setSelectedCarrier(e.target.value)}
-                  className="text-xs rounded-md border px-2 py-1 outline-none"
-                  style={{ borderColor: BRAND.greyLavender, color: BRAND.deepPurple, backgroundColor: BRAND.white, fontFamily: FONTS.body }}
-                >
-                  {CARRIER_OPTIONS.map((c) => (
-                    <option key={c} value={c}>{c}</option>
-                  ))}
-                </select>
+
+              {error && (
+                <p className="text-sm px-3 py-2 rounded-lg" style={{ backgroundColor: "#fef2f2", color: "#dc2626" }}>
+                  {error}
+                </p>
               )}
-              {carrierOverride && (
-                <span className="text-xs italic" style={{ color: BRAND.gold }}>
-                  Testing mode — carrier will be forced to "{selectedCarrier}"
-                </span>
-              )}
-            </div>
+            </>
           )}
 
-          {(status === "idle" || status === "error") && (!claims || claims.length === 0) && !isLoading && (
-            <div
-              className="border-2 border-dashed rounded-xl p-8 md:p-12 flex flex-col items-center justify-center text-center transition-all cursor-pointer"
-              style={{
-                borderColor: dragOver ? BRAND.purple : BRAND.purpleSecondary,
-                backgroundColor: dragOver ? BRAND.lightPurpleGrey : BRAND.white,
-              }}
-              onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
-              onDragLeave={() => setDragOver(false)}
-              onDrop={handleDrop}
-              onClick={() => fileInputRef.current?.click()}
-            >
-              <div className="w-14 h-14 rounded-full flex items-center justify-center mb-4" style={{ backgroundColor: BRAND.lightPurpleGrey }}>
-                <CloudUpload width={28} height={28} style={{ color: BRAND.purple }} />
+          {status === "idle" && selectedFile && (
+            <>
+              <div className="flex items-center gap-3 p-3 rounded-lg" style={{ backgroundColor: BRAND.lightPurpleGrey }}>
+                <Page width={20} height={20} style={{ color: BRAND.purple }} />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate" style={{ color: BRAND.deepPurple, fontFamily: FONTS.body }}>{fileName}</p>
+                  <p className="text-xs" style={{ color: BRAND.purpleSecondary }}>{(selectedFile.size / 1024).toFixed(0)} KB</p>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="shrink-0 text-xs"
+                  style={{ color: BRAND.purpleSecondary }}
+                  onClick={() => { setSelectedFile(null); setFileName("") }}
+                >
+                  Change
+                </Button>
               </div>
-              <p className="text-lg font-bold mb-1" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
-                {dragOver ? "Drop it here" : "Upload Your First Claim"}
+
+              <Separator style={{ backgroundColor: BRAND.greyLavender }} />
+
+              <div className="space-y-3">
+                <p className="text-xs font-bold uppercase tracking-wider" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
+                  Carrier Analysis
+                </p>
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="carrier-override-modal"
+                    checked={carrierOverride}
+                    onCheckedChange={(checked) => setCarrierOverride(checked === true)}
+                  />
+                  <label htmlFor="carrier-override-modal" className="text-sm cursor-pointer select-none" style={{ color: BRAND.deepPurple, fontFamily: FONTS.body }}>
+                    Use carrier-specific ruleset
+                  </label>
+                </div>
+                {carrierOverride && (
+                  <div className="pl-6 space-y-2">
+                    <select
+                      value={selectedCarrier}
+                      onChange={(e) => setSelectedCarrier(e.target.value)}
+                      className="w-full text-sm rounded-lg border px-3 py-2 outline-none focus:ring-2 focus:ring-offset-1"
+                      style={{ borderColor: BRAND.greyLavender, color: BRAND.deepPurple, backgroundColor: BRAND.white, fontFamily: FONTS.body }}
+                    >
+                      {CARRIER_OPTIONS.map((c) => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                    <p className="text-xs flex items-center gap-1.5" style={{ color: BRAND.gold }}>
+                      <WarningTriangle width={12} height={12} />
+                      Claim will be scored against {selectedCarrier}'s specific audit rules
+                    </p>
+                  </div>
+                )}
+                {!carrierOverride && (
+                  <p className="text-xs pl-6" style={{ color: BRAND.purpleSecondary }}>
+                    The carrier will be auto-detected from the document
+                  </p>
+                )}
+              </div>
+
+              <Separator style={{ backgroundColor: BRAND.greyLavender }} />
+
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  style={{ borderColor: BRAND.greyLavender, color: BRAND.deepPurple, fontFamily: FONTS.heading, fontWeight: 600 }}
+                  onClick={() => { setModalOpen(false); handleReset() }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  className="flex-1 gap-2 text-white"
+                  style={{ backgroundColor: BRAND.purple, fontFamily: FONTS.heading, fontWeight: 600 }}
+                  onClick={handleUpload}
+                >
+                  <CloudUpload width={16} height={16} />
+                  Upload & Process
+                </Button>
+              </div>
+            </>
+          )}
+
+          {isBusy && (
+            <div className="flex flex-col items-center py-6">
+              <div className="w-10 h-10 border-3 border-t-transparent rounded-full animate-spin mb-4" style={{ borderColor: BRAND.purple, borderTopColor: "transparent" }} />
+              <p className="text-sm font-bold" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
+                {statusLabels[status]}
               </p>
-              <p className="text-sm mb-4" style={{ color: BRAND.purpleSecondary }}>
-                Drop a claim PDF here or click to browse. We'll extract everything automatically.
-              </p>
-              <Button
-                className="gap-2 text-white px-5"
-                style={{ backgroundColor: BRAND.purple, fontFamily: FONTS.heading, fontWeight: 600 }}
-                onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click() }}
-              >
-                <CloudUpload width={16} height={16} />
-                Choose PDF
-              </Button>
-              {status === "error" && error && (
-                <p className="text-sm mt-4 px-4 py-2 rounded-lg" style={{ backgroundColor: "#fef2f2", color: "#dc2626" }}>
-                  {error}
+              <div className="flex items-center gap-2 mt-1.5">
+                <Page width={14} height={14} style={{ color: BRAND.purpleSecondary }} />
+                <span className="text-xs" style={{ color: BRAND.purpleSecondary }}>{fileName}</span>
+              </div>
+              <div className="flex items-center gap-3 mt-5 w-full max-w-xs">
+                {["uploading", "extracting", "parsing"].map((step, i) => {
+                  const steps = ["uploading", "extracting", "parsing"]
+                  const currentIdx = steps.indexOf(status)
+                  const isDone = i < currentIdx
+                  const isActive = i === currentIdx
+                  return (
+                    <div key={step} className="flex-1">
+                      <div className="h-1.5 rounded-full" style={{
+                        backgroundColor: isDone ? BRAND.purple : isActive ? BRAND.purpleLight : BRAND.greyLavender,
+                      }}>
+                        {isActive && (
+                          <div className="h-full rounded-full animate-pulse" style={{ backgroundColor: BRAND.purple, width: "60%" }} />
+                        )}
+                      </div>
+                      <p className="text-[10px] mt-1 text-center" style={{
+                        color: isDone || isActive ? BRAND.deepPurple : BRAND.purpleSecondary,
+                        fontFamily: FONTS.heading,
+                        fontWeight: isActive ? 700 : 400,
+                      }}>
+                        {step === "uploading" ? "Upload" : step === "extracting" ? "Extract" : "Parse"}
+                      </p>
+                    </div>
+                  )
+                })}
+              </div>
+              {carrierOverride && (
+                <p className="text-xs mt-3" style={{ color: BRAND.purple }}>
+                  Carrier: {selectedCarrier}
                 </p>
               )}
             </div>
           )}
 
-          {status === "error" && claims && claims.length > 0 && (
-            <Card className="shadow-sm" style={{ borderColor: "#fca5a5", backgroundColor: BRAND.white }}>
-              <CardContent className="p-4 flex items-center justify-between">
-                <div>
+          {status === "error" && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-3 p-3 rounded-lg" style={{ backgroundColor: "#fef2f2" }}>
+                <WarningTriangle width={20} height={20} style={{ color: "#dc2626" }} />
+                <div className="flex-1">
                   <p className="text-sm font-semibold" style={{ color: "#dc2626" }}>{error}</p>
                   <p className="text-xs mt-0.5" style={{ color: BRAND.purpleSecondary }}>{fileName}</p>
                 </div>
-                <Button variant="outline" size="sm" className="gap-1.5" onClick={handleReset} style={{ borderColor: BRAND.greyLavender, color: BRAND.deepPurple }}>
-                  <RefreshDouble width={14} height={14} />
-                  Dismiss
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  className="flex-1 gap-1.5"
+                  style={{ borderColor: BRAND.greyLavender, color: BRAND.deepPurple, fontFamily: FONTS.heading, fontWeight: 600 }}
+                  onClick={() => { setModalOpen(false); handleReset() }}
+                >
+                  Close
                 </Button>
-              </CardContent>
-            </Card>
-          )}
-
-          {isBusy && (
-            <Card className="shadow-sm" style={{ borderColor: BRAND.greyLavender, backgroundColor: BRAND.white }}>
-              <CardContent className="p-6">
-                <div className="flex flex-col items-center py-4">
-                  <div className="w-10 h-10 border-3 border-t-transparent rounded-full animate-spin mb-4" style={{ borderColor: BRAND.purple, borderTopColor: "transparent" }} />
-                  <p className="text-sm font-bold" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
-                    {statusLabels[status]}
-                  </p>
-                  <div className="flex items-center gap-2 mt-1.5">
-                    <Page width={14} height={14} style={{ color: BRAND.purpleSecondary }} />
-                    <span className="text-xs" style={{ color: BRAND.purpleSecondary }}>{fileName}</span>
-                  </div>
-                  <div className="flex items-center gap-3 mt-5 w-full max-w-xs">
-                    {["uploading", "extracting", "parsing"].map((step, i) => {
-                      const steps = ["uploading", "extracting", "parsing"]
-                      const currentIdx = steps.indexOf(status)
-                      const isDone = i < currentIdx
-                      const isActive = i === currentIdx
-                      return (
-                        <div key={step} className="flex-1">
-                          <div className="h-1.5 rounded-full" style={{
-                            backgroundColor: isDone ? BRAND.purple : isActive ? BRAND.purpleLight : BRAND.greyLavender,
-                          }}>
-                            {isActive && (
-                              <div className="h-full rounded-full animate-pulse" style={{ backgroundColor: BRAND.purple, width: "60%" }} />
-                            )}
-                          </div>
-                          <p className="text-[10px] mt-1 text-center" style={{
-                            color: isDone || isActive ? BRAND.deepPurple : BRAND.purpleSecondary,
-                            fontFamily: FONTS.heading,
-                            fontWeight: isActive ? 700 : 400,
-                          }}>
-                            {step === "uploading" ? "Upload" : step === "extracting" ? "Extract" : "Parse"}
-                          </p>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+                <Button
+                  className="flex-1 gap-1.5 text-white"
+                  style={{ backgroundColor: BRAND.purple, fontFamily: FONTS.heading, fontWeight: 600 }}
+                  onClick={handleReset}
+                >
+                  <RefreshDouble width={14} height={14} />
+                  Try Again
+                </Button>
+              </div>
+            </div>
           )}
 
           {status === "complete" && result && (
-            <Card className="shadow-sm" style={{ borderColor: "#bbf7d0", backgroundColor: BRAND.white }}>
-              <CardContent className="p-5">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="w-9 h-9 rounded-full flex items-center justify-center" style={{ backgroundColor: "#e8f5e9" }}>
-                    <CheckCircle width={20} height={20} style={{ color: "#16a34a" }} />
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-sm font-bold" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
-                      Claim Created — {result.parsedData.claimNumber || result.claim.claimNumber}
-                    </p>
-                    <p className="text-xs" style={{ color: BRAND.purpleSecondary }}>
-                      {result.document.extractedLength.toLocaleString()} characters extracted from {result.document.fileName}
-                    </p>
-                  </div>
+            <div className="space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ backgroundColor: "#e8f5e9" }}>
+                  <CheckCircle width={20} height={20} style={{ color: "#16a34a" }} />
                 </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-bold" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
+                    Claim Created — {result.parsedData.claimNumber || result.claim.claimNumber}
+                  </p>
+                  <p className="text-xs" style={{ color: BRAND.purpleSecondary }}>
+                    {result.document.extractedLength.toLocaleString()} characters extracted
+                  </p>
+                </div>
+              </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-4">
-                  <DataField label="Insured" value={result.parsedData.insuredName} />
-                  <DataField label="Carrier" value={result.parsedData.carrier} />
-                  <DataField label="Date of Loss" value={result.parsedData.dateOfLoss} mono />
-                  <DataField label="Loss Type" value={result.parsedData.lossType} />
-                  <DataField label="Total Claim" value={result.parsedData.totalClaimAmount} mono />
-                  <DataField label="Deductible" value={result.parsedData.deductible} mono />
-                </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                <DataField label="Insured" value={result.parsedData.insuredName} />
+                <DataField label="Carrier" value={result.parsedData.carrier} />
+                <DataField label="Date of Loss" value={result.parsedData.dateOfLoss} mono />
+                <DataField label="Loss Type" value={result.parsedData.lossType} />
+                <DataField label="Total Claim" value={result.parsedData.totalClaimAmount} mono />
+                <DataField label="Deductible" value={result.parsedData.deductible} mono />
+              </div>
 
-                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-                  <Button
-                    className="flex-1 gap-2 text-white"
-                    style={{ backgroundColor: BRAND.purple, fontFamily: FONTS.heading, fontWeight: 600 }}
-                    onClick={() => setLocation(`/claims/${result.claim.id}`)}
-                  >
-                    View Claim & Run Audit
-                    <ArrowRight width={16} height={16} />
-                  </Button>
-                  <Button
-                    variant="outline"
-                    className="gap-2"
-                    style={{ borderColor: BRAND.greyLavender, color: BRAND.deepPurple, fontFamily: FONTS.heading, fontWeight: 600 }}
-                    onClick={handleReset}
-                  >
-                    <RefreshDouble width={14} height={14} />
-                    Upload Another
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  className="gap-2"
+                  style={{ borderColor: BRAND.greyLavender, color: BRAND.deepPurple, fontFamily: FONTS.heading, fontWeight: 600 }}
+                  onClick={() => { setModalOpen(false); handleReset() }}
+                >
+                  <RefreshDouble width={14} height={14} />
+                  Upload Another
+                </Button>
+                <Button
+                  className="flex-1 gap-2 text-white"
+                  style={{ backgroundColor: BRAND.purple, fontFamily: FONTS.heading, fontWeight: 600 }}
+                  onClick={() => { setModalOpen(false); setLocation(`/claims/${result.claim.id}`) }}
+                >
+                  View Claim & Run Audit
+                  <ArrowRight width={16} height={16} />
+                </Button>
+              </div>
+            </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <div className="flex-1 overflow-y-auto p-4 md:p-6" style={{ backgroundColor: BRAND.offWhite }}>
+        <div className="max-w-4xl mx-auto space-y-4">
 
           {isLoading && (
             <div className="text-center py-12">
@@ -454,12 +564,41 @@ export default function ClaimsListPage() {
             </div>
           )}
 
+          {!isLoading && (!claims || claims.length === 0) && (
+            <div
+              className="border-2 border-dashed rounded-xl p-8 md:p-12 flex flex-col items-center justify-center text-center transition-all cursor-pointer"
+              style={{
+                borderColor: BRAND.purpleSecondary,
+                backgroundColor: BRAND.white,
+              }}
+              onClick={openModal}
+            >
+              <div className="w-14 h-14 rounded-full flex items-center justify-center mb-4" style={{ backgroundColor: BRAND.lightPurpleGrey }}>
+                <CloudUpload width={28} height={28} style={{ color: BRAND.purple }} />
+              </div>
+              <p className="text-lg font-bold mb-1" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
+                Upload Your First Claim
+              </p>
+              <p className="text-sm mb-4" style={{ color: BRAND.purpleSecondary }}>
+                Click here or use the "New Claim" button to upload a PDF.
+              </p>
+              <Button
+                className="gap-2 text-white px-5"
+                style={{ backgroundColor: BRAND.purple, fontFamily: FONTS.heading, fontWeight: 600 }}
+                onClick={(e) => { e.stopPropagation(); openModal() }}
+              >
+                <CloudUpload width={16} height={16} />
+                New Claim
+              </Button>
+            </div>
+          )}
+
           {claims && claims.length > 0 && (
             <div
               className="space-y-3"
               onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
               onDragLeave={() => setDragOver(false)}
-              onDrop={handleDrop}
+              onDrop={handleListDrop}
             >
               {dragOver && (
                 <div className="border-2 border-dashed rounded-xl p-6 flex items-center justify-center text-center" style={{ borderColor: BRAND.purple, backgroundColor: BRAND.lightPurpleGrey }}>
@@ -488,7 +627,7 @@ export default function ClaimsListPage() {
                           <div className="flex items-center gap-3 mb-1">
                             <span className="text-sm font-bold" style={{ color: BRAND.deepPurple, fontFamily: FONTS.mono }}>{claim.claimNumber}</span>
                             <Badge className="shadow-none text-xs border-transparent" style={{ backgroundColor: sc.bg, color: sc.color }}>
-                              {isRetrying ? "Retrying…" : claim.status.charAt(0).toUpperCase() + claim.status.slice(1)}
+                              {isRetrying ? "Retrying..." : claim.status.charAt(0).toUpperCase() + claim.status.slice(1)}
                             </Badge>
                           </div>
                           <p className="text-sm" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.body }}>{claim.insuredName}</p>
@@ -517,7 +656,7 @@ export default function ClaimsListPage() {
                           <div className="flex items-center gap-2 shrink-0">
                             <div className="w-4 h-4 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: BRAND.purple, borderTopColor: "transparent" }} />
                             <span className="text-xs" style={{ color: BRAND.purple, fontFamily: FONTS.heading, fontWeight: 600 }}>
-                              {retryState === "retrying" ? "Starting…" : "Processing…"}
+                              {retryState === "retrying" ? "Starting..." : "Processing..."}
                             </span>
                           </div>
                         )}

@@ -3,6 +3,15 @@ import { useLocation } from "wouter"
 import { BRAND, FONTS } from "@/lib/brand"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Separator } from "@/components/ui/separator"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog"
 import {
   NavArrowRight,
   NavArrowLeft,
@@ -91,6 +100,8 @@ interface ProcessingStatus {
   dateOfLoss?: string
 }
 
+const CARRIER_OPTIONS = ["Allstate", "State Farm", "USAA", "Liberty Mutual", "Travelers", "Nationwide", "Progressive", "Farmers", "American Family", "Erie"]
+
 function formatDate(iso: string | null) {
   if (!iso) return "—"
   const d = new Date(iso)
@@ -117,6 +128,10 @@ export default function DashboardPage() {
   const processingRef = useRef(false)
   const queueRef = useRef<QueueItem[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const [uploadModalOpen, setUploadModalOpen] = useState(false)
+  const [carrierOverride, setCarrierOverride] = useState(false)
+  const [selectedCarrier, setSelectedCarrier] = useState("Allstate")
+  const [modalDragOver, setModalDragOver] = useState(false)
 
   const fetchDashboard = useCallback(() => {
     fetch(`${baseUrl}/dashboard`, { credentials: "include" })
@@ -156,12 +171,17 @@ export default function DashboardPage() {
     return { status: "error", error: "Processing timed out" }
   }, [baseUrl])
 
+  const carrierOverrideRef = useRef({ enabled: false, carrier: "Allstate" })
+
   const processItem = useCallback(async (item: QueueItem, email: string) => {
     const baseApiUrl = baseUrl
     try {
       updateItem(item.id, { status: "extracting" })
       const formData = new FormData()
       formData.append("file", item.file)
+      if (carrierOverrideRef.current.enabled && carrierOverrideRef.current.carrier) {
+        formData.append("carrier", carrierOverrideRef.current.carrier)
+      }
 
       const ingestRes = await fetch(`${baseApiUrl}/ingest`, {
         method: "POST",
@@ -224,6 +244,7 @@ export default function DashboardPage() {
     if (processingRef.current) return
     processingRef.current = true
     setProcessing(true)
+    carrierOverrideRef.current = { enabled: carrierOverride, carrier: selectedCarrier }
 
     const email = emailTo.trim()
     const snapshot = [...queueRef.current]
@@ -247,7 +268,10 @@ export default function DashboardPage() {
   }, [addFiles])
 
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length > 0) addFiles(e.target.files)
+    if (e.target.files && e.target.files.length > 0) {
+      addFiles(e.target.files)
+      setUploadModalOpen(true)
+    }
     if (e.target) e.target.value = ""
   }, [addFiles])
 
@@ -255,6 +279,21 @@ export default function DashboardPage() {
     setQueue([])
     setEmailTo("")
   }, [])
+
+  const openUploadModal = useCallback(() => {
+    if (!processing) {
+      setQueue([])
+      setEmailTo("")
+      setCarrierOverride(false)
+    }
+    setUploadModalOpen(true)
+  }, [processing])
+
+  const handleModalDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    setModalDragOver(false)
+    if (e.dataTransfer.files.length > 0) addFiles(e.dataTransfer.files)
+  }, [addFiles])
 
   const removeFromQueue = useCallback((id: string) => {
     setQueue((prev) => prev.filter((item) => item.id !== id))
@@ -355,6 +394,217 @@ export default function DashboardPage() {
         onChange={handleInputChange}
       />
 
+      <Dialog open={uploadModalOpen} onOpenChange={(open) => {
+        if (!open && processing) return
+        setUploadModalOpen(open)
+      }}>
+        <DialogContent className="sm:max-w-[560px]" style={{ backgroundColor: BRAND.white, borderColor: BRAND.greyLavender }}>
+          <DialogHeader>
+            <DialogTitle style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
+              Upload Claims
+            </DialogTitle>
+            <DialogDescription style={{ color: BRAND.purpleSecondary }}>
+              Upload one or more claim PDFs. Optionally select a carrier for targeted analysis.
+            </DialogDescription>
+          </DialogHeader>
+
+          {queue.length === 0 && !processing && (
+            <>
+              <div
+                className="border-2 border-dashed rounded-xl p-6 flex flex-col items-center justify-center text-center transition-all cursor-pointer"
+                style={{
+                  borderColor: modalDragOver ? BRAND.purple : BRAND.greyLavender,
+                  backgroundColor: modalDragOver ? BRAND.lightPurpleGrey : BRAND.offWhite,
+                }}
+                onDragOver={(e) => { e.preventDefault(); setModalDragOver(true) }}
+                onDragLeave={() => setModalDragOver(false)}
+                onDrop={handleModalDrop}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <div className="w-12 h-12 rounded-full flex items-center justify-center mb-3" style={{ backgroundColor: BRAND.lightPurpleGrey }}>
+                  <CloudUpload width={24} height={24} style={{ color: BRAND.purple }} />
+                </div>
+                <p className="text-sm font-semibold mb-1" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
+                  {modalDragOver ? "Drop files here" : "Drop PDFs here or click to browse"}
+                </p>
+                <p className="text-xs" style={{ color: BRAND.purpleSecondary }}>
+                  Supports multiple files for batch processing
+                </p>
+              </div>
+            </>
+          )}
+
+          {queue.length > 0 && (
+            <>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ backgroundColor: allDone ? "#e8f5e9" : `${BRAND.purple}14` }}>
+                    {processing ? (
+                      <div className="w-4 h-4 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: BRAND.purple, borderTopColor: "transparent" }} />
+                    ) : allDone ? (
+                      <CheckCircle width={18} height={18} style={{ color: "#16a34a" }} />
+                    ) : (
+                      <CloudUpload width={18} height={18} style={{ color: BRAND.purple }} />
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
+                      {processing
+                        ? `Processing ${queue.length} file${queue.length > 1 ? "s" : ""}...`
+                        : allDone
+                          ? `${completedCount} of ${queue.length} complete${errorCount > 0 ? ` (${errorCount} failed)` : ""}`
+                          : `${queue.length} file${queue.length > 1 ? "s" : ""} ready`}
+                    </p>
+                    {processing && (
+                      <p className="text-xs" style={{ color: BRAND.purpleSecondary }}>
+                        {completedCount} done, {queue.filter((i) => i.status !== "queued" && i.status !== "complete" && i.status !== "error").length} in progress, {queue.filter((i) => i.status === "queued").length} waiting
+                      </p>
+                    )}
+                  </div>
+                </div>
+                {!processing && !allDone && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="shrink-0 text-xs"
+                    style={{ color: BRAND.purpleSecondary }}
+                    onClick={handleClearQueue}
+                  >
+                    Clear
+                  </Button>
+                )}
+              </div>
+
+              <div className="space-y-2 max-h-48 overflow-y-auto">
+                {queue.map((item) => (
+                  <QueueItemRow
+                    key={item.id}
+                    item={item}
+                    onRemove={removeFromQueue}
+                    onView={(id) => { setUploadModalOpen(false); setLocation(`/claims/${id}`) }}
+                    canRemove={!processing && item.status === "queued"}
+                  />
+                ))}
+              </div>
+
+              {hasQueued && !processing && (
+                <>
+                  <Separator style={{ backgroundColor: BRAND.greyLavender }} />
+
+                  <div className="space-y-3">
+                    <p className="text-xs font-bold uppercase tracking-wider" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
+                      Carrier Analysis
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <Checkbox
+                        id="carrier-override-dashboard"
+                        checked={carrierOverride}
+                        onCheckedChange={(checked) => setCarrierOverride(checked === true)}
+                      />
+                      <label htmlFor="carrier-override-dashboard" className="text-sm cursor-pointer select-none" style={{ color: BRAND.deepPurple, fontFamily: FONTS.body }}>
+                        Use carrier-specific ruleset
+                      </label>
+                    </div>
+                    {carrierOverride && (
+                      <div className="pl-6 space-y-2">
+                        <select
+                          value={selectedCarrier}
+                          onChange={(e) => setSelectedCarrier(e.target.value)}
+                          className="w-full text-sm rounded-lg border px-3 py-2 outline-none"
+                          style={{ borderColor: BRAND.greyLavender, color: BRAND.deepPurple, backgroundColor: BRAND.white, fontFamily: FONTS.body }}
+                        >
+                          {CARRIER_OPTIONS.map((c) => (
+                            <option key={c} value={c}>{c}</option>
+                          ))}
+                        </select>
+                        <p className="text-xs flex items-center gap-1.5" style={{ color: BRAND.gold }}>
+                          <WarningTriangle width={12} height={12} />
+                          All claims will be scored against {selectedCarrier}'s audit rules
+                        </p>
+                      </div>
+                    )}
+                    {!carrierOverride && (
+                      <p className="text-xs pl-6" style={{ color: BRAND.purpleSecondary }}>
+                        Carrier will be auto-detected from each document
+                      </p>
+                    )}
+                  </div>
+
+                  <Separator style={{ backgroundColor: BRAND.greyLavender }} />
+
+                  <div className="mb-1">
+                    <label className="block text-xs font-bold uppercase tracking-wider mb-1.5" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
+                      Email Reports (optional)
+                    </label>
+                    <div className="relative">
+                      <Mail width={16} height={16} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: BRAND.purpleSecondary }} />
+                      <input
+                        type="email"
+                        placeholder="recipient@example.com"
+                        value={emailTo}
+                        onChange={(e) => setEmailTo(e.target.value)}
+                        className="w-full pl-9 pr-3 py-2.5 text-sm rounded-lg border outline-none focus:ring-2 transition-all"
+                        style={{
+                          borderColor: BRAND.greyLavender,
+                          backgroundColor: BRAND.offWhite,
+                          color: BRAND.deepPurple,
+                          fontFamily: FONTS.body,
+                        }}
+                        onFocus={(e) => { e.target.style.borderColor = BRAND.purple; e.target.style.boxShadow = `0 0 0 2px ${BRAND.purple}22` }}
+                        onBlur={(e) => { e.target.style.borderColor = BRAND.greyLavender; e.target.style.boxShadow = "none" }}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      className="gap-2 shrink-0"
+                      style={{ borderColor: BRAND.greyLavender, color: BRAND.deepPurple, fontFamily: FONTS.heading, fontWeight: 600 }}
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      <Plus width={14} height={14} />
+                      Add More
+                    </Button>
+                    <Button
+                      className="flex-1 gap-2 text-white py-2.5"
+                      style={{ backgroundColor: BRAND.purple, fontFamily: FONTS.heading, fontWeight: 600 }}
+                      onClick={startProcessing}
+                    >
+                      <SendDiagonal width={16} height={16} />
+                      {emailTo.trim()
+                        ? `Upload, Audit & Email (${queue.filter((i) => i.status === "queued").length})`
+                        : `Upload & Audit (${queue.filter((i) => i.status === "queued").length})`}
+                    </Button>
+                  </div>
+                </>
+              )}
+
+              {allDone && (
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    className="flex-1 gap-2"
+                    style={{ borderColor: BRAND.greyLavender, color: BRAND.deepPurple, fontFamily: FONTS.heading, fontWeight: 600 }}
+                    onClick={() => { handleClearQueue(); setUploadModalOpen(false) }}
+                  >
+                    Close
+                  </Button>
+                  <Button
+                    className="flex-1 gap-2 text-white"
+                    style={{ backgroundColor: BRAND.purple, fontFamily: FONTS.heading, fontWeight: 600 }}
+                    onClick={() => { handleClearQueue() }}
+                  >
+                    <RefreshDouble width={14} height={14} />
+                    Upload More
+                  </Button>
+                </div>
+              )}
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+
       <div className="flex-1 overflow-y-auto" style={{ backgroundColor: BRAND.offWhite }}>
         <div className="px-6 md:px-8 py-6 md:py-8 max-w-[1200px]">
 
@@ -370,134 +620,13 @@ export default function DashboardPage() {
             <Button
               className="gap-2 text-white shrink-0 px-5 py-2.5 text-sm"
               style={{ backgroundColor: "#16a34a", fontFamily: FONTS.heading, fontWeight: 600, borderRadius: 8 }}
-              onClick={() => fileInputRef.current?.click()}
+              onClick={openUploadModal}
               disabled={processing}
             >
               <Plus width={16} height={16} strokeWidth={2.5} />
               Upload Claims
             </Button>
           </div>
-
-          {queue.length > 0 && (
-            <Card className="shadow-sm mb-6" style={{ borderColor: processing ? BRAND.purple : allDone ? "#bbf7d0" : BRAND.greyLavender, backgroundColor: BRAND.white }}>
-              <CardContent className="p-5">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-full flex items-center justify-center" style={{ backgroundColor: allDone ? "#e8f5e9" : `${BRAND.purple}14` }}>
-                      {processing ? (
-                        <div className="w-5 h-5 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: BRAND.purple, borderTopColor: "transparent" }} />
-                      ) : allDone ? (
-                        <CheckCircle width={20} height={20} style={{ color: "#16a34a" }} />
-                      ) : (
-                        <CloudUpload width={20} height={20} style={{ color: BRAND.purple }} />
-                      )}
-                    </div>
-                    <div>
-                      <p className="text-sm font-bold" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
-                        {processing
-                          ? `Processing ${queue.length} file${queue.length > 1 ? "s" : ""}...`
-                          : allDone
-                            ? `${completedCount} of ${queue.length} complete${errorCount > 0 ? ` (${errorCount} failed)` : ""}`
-                            : `${queue.length} file${queue.length > 1 ? "s" : ""} ready`}
-                      </p>
-                      {processing && (
-                        <p className="text-xs" style={{ color: BRAND.purpleSecondary }}>
-                          {completedCount} done, {queue.filter((i) => i.status !== "queued" && i.status !== "complete" && i.status !== "error").length} in progress, {queue.filter((i) => i.status === "queued").length} waiting
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                  {!processing && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="shrink-0 text-xs"
-                      style={{ color: BRAND.purpleSecondary }}
-                      onClick={handleClearQueue}
-                    >
-                      Clear All
-                    </Button>
-                  )}
-                </div>
-
-                <div className="space-y-2 mb-4 max-h-60 overflow-y-auto">
-                  {queue.map((item) => (
-                    <QueueItemRow
-                      key={item.id}
-                      item={item}
-                      onRemove={removeFromQueue}
-                      onView={(id) => setLocation(`/claims/${id}`)}
-                      canRemove={!processing && item.status === "queued"}
-                    />
-                  ))}
-                </div>
-
-                {hasQueued && !processing && (
-                  <>
-                    <div className="mb-4">
-                      <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.body }}>
-                        Email audit reports to (optional — applies to all)
-                      </label>
-                      <div className="relative">
-                        <Mail width={16} height={16} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: BRAND.purpleSecondary }} />
-                        <input
-                          type="email"
-                          placeholder="recipient@example.com"
-                          value={emailTo}
-                          onChange={(e) => setEmailTo(e.target.value)}
-                          className="w-full pl-9 pr-3 py-2.5 text-sm rounded-lg border outline-none focus:ring-2 transition-all"
-                          style={{
-                            borderColor: BRAND.greyLavender,
-                            backgroundColor: BRAND.offWhite,
-                            color: BRAND.deepPurple,
-                            fontFamily: FONTS.body,
-                          }}
-                          onFocus={(e) => { e.target.style.borderColor = BRAND.purple; e.target.style.boxShadow = `0 0 0 2px ${BRAND.purple}22` }}
-                          onBlur={(e) => { e.target.style.borderColor = BRAND.greyLavender; e.target.style.boxShadow = "none" }}
-                        />
-                      </div>
-                    </div>
-
-                    <div className="flex gap-2">
-                      <Button
-                        className="flex-1 gap-2 text-white py-2.5"
-                        style={{ backgroundColor: BRAND.purple, fontFamily: FONTS.heading, fontWeight: 600 }}
-                        onClick={startProcessing}
-                      >
-                        <SendDiagonal width={16} height={16} />
-                        {emailTo.trim()
-                          ? `Upload, Audit & Email (${queue.filter((i) => i.status === "queued").length})`
-                          : `Upload & Audit (${queue.filter((i) => i.status === "queued").length})`}
-                      </Button>
-                      <Button
-                        variant="outline"
-                        className="gap-2 shrink-0"
-                        style={{ borderColor: BRAND.greyLavender, color: BRAND.deepPurple, fontFamily: FONTS.heading, fontWeight: 600 }}
-                        onClick={() => fileInputRef.current?.click()}
-                      >
-                        <Plus width={14} height={14} />
-                        Add More
-                      </Button>
-                    </div>
-                  </>
-                )}
-
-                {allDone && (
-                  <div className="flex gap-2">
-                    <Button
-                      variant="outline"
-                      className="flex-1 gap-2"
-                      style={{ borderColor: BRAND.greyLavender, color: BRAND.deepPurple, fontFamily: FONTS.heading, fontWeight: 600 }}
-                      onClick={handleClearQueue}
-                    >
-                      <RefreshDouble width={14} height={14} />
-                      Upload More
-                    </Button>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          )}
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
             <StatusCard
@@ -528,7 +657,7 @@ export default function DashboardPage() {
             style={{ backgroundColor: BRAND.white, borderColor: BRAND.greyLavender }}
             onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
             onDragLeave={() => setDragOver(false)}
-            onDrop={handleDrop}
+            onDrop={(e) => { e.preventDefault(); setDragOver(false); if (e.dataTransfer.files.length > 0) { addFiles(e.dataTransfer.files); setUploadModalOpen(true) } }}
           >
             {dragOver && (
               <div className="px-5 py-4 flex items-center justify-center gap-2" style={{ backgroundColor: BRAND.lightPurpleGrey, borderBottom: `1px solid ${BRAND.greyLavender}` }}>
@@ -640,7 +769,7 @@ export default function DashboardPage() {
                           <Button
                             className="gap-2 text-white mt-3"
                             style={{ backgroundColor: BRAND.purple, fontFamily: FONTS.heading, fontWeight: 600 }}
-                            onClick={() => fileInputRef.current?.click()}
+                            onClick={openUploadModal}
                           >
                             <CloudUpload width={16} height={16} />
                             Upload First Claim
