@@ -116,8 +116,6 @@ interface ProcessingStatus {
   dateOfLoss?: string
 }
 
-const CARRIER_OPTIONS = ["Allstate"]
-
 function formatDate(iso: string | null) {
   if (!iso) return "—"
   const d = new Date(iso)
@@ -146,7 +144,8 @@ export default function DashboardPage() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [uploadModalOpen, setUploadModalOpen] = useState(false)
   const [carrierOverride, setCarrierOverride] = useState(false)
-  const [selectedCarrier, setSelectedCarrier] = useState("Allstate")
+  const [selectedCarrier, setSelectedCarrier] = useState("")
+  const [carrierOptions, setCarrierOptions] = useState<string[]>([])
   const [modalDragOver, setModalDragOver] = useState(false)
 
   const fetchDashboard = useCallback(() => {
@@ -158,6 +157,17 @@ export default function DashboardPage() {
   }, [baseUrl])
 
   useEffect(() => { fetchDashboard() }, [fetchDashboard])
+
+  useEffect(() => {
+    fetch(`${baseUrl}/carriers`, { credentials: "include" })
+      .then((r) => r.json())
+      .then((list: { key: string; displayName: string }[]) => {
+        const names = list.map((c) => c.displayName)
+        setCarrierOptions(names)
+        if (names.length > 0) setSelectedCarrier(names[0])
+      })
+      .catch(() => {})
+  }, [baseUrl])
 
   const updateItem = useCallback((id: string, patch: Partial<QueueItem>) => {
     setQueue((prev) => prev.map((item) => item.id === id ? { ...item, ...patch } : item))
@@ -187,7 +197,7 @@ export default function DashboardPage() {
     return { status: "error", error: "Processing timed out" }
   }, [baseUrl])
 
-  const carrierOverrideRef = useRef({ enabled: false, carrier: "Allstate" })
+  const carrierOverrideRef = useRef({ enabled: false, carrier: "" })
 
   const processItem = useCallback(async (item: QueueItem, email: string) => {
     const baseApiUrl = baseUrl
@@ -508,7 +518,7 @@ export default function DashboardPage() {
                           className="w-full text-sm rounded-lg border px-3 py-2 outline-none"
                           style={{ borderColor: BRAND.greyLavender, color: BRAND.deepPurple, backgroundColor: BRAND.white, fontFamily: FONTS.body }}
                         >
-                          {CARRIER_OPTIONS.map((c) => (
+                          {carrierOptions.map((c) => (
                             <option key={c} value={c}>{c}</option>
                           ))}
                         </select>
