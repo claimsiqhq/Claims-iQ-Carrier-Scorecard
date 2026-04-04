@@ -1,0 +1,40 @@
+You are an expert Full-Stack TypeScript Developer working on the Claims IQ Carrier Scorecard system. The application uses Node.js, Drizzle ORM, React, and OpenAI integrations to audit insurance claims.
+
+We need to implement a new carrier ruleset for "Andover" and upgrade our core scoring engine to support Dual Scorecards (Desk Adjuster vs. Field Adjuster) and Dynamic Point Weighting. 
+
+Please execute the following updates:
+
+1. DATABASE SCHEMA (`lib/db/src/schema/carrierRulesets.ts` & `claims.ts`):
+- Update the ruleset schema to include a `roleTarget` enum/field (values: 'DA', 'FA', 'BOTH').
+- Add a JSONB column `conditionalWeights` to handle scenarios where points shift based on file contents.
+- Ensure the `AuditResult` schema can store independent scores for both the FA and the DA (e.g., `daScore`, `faScore`, `daMaxPossible`, `faMaxPossible`).
+
+2. ANDOVER RULESET CREATION (`scripts/src/andoverRuleset.ts`):
+Create the seed data for Andover matching this exact rubric:
+
+FA Scorecard (Total 100 Points):
+- Estimate is in operational order (20 pts): Floors, walls, ceilings, accessories, roof before interior, debris removal at end.
+- Photographs are clear and in order (20 pts): Labels/rooms follow estimate flow, consistent quality.
+- FA Report (30 pts): Adequately describes photos and estimate, addresses coverage/subro.
+- Unique Policy Provisions Addressed (30 pts): Sublimits, water backup, no storm created opening.
+
+DA Scorecard (Total 100 Points):
+*NOTE: Include dynamic weights in the configuration for when "No Denials Exist".*
+- File Stack Order: 15 pts (10 pts if no denials). Stack: DA report, SOL, Payment Letter, Other Letters, Estimate, Photos, Sketch, Prior Loss.
+- Payment Recommendations Match: 20 pts (25 pts if no denials). DA report, SOL, and Payment letter agree; correct deductible.
+- DA Report: 10 pts (15 pts if no denials). Does not over-copy/paste from FA report; summarizes effectively.
+- Unique Policy Provisions Addressed: 25 pts (30 pts if no denials). HO6-master policy, MLC, HSB covered items.
+- Prior Losses Addressed: 15 pts (10 pts if no denials). ISO report at the end, 5-year priors addressed.
+- Denial Letters Correct: 25 pts (0 pts if no denials). Correct policy language cited.
+
+3. SCORING ENGINE (`artifacts/api-server/src/services/scoringEngine.ts`):
+- Update the scoring logic to calculate two separate scores (DA and FA).
+- Add an evaluation step before calculating the DA score: Determine if a denial exists in the claim documents. If FALSE, switch the maximum points mapping to the alternate "no denials" weightings defined in the Andover ruleset.
+
+4. UI & DASHBOARD (`artifacts/claims-iq/src/components/inspection/CarrierScorecardPanel.tsx`):
+- Refactor the component to display two distinct panels or a tabbed interface: "Desk Adjuster (DA) Scorecard" and "Field Adjuster (FA) Scorecard".
+- Ensure the progress bars and visual indicators reflect the score out of 100 for each respective role. 
+
+5. EMAIL OUTPUTS (`artifacts/api-server/src/services/email.ts`):
+- Update the HTML email template for QA Results to clearly break out the FA evaluation from the DA evaluation.
+- Include a note in the DA section if the point matrix was dynamically adjusted due to the absence of denial letters.
