@@ -117,7 +117,11 @@ function buildCategories(
 ): CategoryScore[] {
   return categoryKeys
     .filter((key) => {
-      if (key === "denial_letters" && !denialApplicable) return false;
+      if (!denialApplicable) {
+        const catQs = questions.filter((q) => q.categoryKey === key);
+        const allZeroWeight = catQs.length > 0 && catQs.every((q) => getEffectiveWeight(q, false) === 0);
+        if (allZeroWeight) return false;
+      }
       return true;
     })
     .map((key) => {

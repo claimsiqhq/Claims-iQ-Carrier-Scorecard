@@ -7,6 +7,7 @@
     "hello": "tsx ./src/hello.ts",
     "seed": "tsx ./seed.ts",
     "seed:allstate": "tsx ./src/seedAllstateRuleset.ts",
+    "seed:andover": "tsx ./src/seedAndoverRuleset.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

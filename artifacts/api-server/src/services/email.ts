@@ -384,6 +384,9 @@ export function renderAuditEmail(data: EmailData): string {
       ${buildActionTable(r)}
 
       ${buildScorecardTable("Desk Adjuster Scorecard", da.categories, da.score_percent)}
+      ${!da.denial_letter_applicable ? `<div style="margin:-16px 0 24px 0;padding:10px 14px;background-color:#fffbeb;border:1px solid #fcd34d;border-radius:6px;font-size:12px;color:#92400e;">
+        <strong>Note:</strong> No denial was present on this claim. Alternate no-denial weighting was applied — denial-related categories were excluded and remaining category weights were adjusted per carrier rules.
+      </div>` : ""}
 
       ${buildScorecardTable("Field Adjuster Scorecard", fa.categories, fa.score_percent)}
 
