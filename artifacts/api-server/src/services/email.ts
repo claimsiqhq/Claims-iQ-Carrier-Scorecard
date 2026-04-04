@@ -334,27 +334,31 @@ export function renderAuditEmail(data: EmailData): string {
           </td>
         </tr>
       </table>`
-    : `<table style="width:100%;border-collapse:collapse;">
+    : `<table style="width:100%;border-collapse:collapse;margin-bottom:12px;">
         <tr>
-          <td style="text-align:center;padding:8px 12px;border-right:1px solid #e3dfe8;">
+          <td style="text-align:center;padding:10px 8px;width:33%;">
             <div style="font-size:14px;font-weight:700;color:${rColor};padding:6px 12px;border-radius:6px;background-color:${rBg};display:inline-block;">${escapeHtml(oa.readiness)}</div>
-            <div style="font-size:11px;color:#9D8BBF;text-transform:uppercase;letter-spacing:0.05em;margin-top:4px;">Readiness</div>
+            <div style="font-size:10px;color:#9D8BBF;text-transform:uppercase;letter-spacing:0.05em;margin-top:4px;">Readiness</div>
           </td>
-          <td style="text-align:center;padding:8px 12px;border-right:1px solid #e3dfe8;">
-            <div style="font-size:24px;font-weight:700;color:${overallColor};">${overallLabel}</div>
-            <div style="font-size:11px;color:#9D8BBF;text-transform:uppercase;letter-spacing:0.05em;">Overall</div>
+          <td style="text-align:center;padding:10px 8px;width:34%;">
+            <div style="font-size:22px;font-weight:700;color:${overallColor};">${overallLabel}</div>
+            <div style="font-size:10px;color:#9D8BBF;text-transform:uppercase;letter-spacing:0.05em;">Overall</div>
           </td>
-          <td style="text-align:center;padding:8px 12px;border-right:1px solid #e3dfe8;">
-            <div style="font-size:20px;font-weight:700;color:${daColor};">${scoreLabel(da.score_percent)}</div>
-            <div style="font-size:11px;color:#9D8BBF;text-transform:uppercase;letter-spacing:0.05em;">DA Score</div>
+          <td style="text-align:center;padding:10px 8px;width:33%;">
+            <div style="font-size:16px;font-weight:700;color:${riskColor};">${escapeHtml(oa.technical_risk)} Risk</div>
+            <div style="font-size:10px;color:#9D8BBF;text-transform:uppercase;letter-spacing:0.05em;">Technical Risk</div>
           </td>
-          <td style="text-align:center;padding:8px 12px;border-right:1px solid #e3dfe8;">
-            <div style="font-size:20px;font-weight:700;color:${faColor};">${scoreLabel(fa.score_percent)}</div>
-            <div style="font-size:11px;color:#9D8BBF;text-transform:uppercase;letter-spacing:0.05em;">FA Score</div>
+        </tr>
+      </table>
+      <table style="width:100%;border-collapse:collapse;">
+        <tr>
+          <td style="text-align:center;padding:8px 8px;width:50%;">
+            <div style="font-size:18px;font-weight:700;color:${daColor};">${scoreLabel(da.score_percent)}</div>
+            <div style="font-size:10px;color:#9D8BBF;text-transform:uppercase;letter-spacing:0.05em;">Desk Adjuster</div>
           </td>
-          <td style="text-align:center;padding:8px 12px;">
-            <div style="font-size:16px;font-weight:700;color:${riskColor};">${escapeHtml(oa.technical_risk)}</div>
-            <div style="font-size:11px;color:#9D8BBF;text-transform:uppercase;letter-spacing:0.05em;">Risk</div>
+          <td style="text-align:center;padding:8px 8px;width:50%;">
+            <div style="font-size:18px;font-weight:700;color:${faColor};">${scoreLabel(fa.score_percent)}</div>
+            <div style="font-size:10px;color:#9D8BBF;text-transform:uppercase;letter-spacing:0.05em;">Field Adjuster</div>
           </td>
         </tr>
       </table>`;

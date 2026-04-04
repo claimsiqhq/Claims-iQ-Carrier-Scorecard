@@ -997,25 +997,25 @@ function CollapsibleCategory({ cat, hideScores, defaultExpanded }: {
   return (
     <div key={cat.category_key}>
       <button
-        className="w-full flex items-center justify-between py-2 hover:bg-black/[0.02] transition-colors rounded px-1 -mx-1"
+        className="w-full flex items-center justify-between gap-1 py-2 hover:bg-black/[0.02] transition-colors rounded px-1 -mx-1"
         onClick={() => setCatExpanded(!catExpanded)}
       >
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 min-w-0 flex-1">
           <NavArrowDown
             width={12} height={12}
             className="transition-transform duration-200 shrink-0"
             style={{ color: BRAND.purpleSecondary, transform: catExpanded ? "rotate(180deg)" : "rotate(0deg)" }}
           />
-          <span className="text-xs font-bold uppercase tracking-wider" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
+          <span className="text-xs font-bold uppercase tracking-wider min-w-0 break-words leading-tight" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
             {cat.category_name}
           </span>
           {!catExpanded && (
-            <span className="text-[10px]" style={{ color: BRAND.purpleSecondary }}>
+            <span className="text-[10px] shrink-0 hidden sm:inline" style={{ color: BRAND.purpleSecondary }}>
               {questionCount}q{passCount > 0 ? ` · ${passCount} pass` : ""}{naCount > 0 ? ` · ${naCount} n/a` : ""}
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 shrink-0">
           {hasIssues && !catExpanded && (
             <span className="text-[9px] font-bold px-1.5 py-0.5 rounded" style={{ backgroundColor: "#fef2f2", color: "#dc2626" }}>
               ISSUES
@@ -1038,48 +1038,50 @@ function CollapsibleCategory({ cat, hideScores, defaultExpanded }: {
       </div>
 
       {catExpanded && (
-        <div className="space-y-2 pl-4 mt-2 mb-1">
+        <div className="space-y-3 pl-2 sm:pl-4 mt-2 mb-1">
           {cat.questions.map((q) => {
             const badge = answerBadge(q.answer)
             const isNA = q.answer === "NOT_APPLICABLE"
             const showDetails = q.answer !== "PASS" && !isNA
             return (
-              <div key={q.id} className="flex items-start gap-2" style={isNA ? { opacity: 0.5 } : undefined}>
-                <span className="inline-flex items-center justify-center text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 mt-0.5" style={{ backgroundColor: badge.bg, color: badge.color, minWidth: "40px", textAlign: "center" }}>
-                  {badge.label}
-                </span>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium" style={{ color: isNA ? BRAND.purpleSecondary : BRAND.deepPurple, fontFamily: FONTS.body }}>
-                      {humanize(q.id)}
+              <div key={q.id} className="space-y-1" style={isNA ? { opacity: 0.5 } : undefined}>
+                <div className="flex items-start gap-2">
+                  <span className="inline-flex items-center justify-center text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 mt-0.5" style={{ backgroundColor: badge.bg, color: badge.color, minWidth: "36px", textAlign: "center" }}>
+                    {badge.label}
+                  </span>
+                  <span className="text-xs font-medium flex-1 min-w-0 break-words leading-snug" style={{ color: isNA ? BRAND.purpleSecondary : BRAND.deepPurple, fontFamily: FONTS.body }}>
+                    {humanize(q.id)}
+                  </span>
+                  {!hideScores && (
+                    <span className="text-[10px] font-bold shrink-0" style={{ color: badge.color, fontFamily: FONTS.mono }}>
+                      {q.points_awarded}/{q.points_possible}
                     </span>
-                    {!hideScores && (
-                      <span className="text-[10px] font-bold ml-2 shrink-0" style={{ color: badge.color, fontFamily: FONTS.mono }}>
-                        {q.points_awarded}/{q.points_possible}
-                      </span>
-                    )}
-                  </div>
-                  {showDetails && q.fix && (
-                    <p className="text-[11px] mt-0.5 leading-relaxed" style={{ color: "#16a34a", fontFamily: FONTS.body }}>
-                      <strong>Fix:</strong> {q.fix}
-                    </p>
-                  )}
-                  {showDetails && q.issue && (
-                    <p className="text-[11px] mt-0.5 leading-relaxed italic" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.body }}>
-                      {q.issue}
-                    </p>
-                  )}
-                  {showDetails && q.impact && (
-                    <p className="text-[10px] mt-0.5 leading-relaxed" style={{ color: "#dc2626", fontFamily: FONTS.body }}>
-                      <strong>Impact:</strong> {q.impact}
-                    </p>
-                  )}
-                  {showDetails && q.evidence_locations && q.evidence_locations.length > 0 && (
-                    <p className="text-[10px] mt-0.5 leading-relaxed pl-2" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.mono, borderLeft: `2px solid ${BRAND.greyLavender}` }}>
-                      {q.evidence_locations.join(", ")}
-                    </p>
                   )}
                 </div>
+                {showDetails && (
+                  <div className="pl-[44px] sm:pl-[44px] space-y-0.5">
+                    {q.fix && (
+                      <p className="text-[11px] leading-relaxed break-words" style={{ color: "#16a34a", fontFamily: FONTS.body }}>
+                        <strong>Fix:</strong> {q.fix}
+                      </p>
+                    )}
+                    {q.issue && (
+                      <p className="text-[11px] leading-relaxed italic break-words" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.body }}>
+                        {q.issue}
+                      </p>
+                    )}
+                    {q.impact && (
+                      <p className="text-[10px] leading-relaxed break-words" style={{ color: "#dc2626", fontFamily: FONTS.body }}>
+                        <strong>Impact:</strong> {q.impact}
+                      </p>
+                    )}
+                    {q.evidence_locations && q.evidence_locations.length > 0 && (
+                      <p className="text-[10px] leading-relaxed pl-2 break-words" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.mono, borderLeft: `2px solid ${BRAND.greyLavender}` }}>
+                        {q.evidence_locations.join(", ")}
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
             )
           })}
