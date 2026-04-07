@@ -66,31 +66,26 @@ export function detectPaymentMismatch(text: string): boolean {
 }
 
 export function validateStackOrder(documentPages: string[]): boolean {
-  const expectedOrder = [
-    "Desk Adjuster Report",
-    "STATEMENT OF LOSS",
-    "Dear",
-    "Estimate",
-    "Photo Sheet",
-    "Sketch",
-    "ISO File Number",
+  const expectedPatterns = [
+    /desk adjuster|da report/i,
+    /statement of loss|sol\b/i,
+    /payment letter|payment recommendation|dear\s+\w/i,
+    /estimate|xactimate/i,
+    /photo sheet|photograph|photos/i,
+    /sketch|diagram|floor plan/i,
+    /iso file number|iso claimsearch|clue report|prior loss report/i,
   ];
-
   let currentIndex = 0;
-
   for (const page of documentPages) {
-    if (currentIndex >= expectedOrder.length) break;
-    if (page.includes(expectedOrder[currentIndex])) {
-      currentIndex++;
-    }
+    if (currentIndex >= expectedPatterns.length) break;
+    if (expectedPatterns[currentIndex].test(page)) currentIndex++;
   }
-
-  return currentIndex === expectedOrder.length;
+  return currentIndex >= 5;
 }
 
 export function validatePriorLossReview(daReportText: string, hasIsoReport: boolean): boolean {
-  const mentionsPriors = /prior loss|prior claims|iso/i.test(daReportText);
-  return mentionsPriors && hasIsoReport;
+  if (!hasIsoReport) return true;
+  return /prior loss|prior claims|iso|clue|not relevant|no prior|no relevant|reviewed.*prior|prior.*review|no related|unrelated/i.test(daReportText);
 }
 
 export function runValidation(reportText: string): ValidationResult {
@@ -159,7 +154,17 @@ export function runValidation(reportText: string): ValidationResult {
     }
   }
 
-  const pages = reportText.split(/={3,}\s*Page\s+\d+\s*={3,}/i).filter(Boolean);
+  let pages = reportText.split(/={3,}\s*Page\s+\d+\s*={3,}/i).filter(Boolean);
+  if (pages.length <= 1) {
+    pages = reportText.split(/\f|---\s*page\s*\d+\s*---|page\s+\d+\s+of\s+\d+/i).filter(Boolean);
+  }
+  if (pages.length <= 1) {
+    const chunkSize = 3000;
+    pages = [];
+    for (let i = 0; i < reportText.length; i += chunkSize) {
+      pages.push(reportText.slice(i, i + chunkSize));
+    }
+  }
   if (pages.length > 1 && !validateStackOrder(pages)) {
     checks.push({
       key: "invalid_stack_order",
@@ -176,7 +181,7 @@ export function runValidation(reportText: string): ValidationResult {
   if (!validatePriorLossReview(daReportText, hasIsoReport)) {
     checks.push({
       key: "missing_prior_loss_review",
-      severity: "critical",
+      severity: "warning",
       message: "ISO ClaimSearch report is missing or Desk Adjuster failed to mention reviewing prior losses within the past 5 years.",
     });
   }
