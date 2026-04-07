@@ -127,6 +127,14 @@ export default function CarrierEditorPage({ carrierKey }: { carrierKey: string }
     setError(null)
     setSuccess(null)
     try {
+      if (isNew) {
+        const checkRes = await fetch(`${baseUrl}/carriers/${key}`, { credentials: "include" })
+        if (checkRes.ok) {
+          setError(`A carrier with key "${key}" already exists. Choose a different name.`)
+          setSaving(false)
+          return
+        }
+      }
       const res = await fetch(`${baseUrl}/carriers/${key}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
