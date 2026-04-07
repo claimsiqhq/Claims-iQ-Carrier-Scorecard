@@ -11,6 +11,17 @@ router.get("/carriers", async (_req, res) => {
   res.json(carriers);
 });
 
+router.get("/carriers/all", requireAuth, async (_req, res) => {
+  try {
+    const rows = await db
+      .select()
+      .from(carrierRulesets);
+    res.json(rows);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.get("/carriers/:key", requireAuth, async (req, res) => {
   const key = req.params.key as string;
   const [row] = await db
@@ -35,6 +46,18 @@ router.put("/carriers/:key", requireAuth, async (req, res) => {
       target: carrierRulesets.carrierKey,
       set: { displayName, logoUrl, ruleset, active, updatedAt: new Date() },
     });
+  res.json({ success: true });
+});
+
+router.delete("/carriers/:key", requireAuth, async (req, res) => {
+  const key = req.params.key as string;
+  const result = await db
+    .delete(carrierRulesets)
+    .where(eq(carrierRulesets.carrierKey, key));
+  if (result.rowCount === 0) {
+    res.status(404).json({ error: "Carrier not found" });
+    return;
+  }
   res.json({ success: true });
 });
 

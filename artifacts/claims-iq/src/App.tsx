@@ -9,6 +9,8 @@ import LoginPage from "@/pages/login";
 import DashboardPage from "@/pages/dashboard";
 import ClaimDetailPage from "@/pages/claim-detail";
 import SettingsPage from "@/pages/settings";
+import CarriersPage from "@/pages/carriers";
+import CarrierEditorPage from "@/pages/carrier-editor";
 import { useLocation } from "wouter";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { BRAND, FONTS } from "@/lib/brand";
@@ -66,6 +68,8 @@ function AppLayout() {
           <Route path="/upload">{() => { setLocation("/"); return null; }}</Route>
           <Route path="/audit-results">{() => { setLocation("/"); return null; }}</Route>
           <Route path="/settings" component={SettingsPage} />
+          <Route path="/carriers" component={CarriersPage} />
+          <Route path="/carriers/:key">{(params) => <CarrierEditorPage carrierKey={params.key} />}</Route>
           <Route>
             <main className="flex-1 flex items-center justify-center" style={{ backgroundColor: BRAND.offWhite }}>
               <p style={{ color: BRAND.purpleSecondary }}>Page not found</p>
