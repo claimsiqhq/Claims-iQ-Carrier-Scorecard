@@ -6,11 +6,13 @@ interface AuthUser {
   firstName: string | null;
   lastName: string | null;
   profileImageUrl: string | null;
+  role: string;
 }
 
 interface AuthContextValue {
   user: AuthUser | null;
   loading: boolean;
+  isAdmin: boolean;
   login: (email: string, password: string) => Promise<string | null>;
   logout: () => Promise<void>;
 }
@@ -18,6 +20,7 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue>({
   user: null,
   loading: true,
+  isAdmin: false,
   login: async () => null,
   logout: async () => {},
 });
@@ -70,8 +73,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
   }, [baseUrl]);
 
+  const isAdmin = user?.role === "admin";
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout }}>
+    <AuthContext.Provider value={{ user, loading, isAdmin, login, logout }}>
       {children}
     </AuthContext.Provider>
   );

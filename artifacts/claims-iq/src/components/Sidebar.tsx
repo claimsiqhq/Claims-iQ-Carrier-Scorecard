@@ -24,7 +24,7 @@ export function Sidebar() {
   const [collapsed, setCollapsed] = useState(() => {
     try { return localStorage.getItem(STORAGE_KEY) === "true" } catch { return false }
   })
-  const { user, logout } = useAuth()
+  const { user, logout, isAdmin } = useAuth()
 
   useEffect(() => {
     if (!isMobile) setOpen(false)
@@ -46,8 +46,8 @@ export function Sidebar() {
     const nav = (
       <>
         <SidebarItem icon={<DashboardDots width={20} height={20} />} label="Dashboard" active={location === "/" || location.startsWith("/claims")} onClick={() => setLocation("/")} />
-        <SidebarItem icon={<Building width={20} height={20} />} label="Carriers" active={location.startsWith("/carriers")} onClick={() => setLocation("/carriers")} />
-        <SidebarItem icon={<SettingsIcon width={20} height={20} />} label="Settings" active={location === "/settings"} onClick={() => setLocation("/settings")} />
+        {isAdmin && <SidebarItem icon={<Building width={20} height={20} />} label="Carriers" active={location.startsWith("/carriers")} onClick={() => setLocation("/carriers")} />}
+        {isAdmin && <SidebarItem icon={<SettingsIcon width={20} height={20} />} label="Settings" active={location === "/settings"} onClick={() => setLocation("/settings")} />}
       </>
     )
 
@@ -138,8 +138,8 @@ export function Sidebar() {
       <nav className="flex-1 overflow-y-auto overflow-x-hidden" style={{ padding: collapsed ? "16px 8px" : "16px 12px" }}>
         <div className="space-y-1">
           <SidebarItem icon={<DashboardDots width={20} height={20} />} label="Dashboard" active={location === "/" || location.startsWith("/claims")} onClick={() => setLocation("/")} collapsed={collapsed} />
-          <SidebarItem icon={<Building width={20} height={20} />} label="Carriers" active={location.startsWith("/carriers")} onClick={() => setLocation("/carriers")} collapsed={collapsed} />
-          <SidebarItem icon={<SettingsIcon width={20} height={20} />} label="Settings" active={location === "/settings"} onClick={() => setLocation("/settings")} collapsed={collapsed} />
+          {isAdmin && <SidebarItem icon={<Building width={20} height={20} />} label="Carriers" active={location.startsWith("/carriers")} onClick={() => setLocation("/carriers")} collapsed={collapsed} />}
+          {isAdmin && <SidebarItem icon={<SettingsIcon width={20} height={20} />} label="Settings" active={location === "/settings"} onClick={() => setLocation("/settings")} collapsed={collapsed} />}
         </div>
       </nav>
 

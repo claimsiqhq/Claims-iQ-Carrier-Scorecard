@@ -3,12 +3,12 @@ import { db } from "@workspace/db";
 import { promptSettings } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { SYSTEM_PROMPT as DEFAULT_SYSTEM, USER_PROMPT_TEMPLATE as DEFAULT_USER } from "../services/prompts";
-import { requireAuth } from "../middlewares/requireAuth";
+import { requireAdmin } from "../middlewares/requireAdmin";
 import logger from "../lib/logger";
 
 const router: IRouter = Router();
 
-router.get("/settings/prompts", requireAuth, async (_req, res) => {
+router.get("/settings/prompts", requireAdmin, async (_req, res) => {
   try {
     const rows = await db.select().from(promptSettings);
 
@@ -25,7 +25,7 @@ router.get("/settings/prompts", requireAuth, async (_req, res) => {
   }
 });
 
-router.put("/settings/prompts", requireAuth, async (req, res) => {
+router.put("/settings/prompts", requireAdmin, async (req, res) => {
   try {
     const { system_prompt, user_prompt_template } = req.body;
 
@@ -66,7 +66,7 @@ router.put("/settings/prompts", requireAuth, async (req, res) => {
   }
 });
 
-router.post("/settings/prompts/reset", requireAuth, async (_req, res) => {
+router.post("/settings/prompts/reset", requireAdmin, async (_req, res) => {
   try {
     await db.transaction(async (tx) => {
       await tx.delete(promptSettings).where(eq(promptSettings.key, "system_prompt"));

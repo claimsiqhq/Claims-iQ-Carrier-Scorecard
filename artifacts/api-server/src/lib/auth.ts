@@ -12,6 +12,7 @@ export interface SessionUser {
   firstName: string | null;
   lastName: string | null;
   profileImageUrl: string | null;
+  role: string;
 }
 
 export interface SessionData {

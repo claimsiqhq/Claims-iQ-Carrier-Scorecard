@@ -26,7 +26,7 @@ The project is a pnpm workspace monorepo using Node.js v24 and TypeScript v5.9.
 ### Technical Implementations
 - **API**: Express 5 serves as the API framework.
 - **Database**: Supabase PostgreSQL with Drizzle ORM.
-- **Authentication**: Email/password login with bcrypt password hashing, cookie-based sessions stored in PostgreSQL.
+- **Authentication**: Email/password login with bcrypt password hashing, cookie-based sessions stored in PostgreSQL. Role-based access control (RBAC) with `admin` and `user` roles. Admins can access Settings, Carriers, and carrier editor. Standard users see only the Dashboard and claim details. Roles stored in `users.role` column and propagated through session data to frontend via `useAuth().isAdmin`. Backend enforced via `requireAdmin` middleware on settings and carrier mutation routes.
 - **File Storage**: Supabase Storage for claim document uploads, with a dedicated `claim-documents` bucket.
 - **Email Service**: SendGrid for sending audit emails, with email content rendered as inline HTML.
 - **AI Integration**: Leverages Replit AI Integrations for OpenAI (gpt-4o) for audit analysis. Prompts are in `artifacts/api-server/src/services/prompts.ts`.

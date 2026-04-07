@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import { db, carrierRulesets } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { requireAuth } from "../middlewares/requireAuth";
+import { requireAdmin } from "../middlewares/requireAdmin";
 import { listActiveCarriers } from "../services/carrierRulesetService";
 
 const router: IRouter = Router();
@@ -36,7 +37,7 @@ router.get("/carriers/:key", requireAuth, async (req, res) => {
   res.json(row);
 });
 
-router.put("/carriers/:key", requireAuth, async (req, res) => {
+router.put("/carriers/:key", requireAdmin, async (req, res) => {
   const key = req.params.key as string;
   const { displayName, logoUrl, ruleset, active } = req.body;
   await db
@@ -49,7 +50,7 @@ router.put("/carriers/:key", requireAuth, async (req, res) => {
   res.json({ success: true });
 });
 
-router.delete("/carriers/:key", requireAuth, async (req, res) => {
+router.delete("/carriers/:key", requireAdmin, async (req, res) => {
   const key = req.params.key as string;
   const result = await db
     .delete(carrierRulesets)

@@ -50,6 +50,13 @@ function AuthGate() {
   return <AppLayout />;
 }
 
+function AdminRoute({ component: Component }: { component: React.ComponentType }) {
+  const { isAdmin } = useAuth();
+  const [, setLocation] = useLocation();
+  if (!isAdmin) { setLocation("/"); return null; }
+  return <Component />;
+}
+
 function AppLayout() {
   const [, setLocation] = useLocation();
   const isMobile = useIsMobile();
@@ -67,9 +74,9 @@ function AppLayout() {
           <Route path="/claims/:id">{(params) => <ClaimDetailWrapper params={params} />}</Route>
           <Route path="/upload">{() => { setLocation("/"); return null; }}</Route>
           <Route path="/audit-results">{() => { setLocation("/"); return null; }}</Route>
-          <Route path="/settings" component={SettingsPage} />
-          <Route path="/carriers" component={CarriersPage} />
-          <Route path="/carriers/:key">{(params) => <CarrierEditorPage carrierKey={params.key} />}</Route>
+          <Route path="/settings">{() => <AdminRoute component={SettingsPage} />}</Route>
+          <Route path="/carriers">{() => <AdminRoute component={CarriersPage} />}</Route>
+          <Route path="/carriers/:key">{(params) => <AdminCarrierEditor carrierKey={params.key} />}</Route>
           <Route>
             <main className="flex-1 flex items-center justify-center" style={{ backgroundColor: BRAND.offWhite }}>
               <p style={{ color: BRAND.purpleSecondary }}>Page not found</p>
@@ -79,6 +86,13 @@ function AppLayout() {
       </div>
     </div>
   );
+}
+
+function AdminCarrierEditor({ carrierKey }: { carrierKey: string }) {
+  const { isAdmin } = useAuth();
+  const [, setLocation] = useLocation();
+  if (!isAdmin) { setLocation("/"); return null; }
+  return <CarrierEditorPage carrierKey={carrierKey} />;
 }
 
 function App() {
