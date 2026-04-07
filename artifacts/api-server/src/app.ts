@@ -29,10 +29,14 @@ app.use(cookieParser());
 
 const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 200,
+  max: 1000,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Too many requests, please try again later." },
+  skip: (req) => {
+    const path = req.path || req.url || "";
+    return path.includes("/processing-status") || path.includes("/ingest");
+  },
 });
 
 app.use(generalLimiter);
