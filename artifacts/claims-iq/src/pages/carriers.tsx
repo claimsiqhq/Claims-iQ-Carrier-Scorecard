@@ -6,13 +6,20 @@ import { Badge } from "@/components/ui/badge"
 import { useLocation } from "wouter"
 import { Plus, Trash, EditPencil, WarningTriangle } from "iconoir-react"
 
+interface CarrierRuleset {
+  da_questions?: { id: string; text: string }[]
+  fa_questions?: { id: string; text: string }[]
+  scorecard_categories?: { id: string; label: string; max_score: number }[]
+  [key: string]: unknown
+}
+
 interface CarrierRow {
   id: string
   carrierKey: string
   displayName: string
   logoUrl: string | null
   active: boolean
-  ruleset: any
+  ruleset: CarrierRuleset
   createdAt: string
   updatedAt: string
 }
@@ -35,8 +42,8 @@ export default function CarriersPage() {
       if (!res.ok) throw new Error("Failed to load carriers")
       const data = await res.json()
       setCarriers(data)
-    } catch (err: any) {
-      setError(err.message)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load carriers")
     } finally {
       setLoading(false)
     }
@@ -59,19 +66,19 @@ export default function CarriersPage() {
       }
       setDeleteConfirm(null)
       fetchCarriers()
-    } catch (err: any) {
-      setError(err.message)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete carrier")
     } finally {
       setDeleting(false)
     }
   }
 
-  const getQuestionCount = (ruleset: any, type: "da" | "fa") => {
+  const getQuestionCount = (ruleset: CarrierRow["ruleset"], type: "da" | "fa") => {
     const key = type === "da" ? "da_questions" : "fa_questions"
     return Array.isArray(ruleset?.[key]) ? ruleset[key].length : 0
   }
 
-  const getCategoryCount = (ruleset: any) => {
+  const getCategoryCount = (ruleset: CarrierRow["ruleset"]) => {
     return Array.isArray(ruleset?.scorecard_categories) ? ruleset.scorecard_categories.length : 0
   }
 

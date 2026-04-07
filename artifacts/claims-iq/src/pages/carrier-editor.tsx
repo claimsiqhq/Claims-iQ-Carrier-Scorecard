@@ -90,8 +90,8 @@ export default function CarrierEditorPage({ carrierKey }: { carrierKey: string }
         active: row.active,
         ruleset: row.ruleset || { ...EMPTY_RULESET },
       })
-    } catch (err: any) {
-      setError(err.message)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load carrier")
     } finally {
       setLoading(false)
     }
@@ -109,6 +109,18 @@ export default function CarrierEditorPage({ carrierKey }: { carrierKey: string }
     const key = isNew ? generateKey(data.displayName) : data.carrierKey
     if (!key) {
       setError("Could not generate a valid carrier key from the name")
+      return
+    }
+    if (data.ruleset.da_questions.length === 0) {
+      setError("At least one DA question is required")
+      return
+    }
+    if (data.ruleset.fa_questions.length === 0) {
+      setError("At least one FA question is required")
+      return
+    }
+    if (data.ruleset.scorecard_categories.length === 0) {
+      setError("At least one scorecard category is required")
       return
     }
     setSaving(true)
@@ -134,8 +146,8 @@ export default function CarrierEditorPage({ carrierKey }: { carrierKey: string }
       if (isNew) {
         setLocation(`/carriers/${key}`, { replace: true })
       }
-    } catch (err: any) {
-      setError(err.message)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save carrier")
     } finally {
       setSaving(false)
     }
@@ -175,7 +187,7 @@ export default function CarrierEditorPage({ carrierKey }: { carrierKey: string }
     updateRuleset((r) => ({ ...r, [key]: r[key].filter((_, i) => i !== idx) }))
   }
 
-  const updateQuestion = (scorecard: "DA" | "FA", idx: number, field: keyof Question, value: any) => {
+  const updateQuestion = (scorecard: "DA" | "FA", idx: number, field: keyof Question, value: string | number | undefined) => {
     const key = scorecard === "DA" ? "da_questions" : "fa_questions"
     updateRuleset((r) => ({
       ...r,
@@ -200,7 +212,7 @@ export default function CarrierEditorPage({ carrierKey }: { carrierKey: string }
     }))
   }
 
-  const updateCategory = (idx: number, field: keyof ScorecardCategory, value: any) => {
+  const updateCategory = (idx: number, field: keyof ScorecardCategory, value: string | number) => {
     updateRuleset((r) => ({
       ...r,
       scorecard_categories: r.scorecard_categories.map((c, i) =>
@@ -460,7 +472,7 @@ function QuestionsEditor({
   scorecard: "DA" | "FA"
   onAdd: () => void
   onRemove: (idx: number) => void
-  onUpdate: (idx: number, field: keyof Question, value: any) => void
+  onUpdate: (idx: number, field: keyof Question, value: string | number | undefined) => void
 }) {
   return (
     <div className="space-y-3">
@@ -576,7 +588,7 @@ function CategoriesEditor({
   categories: ScorecardCategory[]
   onAdd: () => void
   onRemove: (idx: number) => void
-  onUpdate: (idx: number, field: keyof ScorecardCategory, value: any) => void
+  onUpdate: (idx: number, field: keyof ScorecardCategory, value: string | number) => void
 }) {
   return (
     <div className="space-y-2">
