@@ -68,6 +68,8 @@ export default function CarrierEditorPage({ carrierKey }: { carrierKey: string }
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
   const [dirty, setDirty] = useState(false)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     basic: true,
     prompt: false,
@@ -158,6 +160,26 @@ export default function CarrierEditorPage({ carrierKey }: { carrierKey: string }
       setError(err instanceof Error ? err.message : "Failed to save carrier")
     } finally {
       setSaving(false)
+    }
+  }
+
+  const handleDelete = async () => {
+    setDeleting(true)
+    try {
+      const res = await fetch(`${baseUrl}/carriers/${data.carrierKey}`, {
+        method: "DELETE",
+        credentials: "include",
+      })
+      if (!res.ok) {
+        const result = await res.json()
+        throw new Error(result.error || "Failed to delete carrier")
+      }
+      setLocation("/carriers")
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete carrier")
+      setShowDeleteConfirm(false)
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -268,17 +290,31 @@ export default function CarrierEditorPage({ carrierKey }: { carrierKey: string }
             </Badge>
           )}
         </div>
-        <Button
-          size="sm"
-          className="gap-1 md:gap-2 text-xs md:text-sm text-white"
-          style={{ backgroundColor: dirty ? BRAND.purple : BRAND.purpleSecondary, fontFamily: FONTS.heading, fontWeight: 600 }}
-          onClick={handleSave}
-          disabled={saving || !dirty}
-        >
-          <FloppyDisk width={16} height={16} />
-          <span className="hidden sm:inline">{saving ? "Saving..." : "Save Changes"}</span>
-          <span className="sm:hidden">{saving ? "..." : "Save"}</span>
-        </Button>
+        <div className="flex items-center gap-2">
+          {!isNew && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1 text-xs md:text-sm"
+              style={{ borderColor: "#fecaca", color: "#dc2626" }}
+              onClick={() => setShowDeleteConfirm(true)}
+            >
+              <Trash width={14} height={14} />
+              <span className="hidden sm:inline">Delete</span>
+            </Button>
+          )}
+          <Button
+            size="sm"
+            className="gap-1 md:gap-2 text-xs md:text-sm text-white"
+            style={{ backgroundColor: dirty ? BRAND.purple : BRAND.purpleSecondary, fontFamily: FONTS.heading, fontWeight: 600 }}
+            onClick={handleSave}
+            disabled={saving || !dirty}
+          >
+            <FloppyDisk width={16} height={16} />
+            <span className="hidden sm:inline">{saving ? "Saving..." : "Save Changes"}</span>
+            <span className="sm:hidden">{saving ? "..." : "Save"}</span>
+          </Button>
+        </div>
       </header>
 
       <div className="flex-1 overflow-y-auto p-4 md:p-6" style={{ backgroundColor: BRAND.offWhite }}>
@@ -432,6 +468,42 @@ export default function CarrierEditorPage({ carrierKey }: { carrierKey: string }
           <div className="h-8" />
         </div>
       </div>
+
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={() => setShowDeleteConfirm(false)}>
+          <div
+            className="bg-white rounded-xl shadow-xl p-6 mx-4 max-w-sm w-full"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-base font-semibold mb-2" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
+              Delete Carrier
+            </h3>
+            <p className="text-sm mb-4" style={{ color: BRAND.purpleSecondary }}>
+              Are you sure you want to delete <strong>{data.displayName}</strong>? This action cannot be undone.
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowDeleteConfirm(false)}
+                disabled={deleting}
+                style={{ borderColor: BRAND.greyLavender }}
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                className="text-white"
+                style={{ backgroundColor: "#dc2626" }}
+                onClick={handleDelete}
+                disabled={deleting}
+              >
+                {deleting ? "Deleting..." : "Delete"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   )
 }
