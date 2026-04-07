@@ -1,0 +1,42 @@
+REPLIT AGENT PROMPT:
+
+Open the file artifacts/api-server/src/services/validationEngine.ts. Make the following three targeted changes. Do not modify anything else in the file.
+Change 1 — validateStackOrder function (lines ~68-89):
+Replace the expectedOrder string array and the matching logic with case-insensitive regex patterns, and lower the threshold from requiring all 7 markers to requiring at least 5 of 7. Replace the entire function body with:
+typescriptconst expectedPatterns = [
+  /desk adjuster|da report/i,
+  /statement of loss|sol\b/i,
+  /payment letter|payment recommendation|dear\s+\w/i,
+  /estimate|xactimate/i,
+  /photo sheet|photograph|photos/i,
+  /sketch|diagram|floor plan/i,
+  /iso file number|iso claimsearch|clue report|prior loss report/i,
+];
+let currentIndex = 0;
+for (const page of documentPages) {
+  if (currentIndex >= expectedPatterns.length) break;
+  if (expectedPatterns[currentIndex].test(page)) currentIndex++;
+}
+return currentIndex >= 5;
+Change 2 — validatePriorLossReview function (lines ~91-94):
+Replace the entire function body with:
+typescriptif (!hasIsoReport) return true;
+return /prior loss|prior claims|iso|clue|not relevant|no prior|no relevant|reviewed.*prior|prior.*review|no related|unrelated/i.test(daReportText);
+Change 3 — missing_prior_loss_review check in runValidation (lines ~176-182):
+Change severity: "critical" to severity: "warning" on the missing_prior_loss_review push.
+Also in runValidation, replace the page-splitting line const pages = reportText.split(...).filter(Boolean); with a multi-strategy fallback:
+typescriptlet pages = reportText.split(/={3,}\s*Page\s+\d+\s*={3,}/i).filter(Boolean);
+if (pages.length <= 1) {
+  pages = reportText.split(/\f|---\s*page\s*\d+\s*---|page\s+\d+\s+of\s+\d+/i).filter(Boolean);
+}
+if (pages.length <= 1) {
+  const chunkSize = 3000;
+  pages = [];
+  for (let i = 0; i < reportText.length; i += chunkSize) {
+    pages.push(reportText.slice(i, i + chunkSize));
+  }
+}
+After making all changes, run npx tsc --noEmit to confirm no TypeScript errors.
+
+
+The severity: "critical" → "warning" on missing_prior_loss_review is the single most impactful line — that alone stops the NOT READY false positive. The other three changes clean up the stack order false flag.
