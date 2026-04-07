@@ -1,10 +1,9 @@
 import { useState, useEffect, useCallback } from "react"
 import { BRAND, FONTS } from "@/lib/brand"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { useLocation } from "wouter"
-import { NavArrowLeft, FloppyDisk, Plus, Trash, Sparks, WarningTriangle, Code, ListSelect } from "iconoir-react"
+import { NavArrowLeft, FloppyDisk, Plus, Trash, Sparks, WarningTriangle, Code, ListSelect, Settings } from "iconoir-react"
 
 interface Question {
   id: string
@@ -448,6 +447,9 @@ export default function CarrierEditorPage({ carrierKey }: { carrierKey: string }
     setCodeContentDirty(false)
   }
 
+  const daWeightSum = data.ruleset.da_questions.reduce((s, q) => s + q.weight, 0)
+  const faWeightSum = data.ruleset.fa_questions.reduce((s, q) => s + q.weight, 0)
+
   if (loading) {
     return (
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
@@ -463,174 +465,180 @@ export default function CarrierEditorPage({ carrierKey }: { carrierKey: string }
 
   return (
     <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
-      <header className="h-14 md:h-16 flex items-center justify-between px-4 md:px-6 shrink-0" style={{ backgroundColor: BRAND.white, borderBottom: `1px solid ${BRAND.greyLavender}` }}>
-        <div className="flex items-center gap-2 md:gap-3">
-          <button
-            onClick={() => setLocation("/carriers")}
-            className="p-1.5 rounded-lg transition-colors hover:bg-black/5"
-            style={{ color: BRAND.purpleSecondary }}
-          >
-            <NavArrowLeft width={20} height={20} />
-          </button>
-          <h1 className="text-base md:text-lg font-bold truncate" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
-            {isNew ? "New Carrier" : data.displayName}
-          </h1>
-          {!isNew && (
-            <Badge
-              className="shadow-none border-transparent text-[10px] px-1.5 py-0 hidden sm:inline-flex"
-              style={{
-                backgroundColor: data.active ? "#dcfce7" : "#fee2e2",
-                color: data.active ? "#16a34a" : "#dc2626",
-              }}
+      <header
+        className="shrink-0 px-4 md:px-6 py-3"
+        style={{ backgroundColor: BRAND.white, borderBottom: `1px solid ${BRAND.greyLavender}` }}
+      >
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 md:gap-3 min-w-0">
+            <button
+              onClick={() => setLocation("/carriers")}
+              className="p-1.5 rounded-lg transition-colors hover:bg-black/5 shrink-0"
+              style={{ color: BRAND.purpleSecondary }}
             >
-              {data.active ? "Active" : "Inactive"}
-            </Badge>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          {!isNew && (
+              <NavArrowLeft width={20} height={20} />
+            </button>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <h1 className="text-base md:text-lg font-bold truncate" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
+                  {isNew ? "New Carrier" : data.displayName}
+                </h1>
+                {!isNew && (
+                  <Badge
+                    className="shadow-none border-transparent text-[10px] px-1.5 py-0 shrink-0"
+                    style={{
+                      backgroundColor: data.active ? "#dcfce7" : "#fee2e2",
+                      color: data.active ? "#16a34a" : "#dc2626",
+                    }}
+                  >
+                    {data.active ? "Active" : "Inactive"}
+                  </Badge>
+                )}
+              </div>
+              {!isNew && (
+                <span className="text-[11px] block mt-0.5" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.mono }}>
+                  {data.carrierKey} &middot; v{data.ruleset.version}
+                </span>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {!isNew && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1 text-xs"
+                style={{ borderColor: "#fecaca", color: "#dc2626" }}
+                onClick={() => setShowDeleteConfirm(true)}
+              >
+                <Trash width={14} height={14} />
+                <span className="hidden sm:inline">Delete</span>
+              </Button>
+            )}
             <Button
-              variant="outline"
               size="sm"
-              className="gap-1 text-xs md:text-sm"
-              style={{ borderColor: "#fecaca", color: "#dc2626" }}
-              onClick={() => setShowDeleteConfirm(true)}
+              className="gap-1.5 text-xs text-white"
+              style={{
+                backgroundColor: dirty ? BRAND.purple : BRAND.purpleSecondary,
+                fontFamily: FONTS.heading,
+                fontWeight: 600,
+              }}
+              onClick={handleSave}
+              disabled={saving || !dirty}
             >
-              <Trash width={14} height={14} />
-              <span className="hidden sm:inline">Delete</span>
+              <FloppyDisk width={15} height={15} />
+              {saving ? "Saving..." : "Save"}
             </Button>
-          )}
-          <Button
-            size="sm"
-            className="gap-1 md:gap-2 text-xs md:text-sm text-white"
-            style={{ backgroundColor: dirty ? BRAND.purple : BRAND.purpleSecondary, fontFamily: FONTS.heading, fontWeight: 600 }}
-            onClick={handleSave}
-            disabled={saving || !dirty}
-          >
-            <FloppyDisk width={16} height={16} />
-            <span className="hidden sm:inline">{saving ? "Saving..." : "Save Changes"}</span>
-            <span className="sm:hidden">{saving ? "..." : "Save"}</span>
-          </Button>
+          </div>
         </div>
       </header>
 
-      <div className="flex-1 overflow-y-auto p-4 md:p-6" style={{ backgroundColor: BRAND.offWhite }}>
-        <div className="max-w-4xl mx-auto space-y-4">
+      <div className="flex-1 overflow-y-auto" style={{ backgroundColor: "#F7F5FA" }}>
+        <div className="max-w-3xl mx-auto px-4 md:px-6 py-5 space-y-5">
           {error && (
-            <div className="flex items-center gap-2 p-3 rounded-lg border" style={{ backgroundColor: "#fef2f2", borderColor: "#fecaca", color: "#dc2626" }}>
-              <WarningTriangle width={16} height={16} />
-              <span className="text-sm">{error}</span>
+            <div className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm" style={{ backgroundColor: "#fef2f2", border: "1px solid #fecaca", color: "#dc2626" }}>
+              <WarningTriangle width={15} height={15} className="shrink-0" />
+              {error}
             </div>
           )}
           {success && (
-            <div className="flex items-center gap-2 p-3 rounded-lg border" style={{ backgroundColor: "#f0fdf4", borderColor: "#bbf7d0", color: "#16a34a" }}>
-              <Sparks width={16} height={16} />
-              <span className="text-sm">{success}</span>
+            <div className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm" style={{ backgroundColor: "#f0fdf4", border: "1px solid #bbf7d0", color: "#16a34a" }}>
+              <Sparks width={15} height={15} className="shrink-0" />
+              {success}
             </div>
           )}
 
-          <CollapsibleSection title="Basic Info" expanded={expandedSections.basic} onToggle={() => toggleSection("basic")}>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-medium mb-1" style={{ color: BRAND.purpleSecondary }}>Display Name</label>
-                <input
-                  className="w-full rounded-lg border p-2.5 text-sm focus:outline-none focus:ring-2"
-                  style={{ borderColor: BRAND.greyLavender, color: BRAND.deepPurple, backgroundColor: BRAND.offWhite }}
-                  value={data.displayName}
-                  onChange={(e) => { setData((d) => ({ ...d, displayName: e.target.value })); setDirty(true) }}
-                  placeholder="e.g. Allstate"
-                />
+          <section className="rounded-xl overflow-hidden" style={{ backgroundColor: BRAND.white, border: `1px solid ${BRAND.greyLavender}` }}>
+            <SectionHeader
+              title="Basic Info"
+              icon={<Settings width={15} height={15} />}
+              expanded={expandedSections.basic}
+              onToggle={() => toggleSection("basic")}
+            />
+            {expandedSections.basic && (
+              <div className="px-5 pb-5 pt-1">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <FormField label="Display Name">
+                    <input
+                      className="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-300 transition-shadow"
+                      style={{ borderColor: BRAND.greyLavender, color: BRAND.deepPurple }}
+                      value={data.displayName}
+                      onChange={(e) => { setData((d) => ({ ...d, displayName: e.target.value })); setDirty(true) }}
+                      placeholder="e.g. Allstate"
+                    />
+                  </FormField>
+                  <FormField label="Logo URL">
+                    <input
+                      className="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-300 transition-shadow"
+                      style={{ borderColor: BRAND.greyLavender, color: BRAND.deepPurple }}
+                      value={data.logoUrl}
+                      onChange={(e) => { setData((d) => ({ ...d, logoUrl: e.target.value })); setDirty(true) }}
+                      placeholder="https://..."
+                    />
+                  </FormField>
+                </div>
+                <div className="flex items-center gap-3 mt-4">
+                  <label className="text-xs font-medium" style={{ color: BRAND.purpleSecondary }}>Active</label>
+                  <button
+                    className="relative w-10 h-[22px] rounded-full transition-colors"
+                    style={{ backgroundColor: data.active ? BRAND.purple : BRAND.greyLavender }}
+                    onClick={() => { setData((d) => ({ ...d, active: !d.active })); setDirty(true) }}
+                  >
+                    <div
+                      className="absolute top-[3px] w-4 h-4 rounded-full bg-white shadow transition-transform"
+                      style={{ left: data.active ? 22 : 3 }}
+                    />
+                  </button>
+                </div>
               </div>
-              <div>
-                <label className="block text-xs font-medium mb-1" style={{ color: BRAND.purpleSecondary }}>Logo URL</label>
-                <input
-                  className="w-full rounded-lg border p-2.5 text-sm focus:outline-none focus:ring-2"
-                  style={{ borderColor: BRAND.greyLavender, color: BRAND.deepPurple, backgroundColor: BRAND.offWhite }}
-                  value={data.logoUrl}
-                  onChange={(e) => { setData((d) => ({ ...d, logoUrl: e.target.value })); setDirty(true) }}
-                  placeholder="https://..."
-                />
+            )}
+          </section>
+
+          <section className="rounded-xl overflow-hidden" style={{ backgroundColor: BRAND.white, border: `1px solid ${BRAND.greyLavender}` }}>
+            <div className="flex items-center justify-between px-5 py-3" style={{ borderBottom: `1px solid ${BRAND.greyLavender}` }}>
+              <div className="flex items-center gap-2.5">
+                <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ backgroundColor: BRAND.lightPurpleGrey }}>
+                  <Code width={14} height={14} style={{ color: BRAND.purple }} />
+                </div>
+                <span className="text-sm font-semibold" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
+                  Ruleset
+                </span>
+                <Badge className="shadow-none border-transparent text-[10px]" style={{ backgroundColor: BRAND.lightPurpleGrey, color: BRAND.purple }}>
+                  v{data.ruleset.version}
+                </Badge>
               </div>
-              <div className="flex items-center gap-3 sm:col-span-2">
-                <label className="text-xs font-medium" style={{ color: BRAND.purpleSecondary }}>Active</label>
+              <div className="flex items-center rounded-lg p-0.5" style={{ backgroundColor: BRAND.offWhite }}>
                 <button
-                  className="relative w-10 h-5 rounded-full transition-colors"
-                  style={{ backgroundColor: data.active ? BRAND.purple : BRAND.greyLavender }}
-                  onClick={() => { setData((d) => ({ ...d, active: !d.active })); setDirty(true) }}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all"
+                  style={{
+                    backgroundColor: editorMode === "form" ? BRAND.white : "transparent",
+                    color: editorMode === "form" ? BRAND.deepPurple : BRAND.purpleSecondary,
+                    boxShadow: editorMode === "form" ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
+                  }}
+                  onClick={switchToFormMode}
                 >
-                  <div
-                    className="absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform"
-                    style={{ left: data.active ? 22 : 2 }}
-                  />
+                  <ListSelect width={12} height={12} />
+                  Form
+                </button>
+                <button
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all"
+                  style={{
+                    backgroundColor: editorMode === "code" ? BRAND.white : "transparent",
+                    color: editorMode === "code" ? BRAND.deepPurple : BRAND.purpleSecondary,
+                    boxShadow: editorMode === "code" ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
+                  }}
+                  onClick={switchToCodeMode}
+                >
+                  <Code width={12} height={12} />
+                  Code
                 </button>
               </div>
-              {!isNew && (
-                <div className="sm:col-span-2">
-                  <label className="block text-xs font-medium mb-1" style={{ color: BRAND.purpleSecondary }}>Carrier Key</label>
-                  <input
-                    className="w-full rounded-lg border p-2.5 text-sm cursor-not-allowed"
-                    style={{ borderColor: BRAND.greyLavender, color: BRAND.purpleSecondary, backgroundColor: "#f5f3f7" }}
-                    value={data.carrierKey}
-                    readOnly
-                  />
-                </div>
-              )}
             </div>
-          </CollapsibleSection>
 
-          <Card className="shadow-sm" style={{ borderColor: BRAND.greyLavender, backgroundColor: BRAND.white }}>
-            <CardHeader className="pb-2">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-sm font-semibold" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
-                  Ruleset Configuration
-                </CardTitle>
-                <div className="flex rounded-lg overflow-hidden border" style={{ borderColor: BRAND.greyLavender }}>
-                  <button
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors"
-                    style={{
-                      backgroundColor: editorMode === "form" ? BRAND.purple : "transparent",
-                      color: editorMode === "form" ? "#fff" : BRAND.purpleSecondary,
-                    }}
-                    onClick={switchToFormMode}
-                  >
-                    <ListSelect width={14} height={14} />
-                    Form
-                  </button>
-                  <button
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors"
-                    style={{
-                      backgroundColor: editorMode === "code" ? BRAND.purple : "transparent",
-                      color: editorMode === "code" ? "#fff" : BRAND.purpleSecondary,
-                      borderLeft: `1px solid ${BRAND.greyLavender}`,
-                    }}
-                    onClick={switchToCodeMode}
-                  >
-                    <Code width={14} height={14} />
-                    Code
-                  </button>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="pt-2">
-              {editorMode === "form" ? (
-                <div className="text-xs mb-2 flex items-center gap-2 p-2 rounded-md" style={{ backgroundColor: BRAND.lightPurpleGrey, color: BRAND.purple }}>
-                  <Sparks width={14} height={14} />
-                  Use the form fields below to edit individual ruleset fields, or switch to Code mode to paste a complete ruleset.
-                </div>
-              ) : (
-                <div className="text-xs mb-2 flex items-center gap-2 p-2 rounded-md" style={{ backgroundColor: BRAND.lightPurpleGrey, color: BRAND.purple }}>
-                  <Code width={14} height={14} />
-                  Paste a complete JSON ruleset or a TypeScript ruleset object. Click "Parse & Apply" to validate and load.
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {editorMode === "code" ? (
-            <Card className="shadow-sm" style={{ borderColor: BRAND.greyLavender, backgroundColor: BRAND.white }}>
-              <CardContent className="pt-4">
+            {editorMode === "code" ? (
+              <div className="p-5">
                 {codeErrors.length > 0 && (
-                  <div className="mb-3 rounded-lg border p-3 space-y-1" style={{ backgroundColor: "#fef2f2", borderColor: "#fecaca" }}>
+                  <div className="mb-4 rounded-lg border p-3 space-y-1" style={{ backgroundColor: "#fef2f2", borderColor: "#fecaca" }}>
                     {codeErrors.map((err, i) => (
                       <div key={i} className="flex items-start gap-2 text-xs" style={{ color: "#dc2626" }}>
                         <WarningTriangle width={12} height={12} className="shrink-0 mt-0.5" />
@@ -640,36 +648,32 @@ export default function CarrierEditorPage({ carrierKey }: { carrierKey: string }
                   </div>
                 )}
                 {codeParsed && codeErrors.length === 0 && (
-                  <div className="mb-3 flex items-center gap-2 p-3 rounded-lg border" style={{ backgroundColor: "#f0fdf4", borderColor: "#bbf7d0", color: "#16a34a" }}>
+                  <div className="mb-4 flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs" style={{ backgroundColor: "#f0fdf4", border: "1px solid #bbf7d0", color: "#16a34a" }}>
                     <Sparks width={14} height={14} />
-                    <span className="text-xs">
-                      Ruleset parsed successfully — {data.ruleset.da_questions.length} DA questions, {data.ruleset.fa_questions.length} FA questions, {data.ruleset.scorecard_categories.length} categories loaded. Switch to Form view to review, or save directly.
-                    </span>
+                    Parsed {data.ruleset.da_questions.length} DA + {data.ruleset.fa_questions.length} FA questions, {data.ruleset.scorecard_categories.length} categories.
                   </div>
                 )}
                 {codeParsed && codeErrors.length > 0 && (
-                  <div className="mb-3 flex items-center gap-2 p-3 rounded-lg border" style={{ backgroundColor: "#fffbeb", borderColor: "#fde68a", color: "#b45309" }}>
+                  <div className="mb-4 flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs" style={{ backgroundColor: "#fffbeb", border: "1px solid #fde68a", color: "#b45309" }}>
                     <WarningTriangle width={14} height={14} />
-                    <span className="text-xs">
-                      Partially parsed — {data.ruleset.da_questions.length} DA questions, {data.ruleset.fa_questions.length} FA questions, {data.ruleset.scorecard_categories.length} categories loaded with warnings above.
-                    </span>
+                    Partial: {data.ruleset.da_questions.length} DA + {data.ruleset.fa_questions.length} FA questions, {data.ruleset.scorecard_categories.length} categories with warnings.
                   </div>
                 )}
                 <textarea
-                  className="w-full rounded-lg border p-4 text-xs leading-relaxed resize-y focus:outline-none focus:ring-2"
+                  className="w-full rounded-lg border p-4 text-xs leading-relaxed resize-y focus:outline-none focus:ring-2 focus:ring-purple-300 transition-shadow"
                   style={{
                     borderColor: BRAND.greyLavender,
                     fontFamily: FONTS.mono,
                     fontSize: "12px",
                     lineHeight: "1.6",
-                    minHeight: "500px",
+                    minHeight: "420px",
                     color: BRAND.deepPurple,
-                    backgroundColor: BRAND.offWhite,
+                    backgroundColor: "#FAFAFE",
                     tabSize: 2,
                   }}
                   value={codeContent}
                   onChange={(e) => { setCodeContent(e.target.value); setCodeParsed(false); setCodeContentDirty(true) }}
-                  placeholder={`Paste your ruleset JSON or TypeScript object here...\n\nExample:\n{\n  "version": "1.0",\n  "da_questions": [...],\n  "fa_questions": [...],\n  "scorecard_categories": [...],\n  "system_prompt_override": "...",\n  "carrier_scorecard_prompt_override": "..."\n}`}
+                  placeholder={`Paste your ruleset JSON or TypeScript object here...\n\nExample:\n{\n  "version": "1.0",\n  "da_questions": [...],\n  "fa_questions": [...],\n  "scorecard_categories": [...]\n}`}
                   spellCheck={false}
                 />
                 <div className="mt-3 flex items-center gap-2 flex-wrap">
@@ -690,111 +694,113 @@ export default function CarrierEditorPage({ carrierKey }: { carrierKey: string }
                       style={{ borderColor: BRAND.greyLavender, color: BRAND.purpleSecondary }}
                       onClick={handleSyncFromForm}
                     >
-                      Reset to Current Ruleset
+                      Reset
                     </Button>
                   )}
-                  <span className="text-[10px]" style={{ color: BRAND.purpleSecondary }}>
-                    Accepts JSON or TypeScript objects (interface declarations, type annotations, export const, and "as const" are stripped automatically)
+                  <span className="text-[10px] ml-1" style={{ color: BRAND.purpleSecondary }}>
+                    Accepts JSON or TypeScript objects
                   </span>
                 </div>
-              </CardContent>
-            </Card>
-          ) : (
-            <>
-              <CollapsibleSection title="System Prompt Override" expanded={expandedSections.prompt} onToggle={() => toggleSection("prompt")} badge={data.ruleset.system_prompt_override ? "Custom" : "Default"}>
-                <div className="mb-2 flex items-center gap-2 p-2 rounded-md" style={{ backgroundColor: BRAND.lightPurpleGrey }}>
-                  <WarningTriangle width={14} height={14} style={{ color: BRAND.purple }} />
-                  <span className="text-xs" style={{ color: BRAND.purple }}>
-                    Leave empty to use the global system prompt. Only fill this in for carrier-specific overrides.
-                  </span>
-                </div>
-                <textarea
-                  className="w-full rounded-lg border p-3 text-sm leading-relaxed resize-y focus:outline-none focus:ring-2"
-                  style={{
-                    borderColor: BRAND.greyLavender,
-                    fontFamily: FONTS.mono,
-                    fontSize: "13px",
-                    minHeight: "200px",
-                    color: BRAND.deepPurple,
-                    backgroundColor: BRAND.offWhite,
-                  }}
-                  value={data.ruleset.system_prompt_override || ""}
-                  onChange={(e) => updateRuleset((r) => ({ ...r, system_prompt_override: e.target.value || undefined }))}
-                  placeholder="Leave empty to use global default..."
-                />
-                <div className="mt-3">
-                  <label className="block text-xs font-medium mb-1" style={{ color: BRAND.purpleSecondary }}>Scorecard Prompt Override</label>
-                  <textarea
-                    className="w-full rounded-lg border p-3 text-sm leading-relaxed resize-y focus:outline-none focus:ring-2"
-                    style={{
-                      borderColor: BRAND.greyLavender,
-                      fontFamily: FONTS.mono,
-                      fontSize: "13px",
-                      minHeight: "120px",
-                      color: BRAND.deepPurple,
-                      backgroundColor: BRAND.offWhite,
-                    }}
-                    value={data.ruleset.carrier_scorecard_prompt_override || ""}
-                    onChange={(e) => updateRuleset((r) => ({ ...r, carrier_scorecard_prompt_override: e.target.value || undefined }))}
-                    placeholder="Leave empty to use default scorecard prompt..."
+              </div>
+            ) : (
+              <div>
+                <InnerSection
+                  title="System Prompt"
+                  badge={data.ruleset.system_prompt_override ? "Custom" : "Default"}
+                  badgeColor={data.ruleset.system_prompt_override ? BRAND.purple : BRAND.purpleSecondary}
+                  expanded={expandedSections.prompt}
+                  onToggle={() => toggleSection("prompt")}
+                  borderTop={false}
+                >
+                  <FormField label="System Prompt Override" hint="Leave empty to use the global default prompt.">
+                    <textarea
+                      className="w-full rounded-lg border px-3 py-2.5 text-xs leading-relaxed resize-y focus:outline-none focus:ring-2 focus:ring-purple-300 transition-shadow"
+                      style={{
+                        borderColor: BRAND.greyLavender,
+                        fontFamily: FONTS.mono,
+                        minHeight: "160px",
+                        color: BRAND.deepPurple,
+                      }}
+                      value={data.ruleset.system_prompt_override || ""}
+                      onChange={(e) => updateRuleset((r) => ({ ...r, system_prompt_override: e.target.value || undefined }))}
+                      placeholder="Leave empty to use global default..."
+                    />
+                  </FormField>
+                  <div className="mt-3">
+                    <FormField label="Scorecard Prompt Override" hint="Leave empty to use the default scorecard prompt.">
+                      <textarea
+                        className="w-full rounded-lg border px-3 py-2.5 text-xs leading-relaxed resize-y focus:outline-none focus:ring-2 focus:ring-purple-300 transition-shadow"
+                        style={{
+                          borderColor: BRAND.greyLavender,
+                          fontFamily: FONTS.mono,
+                          minHeight: "100px",
+                          color: BRAND.deepPurple,
+                        }}
+                        value={data.ruleset.carrier_scorecard_prompt_override || ""}
+                        onChange={(e) => updateRuleset((r) => ({ ...r, carrier_scorecard_prompt_override: e.target.value || undefined }))}
+                        placeholder="Leave empty to use default scorecard prompt..."
+                      />
+                    </FormField>
+                  </div>
+                </InnerSection>
+
+                <InnerSection
+                  title="DA Questions"
+                  badge={`${data.ruleset.da_questions.length}`}
+                  stat={`${daWeightSum} pts`}
+                  expanded={expandedSections.da}
+                  onToggle={() => toggleSection("da")}
+                >
+                  <QuestionsEditor
+                    questions={data.ruleset.da_questions}
+                    scorecard="DA"
+                    onAdd={() => addQuestion("DA")}
+                    onRemove={(idx) => removeQuestion("DA", idx)}
+                    onUpdate={(idx, field, value) => updateQuestion("DA", idx, field, value)}
                   />
-                </div>
-              </CollapsibleSection>
+                </InnerSection>
 
-              <CollapsibleSection
-                title="DA Questions"
-                expanded={expandedSections.da}
-                onToggle={() => toggleSection("da")}
-                badge={`${data.ruleset.da_questions.length}`}
-              >
-                <QuestionsEditor
-                  questions={data.ruleset.da_questions}
-                  scorecard="DA"
-                  onAdd={() => addQuestion("DA")}
-                  onRemove={(idx) => removeQuestion("DA", idx)}
-                  onUpdate={(idx, field, value) => updateQuestion("DA", idx, field, value)}
-                />
-              </CollapsibleSection>
+                <InnerSection
+                  title="FA Questions"
+                  badge={`${data.ruleset.fa_questions.length}`}
+                  stat={`${faWeightSum} pts`}
+                  expanded={expandedSections.fa}
+                  onToggle={() => toggleSection("fa")}
+                >
+                  <QuestionsEditor
+                    questions={data.ruleset.fa_questions}
+                    scorecard="FA"
+                    onAdd={() => addQuestion("FA")}
+                    onRemove={(idx) => removeQuestion("FA", idx)}
+                    onUpdate={(idx, field, value) => updateQuestion("FA", idx, field, value)}
+                  />
+                </InnerSection>
 
-              <CollapsibleSection
-                title="FA Questions"
-                expanded={expandedSections.fa}
-                onToggle={() => toggleSection("fa")}
-                badge={`${data.ruleset.fa_questions.length}`}
-              >
-                <QuestionsEditor
-                  questions={data.ruleset.fa_questions}
-                  scorecard="FA"
-                  onAdd={() => addQuestion("FA")}
-                  onRemove={(idx) => removeQuestion("FA", idx)}
-                  onUpdate={(idx, field, value) => updateQuestion("FA", idx, field, value)}
-                />
-              </CollapsibleSection>
+                <InnerSection
+                  title="Scorecard Categories"
+                  badge={`${data.ruleset.scorecard_categories.length}`}
+                  expanded={expandedSections.categories}
+                  onToggle={() => toggleSection("categories")}
+                >
+                  <CategoriesEditor
+                    categories={data.ruleset.scorecard_categories}
+                    onAdd={addCategory}
+                    onRemove={removeCategory}
+                    onUpdate={updateCategory}
+                  />
+                </InnerSection>
+              </div>
+            )}
+          </section>
 
-              <CollapsibleSection
-                title="Scorecard Categories"
-                expanded={expandedSections.categories}
-                onToggle={() => toggleSection("categories")}
-                badge={`${data.ruleset.scorecard_categories.length}`}
-              >
-                <CategoriesEditor
-                  categories={data.ruleset.scorecard_categories}
-                  onAdd={addCategory}
-                  onRemove={removeCategory}
-                  onUpdate={updateCategory}
-                />
-              </CollapsibleSection>
-            </>
-          )}
-
-          <div className="h-8" />
+          <div className="h-4" />
         </div>
       </div>
 
       {showDeleteConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={() => setShowDeleteConfirm(false)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowDeleteConfirm(false)}>
           <div
-            className="bg-white rounded-xl shadow-xl p-6 mx-4 max-w-sm w-full"
+            className="bg-white rounded-xl shadow-2xl p-6 mx-4 max-w-sm w-full"
             onClick={(e) => e.stopPropagation()}
           >
             <h3 className="text-base font-semibold mb-2" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
@@ -830,36 +836,107 @@ export default function CarrierEditorPage({ carrierKey }: { carrierKey: string }
   )
 }
 
-function CollapsibleSection({
+function FormField({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <label className="block text-xs font-medium mb-1" style={{ color: BRAND.deepPurple }}>
+        {label}
+      </label>
+      {hint && (
+        <p className="text-[11px] mb-1.5" style={{ color: BRAND.purpleSecondary }}>{hint}</p>
+      )}
+      {children}
+    </div>
+  )
+}
+
+function SectionHeader({
   title,
+  icon,
   expanded,
   onToggle,
+}: {
+  title: string
+  icon: React.ReactNode
+  expanded: boolean
+  onToggle: () => void
+}) {
+  return (
+    <button
+      className="w-full flex items-center gap-2.5 px-5 py-3.5 text-left transition-colors hover:bg-black/[0.02]"
+      style={{ borderBottom: expanded ? `1px solid ${BRAND.greyLavender}` : "none" }}
+      onClick={onToggle}
+    >
+      <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0" style={{ backgroundColor: BRAND.lightPurpleGrey }}>
+        <span style={{ color: BRAND.purple }}>{icon}</span>
+      </div>
+      <span className="text-sm font-semibold flex-1" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
+        {title}
+      </span>
+      <svg
+        width="16" height="16" viewBox="0 0 16 16" fill="none"
+        className="transition-transform shrink-0"
+        style={{ transform: expanded ? "rotate(180deg)" : "rotate(0deg)", color: BRAND.purpleSecondary }}
+      >
+        <path d="M4 6L8 10L12 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </button>
+  )
+}
+
+function InnerSection({
+  title,
   badge,
+  badgeColor,
+  stat,
+  expanded,
+  onToggle,
+  borderTop = true,
   children,
 }: {
   title: string
+  badge?: string
+  badgeColor?: string
+  stat?: string
   expanded: boolean
   onToggle: () => void
-  badge?: string
+  borderTop?: boolean
   children: React.ReactNode
 }) {
   return (
-    <Card className="shadow-sm" style={{ borderColor: BRAND.greyLavender, backgroundColor: BRAND.white }}>
-      <CardHeader className="pb-0 cursor-pointer select-none" onClick={onToggle}>
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-sm font-semibold flex items-center gap-2" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
-            <span className="text-xs transition-transform" style={{ transform: expanded ? "rotate(90deg)" : "rotate(0deg)" }}>▶</span>
-            {title}
-          </CardTitle>
-          {badge && (
-            <Badge className="shadow-none border-transparent text-[10px]" style={{ backgroundColor: BRAND.lightPurpleGrey, color: BRAND.purple }}>
-              {badge}
-            </Badge>
-          )}
-        </div>
-      </CardHeader>
-      {expanded && <CardContent className="pt-4">{children}</CardContent>}
-    </Card>
+    <div style={{ borderTop: borderTop ? `1px solid ${BRAND.greyLavender}` : "none" }}>
+      <button
+        className="w-full flex items-center gap-3 px-5 py-3 text-left transition-colors hover:bg-black/[0.02]"
+        onClick={onToggle}
+      >
+        <svg
+          width="14" height="14" viewBox="0 0 16 16" fill="none"
+          className="transition-transform shrink-0"
+          style={{ transform: expanded ? "rotate(90deg)" : "rotate(0deg)", color: BRAND.purpleSecondary }}
+        >
+          <path d="M6 4L10 8L6 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+        <span className="text-[13px] font-semibold flex-1" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
+          {title}
+        </span>
+        {stat && (
+          <span className="text-[11px] font-medium" style={{ color: BRAND.purpleSecondary }}>
+            {stat}
+          </span>
+        )}
+        {badge && (
+          <span
+            className="text-[10px] font-semibold px-2 py-0.5 rounded-full"
+            style={{ backgroundColor: BRAND.lightPurpleGrey, color: badgeColor || BRAND.purple }}
+          >
+            {badge}
+          </span>
+        )}
+      </button>
+      {expanded && (
+        <div className="px-5 pb-5 pt-1">{children}</div>
+      )}
+    </div>
   )
 }
 
@@ -877,41 +954,44 @@ function QuestionsEditor({
   onUpdate: (idx: number, field: keyof Question, value: string | number | undefined) => void
 }) {
   return (
-    <div className="space-y-3">
+    <div className="space-y-2.5">
       {questions.length === 0 && (
-        <p className="text-xs text-center py-4" style={{ color: BRAND.purpleSecondary }}>No {scorecard} questions configured.</p>
+        <p className="text-xs text-center py-6" style={{ color: BRAND.purpleSecondary }}>No {scorecard} questions configured.</p>
       )}
       {questions.map((q, idx) => (
         <div
           key={`${q.id}-${idx}`}
-          className="rounded-lg border p-3 space-y-2"
-          style={{ borderColor: BRAND.greyLavender, backgroundColor: BRAND.offWhite }}
+          className="rounded-lg border p-3 space-y-2.5 transition-colors"
+          style={{ borderColor: BRAND.greyLavender, backgroundColor: "#FAFAFE" }}
         >
-          <div className="flex items-start justify-between gap-2">
+          <div className="flex items-start gap-2">
+            <span className="text-[10px] font-bold w-5 h-5 rounded flex items-center justify-center shrink-0 mt-0.5" style={{ backgroundColor: BRAND.lightPurpleGrey, color: BRAND.purple }}>
+              {idx + 1}
+            </span>
             <div className="flex-1 min-w-0">
-              <label className="block text-[10px] font-medium mb-0.5" style={{ color: BRAND.purpleSecondary }}>Question Text</label>
               <textarea
-                className="w-full rounded border p-2 text-xs resize-y focus:outline-none focus:ring-1"
-                style={{ borderColor: BRAND.greyLavender, color: BRAND.deepPurple, minHeight: 50, backgroundColor: BRAND.white }}
+                className="w-full rounded border px-2.5 py-1.5 text-xs resize-y focus:outline-none focus:ring-1 focus:ring-purple-300"
+                style={{ borderColor: BRAND.greyLavender, color: BRAND.deepPurple, minHeight: 44, backgroundColor: BRAND.white }}
                 value={q.text}
                 onChange={(e) => onUpdate(idx, "text", e.target.value)}
+                placeholder="Question text..."
               />
             </div>
             <button
-              className="p-1.5 rounded transition-colors hover:bg-red-50 shrink-0 mt-3"
+              className="p-1 rounded transition-colors hover:bg-red-50 shrink-0"
               style={{ color: "#dc2626" }}
               onClick={() => onRemove(idx)}
               title="Remove question"
             >
-              <Trash width={14} height={14} />
+              <Trash width={13} height={13} />
             </button>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-            <div>
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 pl-7">
+            <div className="sm:col-span-2">
               <label className="block text-[10px] font-medium mb-0.5" style={{ color: BRAND.purpleSecondary }}>ID</label>
               <input
-                className="w-full rounded border p-1.5 text-xs focus:outline-none focus:ring-1"
+                className="w-full rounded border px-2 py-1 text-[11px] focus:outline-none focus:ring-1 focus:ring-purple-300"
                 style={{ borderColor: BRAND.greyLavender, color: BRAND.deepPurple, fontFamily: FONTS.mono, backgroundColor: BRAND.white }}
                 value={q.id}
                 onChange={(e) => onUpdate(idx, "id", e.target.value)}
@@ -921,7 +1001,7 @@ function QuestionsEditor({
               <label className="block text-[10px] font-medium mb-0.5" style={{ color: BRAND.purpleSecondary }}>Weight</label>
               <input
                 type="number"
-                className="w-full rounded border p-1.5 text-xs focus:outline-none focus:ring-1"
+                className="w-full rounded border px-2 py-1 text-[11px] focus:outline-none focus:ring-1 focus:ring-purple-300"
                 style={{ borderColor: BRAND.greyLavender, color: BRAND.deepPurple, backgroundColor: BRAND.white }}
                 value={q.weight}
                 min={0}
@@ -930,13 +1010,13 @@ function QuestionsEditor({
               />
             </div>
             <div>
-              <label className="block text-[10px] font-medium mb-0.5" style={{ color: BRAND.purpleSecondary }}>Weight (No Denial)</label>
+              <label className="block text-[10px] font-medium mb-0.5" style={{ color: BRAND.purpleSecondary }}>No-Denial</label>
               <input
                 type="number"
-                className="w-full rounded border p-1.5 text-xs focus:outline-none focus:ring-1"
+                className="w-full rounded border px-2 py-1 text-[11px] focus:outline-none focus:ring-1 focus:ring-purple-300"
                 style={{ borderColor: BRAND.greyLavender, color: BRAND.deepPurple, backgroundColor: BRAND.white }}
                 value={q.weightIfNoDenial ?? ""}
-                placeholder="—"
+                placeholder="--"
                 min={0}
                 max={100}
                 onChange={(e) => {
@@ -946,19 +1026,19 @@ function QuestionsEditor({
               />
             </div>
             <div>
-              <label className="block text-[10px] font-medium mb-0.5" style={{ color: BRAND.purpleSecondary }}>Category Key</label>
+              <label className="block text-[10px] font-medium mb-0.5" style={{ color: BRAND.purpleSecondary }}>Category</label>
               <input
-                className="w-full rounded border p-1.5 text-xs focus:outline-none focus:ring-1"
+                className="w-full rounded border px-2 py-1 text-[11px] focus:outline-none focus:ring-1 focus:ring-purple-300"
                 style={{ borderColor: BRAND.greyLavender, color: BRAND.deepPurple, fontFamily: FONTS.mono, backgroundColor: BRAND.white }}
                 value={q.categoryKey}
                 onChange={(e) => onUpdate(idx, "categoryKey", e.target.value)}
               />
             </div>
           </div>
-          <div>
+          <div className="pl-7">
             <label className="block text-[10px] font-medium mb-0.5" style={{ color: BRAND.purpleSecondary }}>Category Name</label>
             <input
-              className="w-full rounded border p-1.5 text-xs focus:outline-none focus:ring-1"
+              className="w-full rounded border px-2 py-1 text-[11px] focus:outline-none focus:ring-1 focus:ring-purple-300"
               style={{ borderColor: BRAND.greyLavender, color: BRAND.deepPurple, backgroundColor: BRAND.white }}
               value={q.categoryName}
               onChange={(e) => onUpdate(idx, "categoryName", e.target.value)}
@@ -967,16 +1047,14 @@ function QuestionsEditor({
         </div>
       ))}
 
-      <Button
-        variant="outline"
-        size="sm"
-        className="w-full gap-1 text-xs"
-        style={{ borderColor: BRAND.greyLavender, color: BRAND.purple, borderStyle: "dashed" }}
+      <button
+        className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg border-2 border-dashed text-xs font-medium transition-colors hover:bg-purple-50"
+        style={{ borderColor: BRAND.greyLavender, color: BRAND.purple }}
         onClick={onAdd}
       >
         <Plus width={14} height={14} />
         Add {scorecard} Question
-      </Button>
+      </button>
     </div>
   )
 }
@@ -995,64 +1073,65 @@ function CategoriesEditor({
   return (
     <div className="space-y-2">
       {categories.length === 0 && (
-        <p className="text-xs text-center py-4" style={{ color: BRAND.purpleSecondary }}>No categories configured.</p>
+        <p className="text-xs text-center py-6" style={{ color: BRAND.purpleSecondary }}>No categories configured.</p>
       )}
-      {categories.map((c, idx) => (
-        <div
-          key={`${c.id}-${idx}`}
-          className="rounded-lg border p-3 flex items-center gap-3 flex-wrap"
-          style={{ borderColor: BRAND.greyLavender, backgroundColor: BRAND.offWhite }}
-        >
-          <div className="flex-1 min-w-[120px]">
-            <label className="block text-[10px] font-medium mb-0.5" style={{ color: BRAND.purpleSecondary }}>ID</label>
-            <input
-              className="w-full rounded border p-1.5 text-xs focus:outline-none focus:ring-1"
-              style={{ borderColor: BRAND.greyLavender, color: BRAND.deepPurple, fontFamily: FONTS.mono, backgroundColor: BRAND.white }}
-              value={c.id}
-              onChange={(e) => onUpdate(idx, "id", e.target.value)}
-            />
-          </div>
-          <div className="flex-[2] min-w-[160px]">
-            <label className="block text-[10px] font-medium mb-0.5" style={{ color: BRAND.purpleSecondary }}>Label</label>
-            <input
-              className="w-full rounded border p-1.5 text-xs focus:outline-none focus:ring-1"
-              style={{ borderColor: BRAND.greyLavender, color: BRAND.deepPurple, backgroundColor: BRAND.white }}
-              value={c.label}
-              onChange={(e) => onUpdate(idx, "label", e.target.value)}
-            />
-          </div>
-          <div className="w-20">
-            <label className="block text-[10px] font-medium mb-0.5" style={{ color: BRAND.purpleSecondary }}>Max Score</label>
-            <input
-              type="number"
-              className="w-full rounded border p-1.5 text-xs focus:outline-none focus:ring-1"
-              style={{ borderColor: BRAND.greyLavender, color: BRAND.deepPurple, backgroundColor: BRAND.white }}
-              value={c.max_score}
-              min={1}
-              onChange={(e) => onUpdate(idx, "max_score", parseInt(e.target.value) || 1)}
-            />
-          </div>
-          <button
-            className="p-1.5 rounded transition-colors hover:bg-red-50 self-end mb-0.5"
-            style={{ color: "#dc2626" }}
-            onClick={() => onRemove(idx)}
-            title="Remove category"
+      <div className="rounded-lg border overflow-hidden" style={{ borderColor: BRAND.greyLavender }}>
+        {categories.map((c, idx) => (
+          <div
+            key={`${c.id}-${idx}`}
+            className="flex items-center gap-3 px-3 py-2.5"
+            style={{
+              backgroundColor: idx % 2 === 0 ? "#FAFAFE" : BRAND.white,
+              borderTop: idx > 0 ? `1px solid ${BRAND.greyLavender}` : "none",
+            }}
           >
-            <Trash width={14} height={14} />
-          </button>
-        </div>
-      ))}
+            <div className="flex-1 min-w-0">
+              <input
+                className="w-full bg-transparent text-xs font-medium focus:outline-none"
+                style={{ color: BRAND.deepPurple }}
+                value={c.label}
+                onChange={(e) => onUpdate(idx, "label", e.target.value)}
+                placeholder="Category label..."
+              />
+              <input
+                className="w-full bg-transparent text-[10px] mt-0.5 focus:outline-none"
+                style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.mono }}
+                value={c.id}
+                onChange={(e) => onUpdate(idx, "id", e.target.value)}
+                placeholder="category_key"
+              />
+            </div>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <input
+                type="number"
+                className="w-14 rounded border px-2 py-1 text-xs text-center focus:outline-none focus:ring-1 focus:ring-purple-300"
+                style={{ borderColor: BRAND.greyLavender, color: BRAND.deepPurple, backgroundColor: BRAND.white }}
+                value={c.max_score}
+                min={1}
+                onChange={(e) => onUpdate(idx, "max_score", parseInt(e.target.value) || 1)}
+              />
+              <span className="text-[10px]" style={{ color: BRAND.purpleSecondary }}>pts</span>
+              <button
+                className="p-1 rounded transition-colors hover:bg-red-50 ml-1"
+                style={{ color: "#dc2626" }}
+                onClick={() => onRemove(idx)}
+                title="Remove category"
+              >
+                <Trash width={13} height={13} />
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
 
-      <Button
-        variant="outline"
-        size="sm"
-        className="w-full gap-1 text-xs"
-        style={{ borderColor: BRAND.greyLavender, color: BRAND.purple, borderStyle: "dashed" }}
+      <button
+        className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg border-2 border-dashed text-xs font-medium transition-colors hover:bg-purple-50"
+        style={{ borderColor: BRAND.greyLavender, color: BRAND.purple }}
         onClick={onAdd}
       >
         <Plus width={14} height={14} />
         Add Category
-      </Button>
+      </button>
     </div>
   )
 }
