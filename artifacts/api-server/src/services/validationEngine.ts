@@ -75,12 +75,20 @@ export function validateStackOrder(documentPages: string[]): boolean {
     /sketch|diagram|floor plan/i,
     /iso file number|iso claimsearch|clue report|prior loss report/i,
   ];
-  let currentIndex = 0;
-  for (const page of documentPages) {
-    if (currentIndex >= expectedPatterns.length) break;
-    if (expectedPatterns[currentIndex].test(page)) currentIndex++;
+  const firstPageIndex: number[] = [];
+  for (const pattern of expectedPatterns) {
+    const idx = documentPages.findIndex((p) => pattern.test(p));
+    firstPageIndex.push(idx);
   }
-  return currentIndex >= 5;
+  const found = firstPageIndex
+    .map((pageIdx, patternIdx) => ({ pageIdx, patternIdx }))
+    .filter((e) => e.pageIdx !== -1)
+    .sort((a, b) => a.pageIdx - b.pageIdx);
+  if (found.length < 5) return false;
+  for (let i = 1; i < found.length; i++) {
+    if (found[i].patternIdx < found[i - 1].patternIdx) return false;
+  }
+  return true;
 }
 
 export function validatePriorLossReview(daReportText: string, hasIsoReport: boolean): boolean {
