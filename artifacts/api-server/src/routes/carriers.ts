@@ -17,8 +17,8 @@ router.get("/carriers/all", requireAuth, async (_req, res) => {
       .select()
       .from(carrierRulesets);
     res.json(rows);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch {
+    res.status(500).json({ error: "Failed to load carriers" });
   }
 });
 
