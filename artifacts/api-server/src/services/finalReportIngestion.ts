@@ -6,6 +6,30 @@ import { z } from "zod";
 
 type SourceKind = "standalone_ui" | "sendgrid_inbound";
 
+const extractionQueue: Array<{
+  resolve: () => void;
+}> = [];
+let extractionRunning = false;
+
+function acquireExtractionSlot(): Promise<void> {
+  if (!extractionRunning) {
+    extractionRunning = true;
+    return Promise.resolve();
+  }
+  return new Promise<void>((resolve) => {
+    extractionQueue.push({ resolve });
+  });
+}
+
+function releaseExtractionSlot(): void {
+  const next = extractionQueue.shift();
+  if (next) {
+    next.resolve();
+  } else {
+    extractionRunning = false;
+  }
+}
+
 export interface PersistedReportInput {
   source: SourceKind;
   requestId: string;
@@ -158,6 +182,39 @@ async function extractSinglePageTextWithVision(params: {
 }
 
 export async function extractPdfTextWithVisionPages(params: {
+  pdfBuffer: Buffer;
+  fileName: string;
+  requestId: string;
+}): Promise<{
+  text: string;
+  extractionDocument: {
+    version: "final_report_extraction_v1";
+    source: "openai_vision_page_by_page";
+    model: string;
+    file_name: string;
+    page_count: number;
+    pages: Array<{
+      page_number: number;
+      width: number;
+      height: number;
+      extracted_text: string;
+      char_count: number;
+    }>;
+    filteredPages: Array<{ page_number: number; reason: string }>;
+    failedPages: Array<{ page_number: number; reason: string }>;
+  };
+}> {
+  logger.info({ requestId: params.requestId, fileName: params.fileName, queueDepth: extractionQueue.length }, "Waiting for extraction slot");
+  await acquireExtractionSlot();
+  logger.info({ requestId: params.requestId, fileName: params.fileName }, "Extraction slot acquired");
+  try {
+    return await _extractPdfTextWithVisionPagesInner(params);
+  } finally {
+    releaseExtractionSlot();
+  }
+}
+
+async function _extractPdfTextWithVisionPagesInner(params: {
   pdfBuffer: Buffer;
   fileName: string;
   requestId: string;
