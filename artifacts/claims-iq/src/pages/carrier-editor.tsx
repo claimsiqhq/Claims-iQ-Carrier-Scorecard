@@ -48,7 +48,7 @@ const EMPTY_RULESET: Ruleset = {
 }
 
 function generateKey(name: string): string {
-  return name.trim().toLowerCase().replace(/\s+/g, "_")
+  return name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "")
 }
 
 export default function CarrierEditorPage({ carrierKey }: { carrierKey: string }) {
