@@ -326,7 +326,7 @@ export function runVisionValidation(
   }
 
   const discrepancies = visionResults.damage_verifications.filter(
-    (d: any) => !d.damage_visible && d.confidence >= 70,
+    (d: any) => !d.damage_visible && d.confidence >= 70 && d.caption_claim && d.caption_claim.trim() !== "",
   );
   if (discrepancies.length > 0) {
     for (const d of discrepancies) {

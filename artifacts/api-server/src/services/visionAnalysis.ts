@@ -60,9 +60,13 @@ You must perform the following extractions with maximum accuracy:
 
 1. **Tool OCR:** Scan every image for diagnostic tools (Tramex ME5 moisture meter, Teledyne FLIR TG267 thermal imager, Bosch GLM 20 or Leica DISTO laser measures, physical tape measures). Extract the exact numeric values from LED/LCD screens (e.g., "18.8 WOOD", "91.0 DRYWALL", "66.3°F", "11' 0 3/16\""). Report each tool reading separately.
 
-2. **Photo Labels:** Extract the file path or label above each photo (e.g., "FA Mansdorf/Interior/Upper level/Living Room"). Extract the caption or description below each photo. Determine if this is an exterior, interior, roof, or other section.
+2. **Photo Labels vs Captions — CRITICAL DISTINCTION:**
+   - **label_path**: The navigational file-path header printed ABOVE a photo. This is a structured path like "FA Mansdorf/Interior/Upper level/Living Room" or "FA Bravo Lopez/Interior/Bedroom 1/Closet". It tells you WHO took the photo and WHERE it was taken. It is NOT a description of damage.
+   - **caption**: The adjuster's descriptive sentence printed BELOW or BESIDE a photo that describes what the photo shows (e.g., "Water stain on ceiling near HVAC register", "Gapping joints observed at baseboard", "Bubbling paint on south wall"). This is the damage description.
+   - **If there is no separate descriptive text below/beside the photo, set caption to an empty string "".** Do NOT copy the label_path into the caption field. Many photo pages only have a label above each photo with no caption below — that is normal and caption must be "".
+   - Determine section_type (exterior, interior, roof, or other) from the label_path.
 
-3. **Damage Verification:** For each photo with a text caption that claims specific damage (e.g., "gapping joints", "water stains", "bubbling paint", "mold growth"), verify whether the described damage is visually present in the photograph. Report any discrepancies.
+3. **Damage Verification:** For each photo that has a non-empty text caption claiming specific damage (e.g., "gapping joints", "water stains", "bubbling paint", "mold growth"), verify whether the described damage is visually present in the photograph. Report any discrepancies. Skip photos with empty captions — they have no damage claim to verify.
 
 Return JSON only in this exact shape:
 {
@@ -84,6 +88,12 @@ Return JSON only in this exact shape:
       "caption": "Water stain on ceiling near HVAC register",
       "section_type": "exterior|interior|roof|other",
       "order_index": 1
+    },
+    {
+      "label_path": "FA Name/Interior/Upper level/Hallway",
+      "caption": "",
+      "section_type": "interior",
+      "order_index": 2
     }
   ],
   "damage_verifications": [
@@ -98,6 +108,8 @@ Return JSON only in this exact shape:
 }
 
 RULES:
+- label_path = navigational header ABOVE photo. caption = descriptive sentence BELOW photo. These are DIFFERENT things. Never copy one into the other.
+- If a photo has a label but no descriptive caption below it, set caption to "".
 - If no diagnostic tools are visible, return empty tool_readings array.
 - If no photo labels are visible, return empty photo_labels array.
 - If no captions claim specific damage, return empty damage_verifications array.
