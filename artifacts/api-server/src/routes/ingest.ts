@@ -11,7 +11,7 @@ import logger from "../lib/logger";
 import multer from "multer";
 
 const MAX_PDF_SIZE = 100 * 1024 * 1024;
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100 * 1024 * 1024 } });
 
 const router: IRouter = Router();
 
