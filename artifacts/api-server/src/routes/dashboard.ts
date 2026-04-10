@@ -72,8 +72,7 @@ router.get("/dashboard", requireAuth, async (_req, res) => {
       })
       .from(claims)
       .leftJoin(audits, eq(claims.id, audits.claimId))
-      .orderBy(desc(claims.createdAt))
-      .limit(10);
+      .orderBy(desc(claims.createdAt));
 
     const riskDistribution: Record<string, number> = {};
     for (const r of riskRows) {

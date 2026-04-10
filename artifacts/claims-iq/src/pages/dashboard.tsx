@@ -133,7 +133,7 @@ export default function DashboardPage() {
   const [sortKey, setSortKey] = useState<SortKey>("createdAt")
   const [sortDir, setSortDir] = useState<SortDir>("desc")
   const [page, setPage] = useState(1)
-  const perPage = 10
+  const perPage = 25
 
   const [queue, setQueue] = useState<QueueItem[]>([])
   const [dragOver, setDragOver] = useState(false)
