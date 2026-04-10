@@ -349,8 +349,15 @@ export async function runQuestionAudit(reportText: string, carrier?: string): Pr
 
   if (totalQuestions > BATCH_THRESHOLD) {
     logger.info({ totalQuestions, threshold: BATCH_THRESHOLD }, "Using batched audit mode");
+
+    // FIX: Always pass the carrier-specific system prompt to batch mode.
+    // Previously this used: systemPrompt !== SYSTEM_PROMPT ? systemPrompt : undefined
+    // which dropped the carrier prompt when it matched the default, causing batch mode
+    // to fall back to the generic BATCH_SYSTEM_PROMPT and lose all carrier-specific rules.
+    // The carrier system_prompt_override contains critical evaluation rules (prior loss logic,
+    // payment suppression, mitigation rules, etc.) that MUST reach every batch call.
     const { daRaw, faRaw, denialApplicable, executiveSummary } = await runBatchedAudit(
-      daQuestions, faQuestions, reportText, systemPrompt !== SYSTEM_PROMPT ? systemPrompt : undefined,
+      daQuestions, faQuestions, reportText, systemPrompt,
     );
 
     const daResults = normalizeResult(daQuestions, daRaw);
