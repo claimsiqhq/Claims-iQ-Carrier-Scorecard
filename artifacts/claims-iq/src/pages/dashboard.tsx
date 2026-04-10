@@ -44,6 +44,7 @@ import {
   SendDiagonal,
   Xmark,
   WarningTriangle,
+  Download,
 } from "iconoir-react"
 
 interface DashboardData {
@@ -768,6 +769,7 @@ export default function DashboardPage() {
                     <SortableTh label="Date of Loss" sortKey="dateOfLoss" currentKey={sortKey} dir={sortDir} onSort={handleSort} />
                     <SortableTh label="Received Date" sortKey="createdAt" currentKey={sortKey} dir={sortDir} onSort={handleSort} />
                     <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.heading }}>Rating</th>
+                    <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider w-12" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.heading }}></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -809,10 +811,24 @@ export default function DashboardPage() {
                           <span className="text-sm" style={{ color: BRAND.purpleSecondary }}>—</span>
                         )}
                       </td>
+                      <td className="px-4 py-3">
+                        {c.status === "analyzed" && (
+                          <button
+                            title="Download Report"
+                            className="p-1.5 rounded-md transition-colors hover:bg-black/[0.04]"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              window.open(`${baseUrl}/claims/${c.id}/download`, "_blank")
+                            }}
+                          >
+                            <Download width={15} height={15} style={{ color: BRAND.purple }} />
+                          </button>
+                        )}
+                      </td>
                     </tr>
                   )) : (
                     <tr>
-                      <td colSpan={7} className="px-4 py-12 text-center">
+                      <td colSpan={8} className="px-4 py-12 text-center">
                         <p className="text-sm" style={{ color: BRAND.purpleSecondary }}>
                           {data.recentClaims.length === 0 ? "No claims yet. Upload a claim PDF to get started." : "No claims match your filters."}
                         </p>

@@ -15,6 +15,7 @@ import {
   Camera,
   MediaImage,
   Refresh,
+  Download,
 } from "iconoir-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -288,16 +289,31 @@ export default function ClaimDetailPage({ claimId }: { claimId: string }) {
             <span className="hidden sm:inline">Reprocess</span>
           </Button>
           {audit && (
-            <Button
-              size="sm"
-              className="gap-1 md:gap-2 text-white border-transparent text-xs md:text-sm"
-              style={{ backgroundColor: BRAND.gold, fontFamily: FONTS.heading, fontWeight: 600 }}
-              onClick={handleOpenEmailModal}
-            >
-              <SendMail width={16} height={16} />
-              <span className="hidden sm:inline">Email Scorecard</span>
-              <span className="sm:hidden">Email</span>
-            </Button>
+            <>
+              <Button
+                size="sm"
+                className="gap-1 md:gap-2 border-transparent text-xs md:text-sm"
+                style={{ backgroundColor: BRAND.lightPurpleGrey, color: BRAND.deepPurple, fontFamily: FONTS.heading, fontWeight: 600 }}
+                onClick={() => {
+                  const baseUrl = import.meta.env.VITE_API_URL || "/api"
+                  window.open(`${baseUrl}/claims/${claimId}/download`, "_blank")
+                }}
+              >
+                <Download width={16} height={16} />
+                <span className="hidden sm:inline">Download Report</span>
+                <span className="sm:hidden">Download</span>
+              </Button>
+              <Button
+                size="sm"
+                className="gap-1 md:gap-2 text-white border-transparent text-xs md:text-sm"
+                style={{ backgroundColor: BRAND.gold, fontFamily: FONTS.heading, fontWeight: 600 }}
+                onClick={handleOpenEmailModal}
+              >
+                <SendMail width={16} height={16} />
+                <span className="hidden sm:inline">Email Scorecard</span>
+                <span className="sm:hidden">Email</span>
+              </Button>
+            </>
           )}
         </div>
       </header>

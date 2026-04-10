@@ -10,6 +10,7 @@ import documentsRouter from "./documents";
 import ingestRouter from "./ingest";
 import dashboardRouter from "./dashboard";
 import carriersRouter from "./carriers";
+import downloadRouter from "./download";
 
 const router: IRouter = Router();
 
@@ -24,5 +25,6 @@ router.use(storageRouter);
 router.use(documentsRouter);
 router.use(ingestRouter);
 router.use(carriersRouter);
+router.use(downloadRouter);
 
 export default router;
