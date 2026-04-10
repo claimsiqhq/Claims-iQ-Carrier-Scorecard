@@ -133,7 +133,7 @@ export default function DashboardPage() {
   const [sortKey, setSortKey] = useState<SortKey>("createdAt")
   const [sortDir, setSortDir] = useState<SortDir>("desc")
   const [page, setPage] = useState(1)
-  const perPage = 25
+  const [perPage, setPerPage] = useState(10)
 
   const [queue, setQueue] = useState<QueueItem[]>([])
   const [dragOver, setDragOver] = useState(false)
@@ -838,11 +838,30 @@ export default function DashboardPage() {
                 <span style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.body }}>
                   {(page - 1) * perPage + 1}–{Math.min(page * perPage, filteredClaims.length)} of {filteredClaims.length}
                 </span>
-                <div className="flex items-center gap-1">
-                  <PagButton onClick={() => setPage(1)} disabled={page === 1}>«</PagButton>
-                  <PagButton onClick={() => setPage(page - 1)} disabled={page === 1}><NavArrowLeft width={14} height={14} /></PagButton>
-                  <PagButton onClick={() => setPage(page + 1)} disabled={page === totalPages}><NavArrowRight width={14} height={14} /></PagButton>
-                  <PagButton onClick={() => setPage(totalPages)} disabled={page === totalPages}>»</PagButton>
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs" style={{ color: BRAND.purpleSecondary }}>Show</span>
+                    {[10, 20, 25].map((n) => (
+                      <button
+                        key={n}
+                        className="px-2 py-1 text-xs font-medium rounded-md border transition-colors"
+                        style={{
+                          borderColor: perPage === n ? BRAND.purple : BRAND.greyLavender,
+                          backgroundColor: perPage === n ? BRAND.purple : BRAND.white,
+                          color: perPage === n ? "#fff" : BRAND.deepPurple,
+                        }}
+                        onClick={() => { setPerPage(n); setPage(1) }}
+                      >
+                        {n}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <PagButton onClick={() => setPage(1)} disabled={page === 1}>«</PagButton>
+                    <PagButton onClick={() => setPage(page - 1)} disabled={page === 1}><NavArrowLeft width={14} height={14} /></PagButton>
+                    <PagButton onClick={() => setPage(page + 1)} disabled={page === totalPages}><NavArrowRight width={14} height={14} /></PagButton>
+                    <PagButton onClick={() => setPage(totalPages)} disabled={page === totalPages}>»</PagButton>
+                  </div>
                 </div>
               </div>
             )}
