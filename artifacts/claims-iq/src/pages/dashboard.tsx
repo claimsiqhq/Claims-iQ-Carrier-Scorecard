@@ -841,20 +841,16 @@ export default function DashboardPage() {
                 <div className="flex items-center gap-3">
                   <div className="flex items-center gap-1.5">
                     <span className="text-xs" style={{ color: BRAND.purpleSecondary }}>Show</span>
-                    {[10, 20, 25].map((n) => (
-                      <button
-                        key={n}
-                        className="px-2 py-1 text-xs font-medium rounded-md border transition-colors"
-                        style={{
-                          borderColor: perPage === n ? BRAND.purple : BRAND.greyLavender,
-                          backgroundColor: perPage === n ? BRAND.purple : BRAND.white,
-                          color: perPage === n ? "#fff" : BRAND.deepPurple,
-                        }}
-                        onClick={() => { setPerPage(n); setPage(1) }}
-                      >
-                        {n}
-                      </button>
-                    ))}
+                    <select
+                      className="text-xs font-medium rounded-md border px-2 py-1 outline-none cursor-pointer"
+                      style={{ borderColor: BRAND.greyLavender, backgroundColor: BRAND.white, color: BRAND.deepPurple }}
+                      value={perPage}
+                      onChange={(e) => { setPerPage(Number(e.target.value)); setPage(1) }}
+                    >
+                      <option value={10}>10</option>
+                      <option value={20}>20</option>
+                      <option value={25}>25</option>
+                    </select>
                   </div>
                   <div className="flex items-center gap-1">
                     <PagButton onClick={() => setPage(1)} disabled={page === 1}>«</PagButton>
