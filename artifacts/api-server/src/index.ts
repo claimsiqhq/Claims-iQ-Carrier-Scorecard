@@ -2,6 +2,7 @@ import app from "./app";
 import { pool } from "@workspace/db";
 import logger from "./lib/logger";
 import { env } from "./env";
+import { recoverStuckClaims } from "./routes/ingest";
 
 const rawPort = process.env["PORT"];
 
@@ -43,6 +44,12 @@ logger.info({ carrierAuditModel: env.OPENAI_CARRIER_AUDIT_MODEL }, "Carrier audi
 
 const server = app.listen(port, () => {
   logger.info({ port }, `Server listening on port ${port}`);
+
+  setTimeout(() => {
+    recoverStuckClaims().catch((err) => {
+      logger.error({ err }, "Startup recovery failed");
+    });
+  }, 5000);
 });
 
 function gracefulShutdown(signal: string) {

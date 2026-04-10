@@ -2,10 +2,11 @@ import { Router, type IRouter } from "express";
 import { randomUUID } from "crypto";
 import { db } from "@workspace/db";
 import { claims, documents, audits } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { uploadFile, downloadFile, fileExists } from "../lib/supabaseStorage";
 import { parseClaimFromText } from "../services/ingest";
 import { extractPdfTextWithVisionPages } from "../services/finalReportIngestion";
+import { runAndSaveAudit } from "../services/auditRunner";
 import { requireAuth } from "../middlewares/requireAuth";
 import logger from "../lib/logger";
 import multer from "multer";
@@ -138,7 +139,18 @@ async function processInBackground(
       },
     }).where(eq(documents.id, docId));
 
-    logger.info({ claimId }, "Background processing complete — claim ready");
+    logger.info({ claimId }, "Background extraction complete — starting carrier audit");
+
+    try {
+      const auditResult = await runAndSaveAudit(claimId);
+      if (auditResult.success) {
+        logger.info({ claimId, auditId: auditResult.auditId, overallScore: auditResult.overallScore }, "Auto-audit completed successfully");
+      } else {
+        logger.warn({ claimId, error: auditResult.error }, "Auto-audit failed — claim remains in pending status");
+      }
+    } catch (auditErr) {
+      logger.error({ err: auditErr, claimId }, "Auto-audit crashed — claim remains in pending status");
+    }
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : "Processing failed";
     logger.error({ err, claimId }, "Background processing failed");
@@ -202,8 +214,8 @@ router.post("/claims/:id/retry", requireAuth, async (req, res) => {
       return;
     }
 
-    if (claim.status !== "processing" && claim.status !== "error") {
-      res.status(400).json({ error: "Only claims in processing or error status can be retried" });
+    if (claim.status !== "processing" && claim.status !== "error" && claim.status !== "pending") {
+      res.status(400).json({ error: "Only claims in processing, pending, or error status can be retried" });
       return;
     }
 
@@ -338,5 +350,72 @@ router.post("/claims/:id/reprocess", requireAuth, async (req, res) => {
     res.status(500).json({ error: "Failed to reprocess claim" });
   }
 });
+
+const STUCK_THRESHOLD_MS = 10 * 60 * 1000;
+
+export async function recoverStuckClaims() {
+  try {
+    const stuckClaims = await db.select().from(claims).where(
+      inArray(claims.status, ["processing", "pending"]),
+    );
+
+    if (stuckClaims.length === 0) return;
+
+    const now = Date.now();
+
+    for (const claim of stuckClaims) {
+      const createdAt = new Date(claim.createdAt!).getTime();
+      const age = now - createdAt;
+
+      if (age < STUCK_THRESHOLD_MS) continue;
+
+      if (claim.status === "pending") {
+        logger.info({ claimId: claim.id, claimNumber: claim.claimNumber }, "Recovering pending claim — running auto-audit");
+        runAndSaveAudit(claim.id).then((result) => {
+          if (result.success) {
+            logger.info({ claimId: claim.id, auditId: result.auditId }, "Recovery audit completed");
+          } else {
+            logger.warn({ claimId: claim.id, error: result.error }, "Recovery audit failed");
+          }
+        }).catch((err) => {
+          logger.error({ err, claimId: claim.id }, "Recovery audit crashed");
+        });
+      } else if (claim.status === "processing") {
+        const claimDocs = await db.select().from(documents).where(eq(documents.claimId, claim.id));
+        const doc = claimDocs.find((d) => d.type === "claim_file" && d.fileUrl);
+
+        if (doc?.extractedText && doc.extractedText.length > 50) {
+          logger.info({ claimId: claim.id, claimNumber: claim.claimNumber }, "Recovering stuck processing claim (text exists) — setting pending and running audit");
+          await db.update(claims).set({ status: "pending" }).where(eq(claims.id, claim.id));
+          runAndSaveAudit(claim.id).catch((err) => {
+            logger.error({ err, claimId: claim.id }, "Recovery audit crashed for previously-processing claim");
+          });
+        } else if (doc?.fileUrl) {
+          logger.info({ claimId: claim.id, claimNumber: claim.claimNumber }, "Recovering stuck processing claim (no text) — re-downloading and re-processing");
+          try {
+            const fileBuffer = await downloadFile(doc.fileUrl);
+            const meta = doc.metadata as Record<string, unknown> | null;
+            const fileName = (meta?.fileName as string) || "claim.pdf";
+            const contentType = (meta?.contentType as string) || "application/pdf";
+
+            processInBackground(claim.id, doc.id, fileBuffer, fileName, contentType, doc.fileUrl, claim.carrier).catch((err) => {
+              logger.error({ err, claimId: claim.id }, "Recovery re-processing crashed");
+            });
+          } catch (dlErr) {
+            logger.error({ err: dlErr, claimId: claim.id }, "Recovery: could not download file — marking as error");
+            await db.update(claims).set({ status: "error", summary: "File could not be recovered from storage" }).where(eq(claims.id, claim.id));
+          }
+        } else {
+          logger.warn({ claimId: claim.id }, "Stuck processing claim has no document — marking as error");
+          await db.update(claims).set({ status: "error", summary: "No document found — please re-upload" }).where(eq(claims.id, claim.id));
+        }
+      }
+    }
+
+    logger.info({ count: stuckClaims.length }, "Stuck claim recovery check complete");
+  } catch (err) {
+    logger.error({ err }, "Stuck claim recovery failed");
+  }
+}
 
 export default router;
