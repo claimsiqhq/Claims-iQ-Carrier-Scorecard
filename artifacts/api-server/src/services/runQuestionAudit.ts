@@ -270,7 +270,7 @@ async function runBatchedAudit(
     totalQuestions: daQuestions.length + faQuestions.length,
   }, "Starting batched audit calls");
 
-  const CONCURRENCY = 3;
+  const CONCURRENCY = 10;
   const allResults: { scorecard: "da" | "fa"; results: any[] }[] = [];
 
   for (let i = 0; i < batchJobs.length; i += CONCURRENCY) {
