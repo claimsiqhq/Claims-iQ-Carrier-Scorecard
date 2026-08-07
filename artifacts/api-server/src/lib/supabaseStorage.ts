@@ -37,7 +37,7 @@ export async function ensureBucket(): Promise<void> {
 
   const { error: createError } = await supabase().storage.createBucket(BUCKET_NAME, {
     public: false,
-    fileSizeLimit: 50 * 1024 * 1024,
+    fileSizeLimit: 100 * 1024 * 1024,
   });
   if (createError && !createError.message.includes("already exists")) {
     throw new Error(`Failed to create bucket: ${createError.message}`);

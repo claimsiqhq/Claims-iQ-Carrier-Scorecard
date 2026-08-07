@@ -54,12 +54,33 @@ export interface ClaimSummary {
   humanReviewStatus?: HumanReviewStatus
 }
 
+export interface ClaimsQueueData {
+  items: ClaimSummary[]
+  total: number
+  page: number
+  pageSize: number
+  facets: {
+    carriers: string[]
+  }
+}
+
+export interface ClaimAssignee {
+  userId: string
+  name: string
+  role: string
+}
+
 export interface DashboardData {
   stats: {
     totalClaims: number
     analyzedCount: number
     pendingCount: number
     avgScore: number | null
+    backlogCount: number
+    dollarsAtRisk: string
+    averageAgeDays: number
+    completedLast7Days: number
+    openFindingCount: number
   }
   riskDistribution: Record<string, number>
   approvalDistribution: Record<string, number>
@@ -70,6 +91,48 @@ export interface DashboardData {
   }>
   findingSeverity: Record<string, number>
   recentClaims: ClaimSummary[]
+  recentActivity: Array<{
+    id: string
+    type: string
+    claimId: string
+    claimNumber: string
+    metadata: Record<string, unknown>
+    createdAt: string
+  }>
+}
+
+export interface InsightsData {
+  summary: {
+    reviewAgreementRate: number | null
+    overrideRate: number | null
+    processingSuccessRate: number | null
+    citationMappingRate: number | null
+    averageLatencySeconds: number | null
+    runCount: number
+    degradedCount: number
+    failedCount: number
+  }
+  carrierPerformance: Array<{
+    name: string
+    claimCount: number
+    averageScore: number | null
+    dollarsAtRisk: string
+  }>
+  reviewerPerformance: Array<{
+    userId: string | null
+    label: string
+    assignedCount: number
+    approvedCount: number
+    changesRequestedCount: number
+    averageScore: number | null
+  }>
+  scoreDistribution: Array<{ bucket: string; count: number }>
+  rootCauses: Array<{ label: string; severity: string; count: number }>
+  workflowDistribution: Array<{
+    status: HumanReviewStatus
+    count: number
+    averageAgeDays: number
+  }>
 }
 
 export interface ClaimDocument {
@@ -284,6 +347,18 @@ export interface ClaimActivity {
   createdAt: string
 }
 
+export interface SavedView {
+  id: string
+  name: string
+  resourceType: string
+  filters: Record<string, unknown>
+  sort: Record<string, unknown>
+  columns: string[] | null
+  isDefault: boolean
+  createdAt?: string
+  updatedAt?: string
+}
+
 export interface CarrierOption {
   key: string
   displayName: string
@@ -298,6 +373,9 @@ export interface CarrierQuestion {
   scorecard: "DA" | "FA"
   categoryKey: string
   categoryName: string
+  applicability?: string
+  severity?: "critical" | "high" | "medium" | "low" | "info"
+  sourceReference?: string
 }
 
 export interface CarrierCategory {
@@ -322,14 +400,117 @@ export interface CarrierProfile {
   logoUrl: string | null
   active: boolean
   ruleset: CarrierRuleset
+  sourceReferences?: CarrierSourceReference[]
+  changeSummary?: string | null
+  hasDraft?: boolean
+  latestVersion?: CarrierRulesetVersion | null
+  publishedVersion?: CarrierRulesetVersion | null
   createdAt?: string
   updatedAt?: string
+}
+
+export interface CarrierSourceReference {
+  label: string
+  url?: string
+  reference?: string
+}
+
+export interface CarrierRulesetVersion {
+  id: string
+  carrierKey: string
+  versionNumber: number
+  versionLabel: string
+  status: "draft" | "published" | "archived"
+  displayName: string
+  logoUrl: string | null
+  ruleset: CarrierRuleset
+  validation: { errors: string[]; warnings: string[] }
+  changeSummary: string | null
+  sourceReferences: CarrierSourceReference[]
+  createdByUserId: string | null
+  approvedByUserId: string | null
+  supersedesVersionId: string | null
+  createdAt: string
+  publishedAt: string | null
+}
+
+export interface CarrierPreflightResult {
+  mode: "deterministic_preflight"
+  claim: {
+    id: string
+    claimNumber: string
+    carrier: string | null
+    currentScore: number | null
+    currentRisk: string | null
+  }
+  version: {
+    id: string
+    versionNumber: number
+    versionLabel: string
+    status: CarrierRulesetVersion["status"]
+  }
+  compatible: boolean
+  validation: { errors: string[]; warnings: string[] }
+  coverage: {
+    deskAdjusterQuestions: number
+    fieldAdjusterQuestions: number
+    categories: number
+    configuredPoints: number
+  }
+  note: string
 }
 
 export interface PromptSettings {
   system_prompt: string
   user_prompt_template: string
+  model_identifier?: string
+  updated_at?: string | null
 }
+
+export interface SettingsOverview {
+  members: Array<{
+    membershipId: string
+    userId: string
+    role: string
+    firstName: string | null
+    lastName: string | null
+    email: string
+    joinedAt: string
+  }>
+  integrations: {
+    ai: { configured: boolean; modelIdentifier: string }
+    storage: { configured: boolean }
+    email: { configured: boolean }
+  }
+  security: {
+    sessionTtlDays: number
+    cookieHttpOnly: boolean
+    sameSite: string
+    mfaReady: boolean
+    ssoReady: boolean
+  }
+  organizationSettings: {
+    inAppNotificationsEnabled: boolean
+    emailNotificationsEnabled: boolean
+    retentionDays: number | null
+    purgeMode: "manual" | "scheduled"
+    updatedAt: string | null
+  }
+  auditHistory: Array<{
+    id: string
+    eventType: string
+    targetType: string
+    targetId: string | null
+    metadata: Record<string, unknown>
+    actorName: string
+    createdAt: string
+  }>
+}
+
+export type OrganizationSettingsInput = Omit<
+  SettingsOverview["organizationSettings"],
+  "updatedAt"
+>
 
 export interface AuthUser {
   id: string

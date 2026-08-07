@@ -1,5 +1,6 @@
 import { useMemo } from "react"
 import { useQuery } from "@tanstack/react-query"
+import { Link } from "wouter"
 import { BarChart3, CheckCircle2, Files, Gauge, ShieldAlert } from "lucide-react"
 import {
   MetricTile,
@@ -15,58 +16,54 @@ type DistributionRow = { label: string; value: number; tone?: "verified" | "fina
 
 export default function InsightsPage() {
   const dashboard = useQuery({ queryKey: queryKeys.dashboard, queryFn: api.getDashboard })
+  const insights = useQuery({ queryKey: queryKeys.insights, queryFn: api.getInsights })
 
   const scoreDistribution = useMemo(() => {
-    const bins = [
-      { label: "90–100", min: 90, max: 101, value: 0, tone: "verified" as const },
-      { label: "75–89", min: 75, max: 90, value: 0, tone: "verified" as const },
-      { label: "60–74", min: 60, max: 75, value: 0, tone: "financial" as const },
-      { label: "Below 60", min: -Infinity, max: 60, value: 0, tone: "critical" as const },
-      { label: "Unavailable", min: 0, max: 0, value: 0 },
-    ]
-    ;(dashboard.data?.recentClaims || []).forEach((claim) => {
-      if (typeof claim.overallScore !== "number") {
-        bins[4].value += 1
-        return
-      }
-      const bin = bins.find(
-        (candidate, index) =>
-          index < 4 && claim.overallScore! >= candidate.min && claim.overallScore! < candidate.max,
-      )
-      if (bin) bin.value += 1
-    })
-    return bins.map(({ label, value, tone }) => ({ label, value, tone }))
-  }, [dashboard.data])
+    const tones: Record<string, DistributionRow["tone"]> = {
+      "90–100": "verified",
+      "75–89": "verified",
+      "60–74": "financial",
+      "Below 60": "critical",
+    }
+    return (insights.data?.scoreDistribution || []).map((row) => ({
+      label: row.bucket,
+      value: row.count,
+      tone: tones[row.bucket],
+    }))
+  }, [insights.data])
 
-  if (dashboard.isLoading) {
+  if (dashboard.isLoading || insights.isLoading) {
     return (
       <div className="ciq-page p-6">
         <PageState
           kind="loading"
           title="Calculating corpus insights"
-          description="Aggregating the current dashboard response without projecting missing values."
+          description="Aggregating current audits, reviewer outcomes, evidence mapping, and processing quality."
         />
       </div>
     )
   }
 
-  if (dashboard.isError || !dashboard.data) {
+  if (dashboard.isError || insights.isError || !dashboard.data || !insights.data) {
     return (
       <div className="ciq-page p-6">
         <PageState
           kind="error"
           title="Insights are unavailable"
-          description="The dashboard aggregate endpoint did not return a current corpus."
+          description="The analytics endpoints did not return a current organization corpus."
           actionLabel="Retry"
-          onAction={() => void dashboard.refetch()}
+          onAction={() => {
+            void dashboard.refetch()
+            void insights.refetch()
+          }}
         />
       </div>
     )
   }
 
   const data = dashboard.data
-  const totalFindings = Object.values(data.findingSeverity).reduce((sum, count) => sum + count, 0)
-  const knownScores = data.recentClaims.filter((claim) => typeof claim.overallScore === "number").length
+  const analytics = insights.data
+  const knownScores = data.stats.analyzedCount
   const readinessRows = Object.entries(data.approvalDistribution).map(([label, value]) => ({
     label: humanize(label),
     value,
@@ -98,6 +95,16 @@ export default function InsightsPage() {
           ? ("financial" as const)
           : ("verified" as const),
     }))
+  const workflowRows = analytics.workflowDistribution.map((row) => ({
+    label: `${humanize(row.status)} · ${row.averageAgeDays}d avg`,
+    value: row.count,
+    tone:
+      row.status === "approved"
+        ? ("verified" as const)
+        : row.status === "changes_requested"
+          ? ("critical" as const)
+          : ("financial" as const),
+  }))
 
   return (
     <div className="ciq-page">
@@ -105,7 +112,7 @@ export default function InsightsPage() {
         compact
         eyebrow="Current corpus"
         title="Quality and workload insights"
-        description="Descriptive aggregates from the dashboard API. No forecast, comparison period, or recoverable-dollar estimate is implied."
+        description="Carrier quality, reviewer outcomes, workflow aging, evidence mapping, and processing reliability for the current organization."
         meta={
           <>
             <StatusPill value="neutral" label={`${data.stats.totalClaims} claims in scope`} />
@@ -113,36 +120,38 @@ export default function InsightsPage() {
               value="neutral"
               label={`${knownScores} scored claim${knownScores === 1 ? "" : "s"}`}
             />
+            <StatusPill value="verified" label={`${analytics.summary.runCount} immutable audit runs`} />
           </>
         }
       />
       <PageBody>
         <section className="ciq-metric-grid" aria-label="Corpus quality metrics">
           <MetricTile
-            label="Corpus size"
-            value={data.stats.totalClaims.toLocaleString()}
-            detail="Current dashboard scope"
-            icon={<Files />}
-          />
-          <MetricTile
-            label="Completed audits"
-            value={data.stats.analyzedCount.toLocaleString()}
-            detail="Ready for human workflow"
+            label="Processing success"
+            value={formatPercent(analytics.summary.processingSuccessRate)}
+            detail={`${analytics.summary.failedCount} failed · ${analytics.summary.degradedCount} degraded`}
             tone="verified"
             icon={<CheckCircle2 />}
           />
           <MetricTile
-            label="Average score"
-            value={formatScore(data.stats.avgScore)}
-            detail={data.stats.avgScore === null ? "Not supplied" : "Completed audit corpus"}
+            label="Mapped citations"
+            value={formatPercent(analytics.summary.citationMappingRate)}
+            detail="Evidence anchors verified to source pages"
+            tone="verified"
+            icon={<Files />}
+          />
+          <MetricTile
+            label="Reviewer agreement"
+            value={formatPercent(analytics.summary.reviewAgreementRate)}
+            detail="Accepted or remediated reviewed findings"
             tone="financial"
             icon={<Gauge />}
           />
           <MetricTile
-            label="Findings"
-            value={totalFindings.toLocaleString()}
-            detail="Across returned finding severities"
-            tone={totalFindings ? "warning" : "verified"}
+            label="Override rate"
+            value={formatPercent(analytics.summary.overrideRate)}
+            detail={`${formatLatency(analytics.summary.averageLatencySeconds)} average audit latency`}
+            tone={analytics.summary.overrideRate && analytics.summary.overrideRate > 20 ? "warning" : "neutral"}
             icon={<ShieldAlert />}
           />
         </section>
@@ -168,6 +177,11 @@ export default function InsightsPage() {
             description="Finding counts by API-provided severity"
             rows={severityRows}
           />
+          <DistributionPanel
+            title="Human workflow and aging"
+            description="Claim count by reviewer state with average age"
+            rows={workflowRows}
+          />
         </div>
 
         <section className="ciq-panel ciq-panel--flush mt-4">
@@ -178,7 +192,7 @@ export default function InsightsPage() {
             </div>
             <BarChart3 className="h-4 w-4 text-[var(--ciq-aubergine)]" aria-hidden="true" />
           </div>
-          {data.carriers.length ? (
+          {analytics.carrierPerformance.length ? (
             <div className="overflow-x-auto">
               <table className="ciq-table min-w-[560px]">
                 <caption>Carrier workload and average audit score</caption>
@@ -188,23 +202,34 @@ export default function InsightsPage() {
                     <th scope="col">Claims</th>
                     <th scope="col">Share of corpus</th>
                     <th scope="col">Average score</th>
+                    <th scope="col">Dollars at risk</th>
                     <th scope="col">Coverage</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {[...data.carriers]
-                    .sort((left, right) => right.count - left.count)
+                  {[...analytics.carrierPerformance]
+                    .sort((left, right) => right.claimCount - left.claimCount)
                     .map((carrier) => (
                       <tr key={carrier.name}>
-                        <td className="font-semibold">{carrier.name}</td>
-                        <td className="ciq-mono">{carrier.count.toLocaleString()}</td>
+                        <td className="font-semibold">
+                          <Link
+                            className="ciq-link"
+                            href={`/claims?carrier=${encodeURIComponent(carrier.name)}`}
+                          >
+                            {carrier.name}
+                          </Link>
+                        </td>
+                        <td className="ciq-mono">{carrier.claimCount.toLocaleString()}</td>
                         <td className="ciq-mono">
                           {data.stats.totalClaims
-                            ? `${Math.round((carrier.count / data.stats.totalClaims) * 100)}%`
+                            ? `${Math.round((carrier.claimCount / data.stats.totalClaims) * 100)}%`
                             : "—"}
                         </td>
                         <td className="ciq-mono font-semibold">
-                          {formatScore(carrier.avgScore)}
+                          {formatScore(carrier.averageScore)}
+                        </td>
+                        <td className="ciq-mono font-semibold text-[var(--ciq-financial-strong)]">
+                          {formatCurrency(carrier.dollarsAtRisk)}
                         </td>
                         <td className="w-48">
                           <div
@@ -213,11 +238,11 @@ export default function InsightsPage() {
                             aria-label={`${carrier.name} share of corpus`}
                             aria-valuemin={0}
                             aria-valuemax={Math.max(data.stats.totalClaims, 1)}
-                            aria-valuenow={carrier.count}
+                            aria-valuenow={carrier.claimCount}
                           >
                             <span
                               style={{
-                                width: `${data.stats.totalClaims ? (carrier.count / data.stats.totalClaims) * 100 : 0}%`,
+                                width: `${data.stats.totalClaims ? (carrier.claimCount / data.stats.totalClaims) * 100 : 0}%`,
                               }}
                             />
                           </div>
@@ -238,10 +263,93 @@ export default function InsightsPage() {
           )}
         </section>
 
+        <div className="mt-4 grid gap-4 xl:grid-cols-2">
+          <section className="ciq-panel ciq-panel--flush">
+            <div className="ciq-panel__header">
+              <div>
+                <h2>Reviewer outcomes</h2>
+                <p>Assignment volume, approvals, requested changes, and mean score</p>
+              </div>
+            </div>
+            {analytics.reviewerPerformance.length ? (
+              <div className="overflow-x-auto">
+                <table className="ciq-table min-w-[560px]">
+                  <caption>Reviewer workload and decision outcomes</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Reviewer</th>
+                      <th scope="col">Assigned</th>
+                      <th scope="col">Approved</th>
+                      <th scope="col">Changes</th>
+                      <th scope="col">Avg score</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {analytics.reviewerPerformance.map((reviewer) => (
+                      <tr key={reviewer.userId || "unassigned"}>
+                        <td className="font-semibold">{reviewer.label}</td>
+                        <td className="ciq-mono">{reviewer.assignedCount}</td>
+                        <td className="ciq-mono">{reviewer.approvedCount}</td>
+                        <td className="ciq-mono">{reviewer.changesRequestedCount}</td>
+                        <td className="ciq-mono">{formatScore(reviewer.averageScore)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="p-4 text-sm text-[var(--ciq-ink-muted)]">
+                Reviewer outcome data is not yet available.
+              </p>
+            )}
+          </section>
+
+          <section className="ciq-panel">
+            <div className="ciq-panel__header">
+              <div>
+                <h2>Recurring root causes</h2>
+                <p>Current-audit findings grouped by recorded cause or category</p>
+              </div>
+            </div>
+            <div className="space-y-4 p-4">
+              {analytics.rootCauses.length ? (
+                analytics.rootCauses.map((cause) => {
+                  const maximum = Math.max(...analytics.rootCauses.map((row) => row.count), 1)
+                  return (
+                    <div key={`${cause.label}-${cause.severity}`}>
+                      <div className="mb-1.5 flex items-start justify-between gap-3">
+                        <div>
+                          <span className="text-xs font-semibold">{humanize(cause.label)}</span>
+                          <StatusPill value={cause.severity} className="ml-2" />
+                        </div>
+                        <strong className="ciq-mono text-xs">{cause.count}</strong>
+                      </div>
+                      <div
+                        className="ciq-bar ciq-bar--critical"
+                        role="progressbar"
+                        aria-label={`${humanize(cause.label)}: ${cause.count}`}
+                        aria-valuemin={0}
+                        aria-valuemax={maximum}
+                        aria-valuenow={cause.count}
+                      >
+                        <span style={{ width: `${Math.max(4, (cause.count / maximum) * 100)}%` }} />
+                      </div>
+                    </div>
+                  )
+                })
+              ) : (
+                <p className="text-sm text-[var(--ciq-ink-muted)]">
+                  No recurring non-pass causes are available.
+                </p>
+              )}
+            </div>
+          </section>
+        </div>
+
         <p className="mt-4 text-xs leading-5 text-[var(--ciq-ink-muted)]">
-          Scope note: “current corpus” means the values returned by the live dashboard endpoint at
-          load time. The API does not currently provide prior-period baselines, trend timestamps,
-          or recoverable-dollar measures.
+          Scope note: these are current-state descriptive aggregates, not forecasts. “Dollars at
+          risk” uses supplied claim exposure for high-risk or not-ready audits; it is not a
+          guaranteed recoverable amount.
         </p>
       </PageBody>
     </div>
@@ -302,4 +410,24 @@ function DistributionPanel({
       </div>
     </section>
   )
+}
+
+function formatPercent(value: number | null) {
+  return value === null ? "—" : `${value.toFixed(1)}%`
+}
+
+function formatLatency(value: number | null) {
+  if (value === null) return "Unavailable"
+  if (value < 60) return `${value}s`
+  return `${(value / 60).toFixed(1)}m`
+}
+
+function formatCurrency(value: string) {
+  const amount = Number(value)
+  if (!Number.isFinite(amount)) return "—"
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  }).format(amount)
 }

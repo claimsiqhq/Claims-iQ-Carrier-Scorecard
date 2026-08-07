@@ -1,5 +1,9 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
-import { api, apiErrorMessage } from "@/lib/api";
+import {
+  api,
+  apiErrorMessage,
+  SESSION_EXPIRED_EVENT,
+} from "@/lib/api";
 import type { AuthOrganization, AuthUser } from "@/lib/types";
 
 interface AuthContextValue {
@@ -42,12 +46,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       .finally(() => setLoading(false));
   }, []);
 
+  useEffect(() => {
+    const handleSessionExpired = () => {
+      setUser(null);
+      setOrganization(null);
+    };
+    window.addEventListener(SESSION_EXPIRED_EVENT, handleSessionExpired);
+    return () => {
+      window.removeEventListener(SESSION_EXPIRED_EVENT, handleSessionExpired);
+    };
+  }, []);
+
   const login = useCallback(async (email: string, password: string): Promise<string | null> => {
     try {
       const data = await api.login(email, password);
       setUser(data.user);
       const session = await api.getSession();
       setOrganization(session.organization ?? null);
+      window.sessionStorage.removeItem(SESSION_EXPIRED_EVENT);
       return null;
     } catch (error) {
       return apiErrorMessage(error, "Network error. Please try again.");
@@ -58,6 +74,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await api.logout().catch(() => {});
     setUser(null);
     setOrganization(null);
+    window.sessionStorage.removeItem(SESSION_EXPIRED_EVENT);
   }, []);
 
   const isAdmin =

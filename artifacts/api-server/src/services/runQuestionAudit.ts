@@ -1,7 +1,14 @@
 import { openai } from "@workspace/integrations-openai-ai-server";
-import { DA_QUESTIONS, FA_QUESTIONS, type Question, type QuestionResult, type Answer } from "./questionBank";
-import { SYSTEM_PROMPT, USER_PROMPT_TEMPLATE } from "./prompts";
-import { getCarrierRuleset } from "./carrierRulesetService";
+import { type Question, type QuestionResult, type Answer } from "./questionBank";
+import {
+  getCarrierRuleset,
+  normalizeCarrierKey,
+} from "./carrierRulesetService";
+import type { CarrierRulesetConfig } from "./carrierRulesetTypes";
+import {
+  getAuditPromptSnapshot,
+  type AuditPromptSnapshot,
+} from "./auditPromptService";
 import logger from "../lib/logger";
 import { env } from "../env";
 
@@ -16,82 +23,118 @@ export interface QuestionAuditOutput {
   executive_summary: string;
   da_questions: Question[];
   fa_questions: Question[];
+  provider_request_ids: string[];
 }
 
-function normalizeResult(questions: Question[], rawResults: any[]): QuestionResult[] {
+export interface QuestionAuditConfiguration {
+  carrierKey: string;
+  ruleset: CarrierRulesetConfig;
+  prompts: AuditPromptSnapshot;
+}
+
+export class QuestionAuditResponseError extends Error {
+  readonly code = "question_audit_response_invalid";
+
+  constructor(message: string) {
+    super(message);
+    this.name = "QuestionAuditResponseError";
+  }
+}
+
+export async function resolveQuestionAuditConfiguration(
+  carrier: string,
+  organizationId?: string,
+): Promise<QuestionAuditConfiguration> {
+  const ruleset = await getCarrierRuleset(carrier, { allowDefault: false });
+  const carrierKey = normalizeCarrierKey(carrier);
+  const prompts = await getAuditPromptSnapshot(
+    carrierKey,
+    ruleset.system_prompt_override,
+    organizationId,
+  );
+  return { carrierKey, ruleset, prompts };
+}
+
+export function normalizeQuestionResults(
+  questions: Question[],
+  rawResults: unknown[],
+): QuestionResult[] {
+  const requestedIds = new Set(questions.map((question) => question.id));
+  const recognized = rawResults.filter(
+    (result): result is Record<string, unknown> =>
+      Boolean(
+        result
+        && typeof result === "object"
+        && "id" in result
+        && typeof result.id === "string"
+        && requestedIds.has(result.id),
+      ),
+  );
+  const responseIds = recognized.map((result) => result.id as string);
+  const duplicates = responseIds.filter(
+    (id, index) => responseIds.indexOf(id) !== index,
+  );
+  if (duplicates.length > 0) {
+    throw new QuestionAuditResponseError(
+      `The provider returned duplicate question IDs: ${[...new Set(duplicates)].join(", ")}.`,
+    );
+  }
+
   return questions.map((q) => {
-    const match = rawResults.find((r: any) => r?.id === q.id);
+    const match = recognized.find((result) => result.id === q.id);
     if (!match) {
-      return {
-        id: q.id,
-        answer: "FAIL" as Answer,
-        points_awarded: 0,
-        points_possible: q.weight,
-        root_issue: "",
-        issue: "Question not answered by AI",
-        impact: "",
-        fix: "",
-        evidence_locations: [],
-        confidence: 0,
-      };
+      throw new QuestionAuditResponseError(
+        `The provider omitted required question ${q.id}.`,
+      );
     }
 
-    const answer: Answer = VALID_ANSWERS.includes(match.answer) ? match.answer : "FAIL";
-    const root_issue = typeof match.root_issue === "string" ? match.root_issue : "";
-    const issue = typeof match.issue === "string" ? match.issue : "";
-    const impact = typeof match.impact === "string" ? match.impact : "";
-    const fix = typeof match.fix === "string" ? match.fix : "";
-    const evidence_locations = Array.isArray(match.evidence_locations)
-      ? match.evidence_locations.filter((e: unknown) => typeof e === "string")
-      : [];
-    const confidence = typeof match.confidence === "number" ? match.confidence : 0;
+    if (
+      typeof match.answer !== "string"
+      || !VALID_ANSWERS.includes(match.answer as Answer)
+    ) {
+      throw new QuestionAuditResponseError(
+        `The provider returned an invalid answer for ${q.id}.`,
+      );
+    }
+    for (const field of ["root_issue", "issue", "impact", "fix"] as const) {
+      if (typeof match[field] !== "string") {
+        throw new QuestionAuditResponseError(
+          `The provider returned an invalid ${field} value for ${q.id}.`,
+        );
+      }
+    }
+    if (
+      !Array.isArray(match.evidence_locations)
+      || match.evidence_locations.some((value) => typeof value !== "string")
+    ) {
+      throw new QuestionAuditResponseError(
+        `The provider returned invalid evidence locations for ${q.id}.`,
+      );
+    }
+    if (
+      typeof match.confidence !== "number"
+      || !Number.isFinite(match.confidence)
+      || match.confidence < 0
+      || match.confidence > 100
+    ) {
+      throw new QuestionAuditResponseError(
+        `The provider returned invalid confidence for ${q.id}.`,
+      );
+    }
 
     return {
       id: q.id,
-      answer,
+      answer: match.answer as Answer,
       points_awarded: 0,
       points_possible: q.weight,
-      root_issue,
-      issue,
-      impact,
-      fix,
-      evidence_locations,
-      confidence,
+      root_issue: match.root_issue as string,
+      issue: match.issue as string,
+      impact: match.impact as string,
+      fix: match.fix as string,
+      evidence_locations: match.evidence_locations as string[],
+      confidence: match.confidence,
     };
   });
-}
-
-function buildFallback(daQuestions: Question[], faQuestions: Question[]): QuestionAuditOutput {
-  return {
-    denial_letter_applicable: false,
-    da_results: daQuestions.map((q) => ({
-      id: q.id,
-      answer: "FAIL" as Answer,
-      points_awarded: 0,
-      points_possible: q.weight,
-      root_issue: "",
-      issue: "Audit processing failed",
-      impact: "",
-      fix: "",
-      evidence_locations: [],
-      confidence: 0,
-    })),
-    fa_results: faQuestions.map((q) => ({
-      id: q.id,
-      answer: "FAIL" as Answer,
-      points_awarded: 0,
-      points_possible: q.weight,
-      root_issue: "",
-      issue: "Audit processing failed",
-      impact: "",
-      fix: "",
-      evidence_locations: [],
-      confidence: 0,
-    })),
-    executive_summary: "The audit could not be completed successfully.",
-    da_questions: daQuestions,
-    fa_questions: faQuestions,
-  };
 }
 
 function repairJson(raw: string): any | null {
@@ -155,7 +198,14 @@ CRITICAL RULES:
 - Return JSON only. No markdown, no code fences.`;
 
 function buildBatchUserPrompt(questions: Question[], categoryLabel: string, reportText: string): string {
-  const qText = questions.map((q) => `- ${q.id}: ${q.text}`).join("\n");
+  const qText = questions
+    .map((q) => [
+      `- ${q.id}: ${q.text}`,
+      q.applicability ? `  Applicability: ${q.applicability}` : "",
+      q.severity ? `  Severity if failed: ${q.severity}` : "",
+      q.sourceReference ? `  Approved source reference: ${q.sourceReference}` : "",
+    ].filter(Boolean).join("\n"))
+    .join("\n");
   return `Evaluate the following finalized claim report for the "${categoryLabel}" category.
 
 Answer EVERY question below. Do NOT skip any question.
@@ -189,17 +239,18 @@ ${reportText}`;
 }
 
 async function callOpenAIForBatch(
+  modelIdentifier: string,
   systemPrompt: string,
   userPrompt: string,
   questionCount: number,
   categoryKey: string,
   attempt: number = 1,
-): Promise<any[]> {
+): Promise<{ results: any[]; responseId?: string }> {
   const maxTokens = Math.max(4096, questionCount * 350);
   let response;
   try {
     response = await openai.chat.completions.create({
-      model: env.OPENAI_CARRIER_AUDIT_MODEL,
+      model: modelIdentifier,
       max_completion_tokens: maxTokens,
       messages: [
         { role: "system", content: systemPrompt },
@@ -210,28 +261,58 @@ async function callOpenAIForBatch(
     logger.error({ err, categoryKey, attempt }, "Batch OpenAI request failed");
     if (attempt < 2) {
       logger.info({ categoryKey }, "Retrying batch after failure");
-      return callOpenAIForBatch(systemPrompt, userPrompt, questionCount, categoryKey, attempt + 1);
+      return callOpenAIForBatch(
+        modelIdentifier,
+        systemPrompt,
+        userPrompt,
+        questionCount,
+        categoryKey,
+        attempt + 1,
+      );
     }
-    return [];
+    throw new QuestionAuditResponseError(
+      `The provider request failed for question batch ${categoryKey}.`,
+    );
   }
 
   const content = response.choices[0]?.message?.content;
   if (!content) {
     logger.error({ categoryKey, attempt }, "Empty AI response for batch");
     if (attempt < 2) {
-      return callOpenAIForBatch(systemPrompt, userPrompt, questionCount, categoryKey, attempt + 1);
+      return callOpenAIForBatch(
+        modelIdentifier,
+        systemPrompt,
+        userPrompt,
+        questionCount,
+        categoryKey,
+        attempt + 1,
+      );
     }
-    return [];
+    throw new QuestionAuditResponseError(
+      `The provider returned an empty response for question batch ${categoryKey}.`,
+    );
   }
 
   let parsed = repairJson(content);
   if (!parsed) {
-    logger.error({ categoryKey, attempt, contentPreview: content.substring(0, 300) }, "Batch audit: invalid JSON");
+    logger.error(
+      { categoryKey, attempt, responseCharacters: content.length },
+      "Batch audit: invalid JSON",
+    );
     if (attempt < 2) {
       logger.info({ categoryKey }, "Retrying batch after JSON failure");
-      return callOpenAIForBatch(systemPrompt, userPrompt, questionCount, categoryKey, attempt + 1);
+      return callOpenAIForBatch(
+        modelIdentifier,
+        systemPrompt,
+        userPrompt,
+        questionCount,
+        categoryKey,
+        attempt + 1,
+      );
     }
-    return [];
+    throw new QuestionAuditResponseError(
+      `The provider returned invalid JSON for question batch ${categoryKey}.`,
+    );
   }
 
   const results = Array.isArray(parsed.results) ? parsed.results
@@ -241,7 +322,7 @@ async function callOpenAIForBatch(
     : [];
 
   logger.info({ categoryKey, answeredCount: results.length, expectedCount: questionCount, attempt }, "Batch audit results received");
-  return results;
+  return { results, responseId: response.id };
 }
 
 async function runBatchedAudit(
@@ -249,8 +330,17 @@ async function runBatchedAudit(
   faQuestions: Question[],
   reportText: string,
   systemPromptOverride?: string,
-): Promise<{ daRaw: any[]; faRaw: any[]; denialApplicable: boolean; executiveSummary: string }> {
-  const sysPrompt = systemPromptOverride ?? BATCH_SYSTEM_PROMPT;
+  modelIdentifier: string = env.OPENAI_CARRIER_AUDIT_MODEL,
+): Promise<{
+  daRaw: any[];
+  faRaw: any[];
+  denialApplicable: boolean;
+  executiveSummary: string;
+  providerRequestIds: string[];
+}> {
+  const sysPrompt = [BATCH_SYSTEM_PROMPT, systemPromptOverride]
+    .filter(Boolean)
+    .join("\n\n");
 
   const daCategoryGroups = groupQuestionsByCategory(daQuestions);
   const faCategoryGroups = groupQuestionsByCategory(faQuestions);
@@ -272,14 +362,28 @@ async function runBatchedAudit(
   }, "Starting batched audit calls");
 
   const CONCURRENCY = 10;
-  const allResults: { scorecard: "da" | "fa"; results: any[] }[] = [];
+  const allResults: {
+    scorecard: "da" | "fa";
+    results: any[];
+    responseId?: string;
+  }[] = [];
 
   for (let i = 0; i < batchJobs.length; i += CONCURRENCY) {
     const batch = batchJobs.slice(i, i + CONCURRENCY);
     const promises = batch.map(async (job) => {
       const userPrompt = buildBatchUserPrompt(job.questions, job.categoryName, reportText);
-      const results = await callOpenAIForBatch(sysPrompt, userPrompt, job.questions.length, job.categoryKey);
-      return { scorecard: job.scorecard, results };
+      const response = await callOpenAIForBatch(
+        modelIdentifier,
+        sysPrompt,
+        userPrompt,
+        job.questions.length,
+        job.categoryKey,
+      );
+      return {
+        scorecard: job.scorecard,
+        results: response.results,
+        responseId: response.responseId,
+      };
     });
     const batchResults = await Promise.all(promises);
     allResults.push(...batchResults);
@@ -287,17 +391,19 @@ async function runBatchedAudit(
 
   const daRaw: any[] = [];
   const faRaw: any[] = [];
+  const providerRequestIds: string[] = [];
   for (const r of allResults) {
     if (r.scorecard === "da") daRaw.push(...r.results);
     else faRaw.push(...r.results);
+    if (r.responseId) providerRequestIds.push(r.responseId);
   }
 
-  let denialApplicable = false;
+  let denialApplicable: boolean | null = null;
   let executiveSummary = "";
 
   try {
     const summaryResponse = await openai.chat.completions.create({
-      model: env.OPENAI_CARRIER_AUDIT_MODEL,
+      model: modelIdentifier,
       max_completion_tokens: 1024,
       messages: [
         { role: "system", content: "You are an insurance audit assistant. Based on the audit results provided, generate a concise executive summary and determine if a denial letter is applicable. Return JSON only, no markdown." },
@@ -320,30 +426,52 @@ ${JSON.stringify(faRaw.map(r => ({ id: r.id, answer: r.answer, root_issue: r.roo
     }, { signal: AbortSignal.timeout(30_000) });
 
     const summaryContent = summaryResponse.choices[0]?.message?.content;
+    if (summaryResponse.id) providerRequestIds.push(summaryResponse.id);
     if (summaryContent) {
       const summaryParsed = repairJson(summaryContent);
       if (summaryParsed) {
-        denialApplicable = typeof summaryParsed.denial_letter_applicable === "boolean" ? summaryParsed.denial_letter_applicable : false;
+        denialApplicable = typeof summaryParsed.denial_letter_applicable === "boolean"
+          ? summaryParsed.denial_letter_applicable
+          : null;
         executiveSummary = typeof summaryParsed.executive_summary === "string" ? summaryParsed.executive_summary : "";
       }
     }
   } catch (err) {
     logger.warn({ err }, "Executive summary generation failed");
+    throw new Error("Audit summary provider failed.", { cause: err });
   }
 
-  return { daRaw, faRaw, denialApplicable, executiveSummary };
+  if (denialApplicable === null || !executiveSummary.trim()) {
+    throw new Error(
+      "Audit summary provider returned incomplete applicability evidence.",
+    );
+  }
+
+  return {
+    daRaw,
+    faRaw,
+    denialApplicable,
+    executiveSummary,
+    providerRequestIds,
+  };
 }
 
-export async function runQuestionAudit(reportText: string, carrier?: string): Promise<QuestionAuditOutput> {
-  const ruleset = await getCarrierRuleset(carrier ?? "");
+export async function runQuestionAudit(
+  reportText: string,
+  carrier: string,
+  configuration?: QuestionAuditConfiguration,
+): Promise<QuestionAuditOutput> {
+  const resolved = configuration
+    ?? await resolveQuestionAuditConfiguration(carrier);
+  const { ruleset, prompts, carrierKey } = resolved;
   const daQuestions = ruleset.da_questions;
   const faQuestions = ruleset.fa_questions;
-  const systemPrompt = ruleset.system_prompt_override ?? SYSTEM_PROMPT;
+  const systemPrompt = prompts.systemPrompt;
 
   const totalQuestions = daQuestions.length + faQuestions.length;
 
   logger.info({
-    carrier: carrier ?? "default",
+    carrierKey,
     daQuestionCount: daQuestions.length,
     faQuestionCount: faQuestions.length,
   }, "Running DA/FA question-level audit");
@@ -351,47 +479,66 @@ export async function runQuestionAudit(reportText: string, carrier?: string): Pr
   if (totalQuestions > BATCH_THRESHOLD) {
     logger.info({ totalQuestions, threshold: BATCH_THRESHOLD }, "Using batched audit mode");
 
-    // FIX: Always pass the carrier-specific system prompt to batch mode.
-    // Previously this used: systemPrompt !== SYSTEM_PROMPT ? systemPrompt : undefined
-    // which dropped the carrier prompt when it matched the default, causing batch mode
-    // to fall back to the generic BATCH_SYSTEM_PROMPT and lose all carrier-specific rules.
-    // The carrier system_prompt_override contains critical evaluation rules (prior loss logic,
-    // payment suppression, mitigation rules, etc.) that MUST reach every batch call.
-    const { daRaw, faRaw, denialApplicable, executiveSummary } = await runBatchedAudit(
-      daQuestions, faQuestions, reportText, systemPrompt,
+    const {
+      daRaw,
+      faRaw,
+      denialApplicable,
+      executiveSummary,
+      providerRequestIds,
+    } = await runBatchedAudit(
+      daQuestions,
+      faQuestions,
+      reportText,
+      systemPrompt,
+      prompts.modelIdentifier,
     );
 
-    const daResults = normalizeResult(daQuestions, daRaw);
-    const faResults = normalizeResult(faQuestions, faRaw);
+    const daResults = normalizeQuestionResults(daQuestions, daRaw);
+    const faResults = normalizeQuestionResults(faQuestions, faRaw);
 
     const allResults = [...daResults, ...faResults];
-    const unanswered = allResults.filter((r) => r.issue === "Question not answered by AI").length;
     logger.info({
-      carrier: carrier ?? "default",
+      carrierKey,
       denialApplicable,
       pass: allResults.filter((r) => r.answer === "PASS").length,
       partial: allResults.filter((r) => r.answer === "PARTIAL").length,
       fail: allResults.filter((r) => r.answer === "FAIL").length,
       na: allResults.filter((r) => r.answer === "NOT_APPLICABLE").length,
-      unanswered,
     }, "DA/FA batched question audit complete");
 
-    return { denial_letter_applicable: denialApplicable, da_results: daResults, fa_results: faResults, executive_summary: executiveSummary, da_questions: daQuestions, fa_questions: faQuestions };
+    return {
+      denial_letter_applicable: denialApplicable,
+      da_results: daResults,
+      fa_results: faResults,
+      executive_summary: executiveSummary,
+      da_questions: daQuestions,
+      fa_questions: faQuestions,
+      provider_request_ids: providerRequestIds,
+    };
   }
 
-  const daQuestionsText = daQuestions.map((q) => `- ${q.id}: ${q.text}`).join("\n");
-  const faQuestionsText = faQuestions.map((q) => `- ${q.id}: ${q.text}`).join("\n");
+  const formatQuestion = (question: Question) => [
+    `- ${question.id}: ${question.text}`,
+    question.applicability ? `  Applicability: ${question.applicability}` : "",
+    question.severity ? `  Severity if failed: ${question.severity}` : "",
+    question.sourceReference
+      ? `  Approved source reference: ${question.sourceReference}`
+      : "",
+  ].filter(Boolean).join("\n");
+  const daQuestionsText = daQuestions.map(formatQuestion).join("\n");
+  const faQuestionsText = faQuestions.map(formatQuestion).join("\n");
 
-  const userPrompt = USER_PROMPT_TEMPLATE
+  const userPrompt = prompts.userPromptTemplate
     .replace("{{DA_QUESTIONS}}", daQuestionsText)
     .replace("{{FA_QUESTIONS}}", faQuestionsText)
     .replace("{{REPORT}}", reportText);
 
   let response;
+  const providerRequestIds: string[] = [];
   try {
     const maxTokens = totalQuestions > 20 ? 16384 : 8192;
     response = await openai.chat.completions.create({
-      model: env.OPENAI_CARRIER_AUDIT_MODEL,
+      model: prompts.modelIdentifier,
       max_completion_tokens: maxTokens,
       messages: [
         { role: "system", content: systemPrompt },
@@ -400,27 +547,32 @@ export async function runQuestionAudit(reportText: string, carrier?: string): Pr
     }, { signal: AbortSignal.timeout(120_000) });
   } catch (err) {
     logger.error({ err }, "OpenAI request failed");
-    return buildFallback(daQuestions, faQuestions);
+    throw new Error("Audit question provider failed.", { cause: err });
   }
+  if (response.id) providerRequestIds.push(response.id);
 
   const content = response.choices[0]?.message?.content;
   if (!content) {
     logger.error("Empty AI response for question audit");
-    return buildFallback(daQuestions, faQuestions);
+    throw new Error("Audit question provider returned an empty response.");
   }
 
   let parsed = repairJson(content);
   if (!parsed) {
-    logger.error({ contentPreview: content.substring(0, 300) }, "Question audit: invalid JSON, retrying once");
+    logger.error(
+      { responseCharacters: content.length },
+      "Question audit: invalid JSON, retrying once",
+    );
     try {
       const retryResponse = await openai.chat.completions.create({
-        model: env.OPENAI_CARRIER_AUDIT_MODEL,
+        model: prompts.modelIdentifier,
         max_completion_tokens: totalQuestions > 20 ? 16384 : 8192,
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
         ],
       }, { signal: AbortSignal.timeout(120_000) });
+      if (retryResponse.id) providerRequestIds.push(retryResponse.id);
       const retryContent = retryResponse.choices[0]?.message?.content;
       if (retryContent) parsed = repairJson(retryContent);
     } catch (retryErr) {
@@ -429,27 +581,33 @@ export async function runQuestionAudit(reportText: string, carrier?: string): Pr
 
     if (!parsed) {
       logger.error("Question audit: JSON repair and retry both failed");
-      return buildFallback(daQuestions, faQuestions);
+      throw new Error("Audit question provider returned invalid JSON.");
     }
   }
 
-  const denialApplicable = typeof parsed.denial_letter_applicable === "boolean"
-    ? parsed.denial_letter_applicable
-    : false;
+  if (typeof parsed.denial_letter_applicable !== "boolean") {
+    throw new Error(
+      "Audit question provider omitted denial-letter applicability.",
+    );
+  }
+  const denialApplicable = parsed.denial_letter_applicable;
 
   const daRaw = Array.isArray(parsed.da_results) ? parsed.da_results : [];
   const faRaw = Array.isArray(parsed.fa_results) ? parsed.fa_results : [];
 
-  const daResults = normalizeResult(daQuestions, daRaw);
-  const faResults = normalizeResult(faQuestions, faRaw);
+  const daResults = normalizeQuestionResults(daQuestions, daRaw);
+  const faResults = normalizeQuestionResults(faQuestions, faRaw);
 
   const executiveSummary = typeof parsed.executive_summary === "string"
     ? parsed.executive_summary
     : "";
+  if (!executiveSummary.trim()) {
+    throw new Error("Audit question provider omitted the executive summary.");
+  }
 
   const allResults = [...daResults, ...faResults];
   logger.info({
-    carrier: carrier ?? "default",
+    carrierKey,
     denialApplicable,
     pass: allResults.filter((r) => r.answer === "PASS").length,
     partial: allResults.filter((r) => r.answer === "PARTIAL").length,
@@ -457,5 +615,13 @@ export async function runQuestionAudit(reportText: string, carrier?: string): Pr
     na: allResults.filter((r) => r.answer === "NOT_APPLICABLE").length,
   }, "DA/FA question audit complete");
 
-  return { denial_letter_applicable: denialApplicable, da_results: daResults, fa_results: faResults, executive_summary: executiveSummary, da_questions: daQuestions, fa_questions: faQuestions };
+  return {
+    denial_letter_applicable: denialApplicable,
+    da_results: daResults,
+    fa_results: faResults,
+    executive_summary: executiveSummary,
+    da_questions: daQuestions,
+    fa_questions: faQuestions,
+    provider_request_ids: providerRequestIds,
+  };
 }

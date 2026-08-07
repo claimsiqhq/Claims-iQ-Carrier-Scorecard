@@ -1,4 +1,5 @@
 import { type Request, type Response, type NextFunction } from "express";
+import { createHash } from "node:crypto";
 import logger from "../lib/logger";
 
 const SENSITIVE_ROUTES = [
@@ -17,16 +18,19 @@ export function auditLog(req: Request, res: Response, next: NextFunction) {
 
   if (match) {
     const userId = req.isAuthenticated() ? req.user.id : "anonymous";
+    const actorRef = createHash("sha256")
+      .update(userId)
+      .digest("hex")
+      .slice(0, 16);
     res.on("finish", () => {
       logger.info({
         audit: true,
         action: match.action,
-        userId,
+        actorRef,
         method: req.method,
-        path: req.path,
         statusCode: res.statusCode,
         timestamp: new Date().toISOString(),
-      }, `AUDIT: ${match.action} by ${userId} → ${res.statusCode}`);
+      }, `AUDIT: ${match.action} completed`);
     });
   }
 

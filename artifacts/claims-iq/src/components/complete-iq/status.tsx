@@ -32,7 +32,7 @@ function toneFor(value: string): StatusTone {
     return "warning"
   }
   if (
-    ["error", "denied", "fail", "failed", "cancelled", "high", "critical"].includes(normalized)
+    ["error", "denied", "fail", "failed", "cancelled", "high", "critical", "not ready", "not_ready"].includes(normalized)
   ) {
     return "critical"
   }

@@ -1,11 +1,13 @@
 import logger from "../lib/logger";
-import { runQuestionAudit } from "./runQuestionAudit";
+import {
+  runQuestionAudit,
+  type QuestionAuditConfiguration,
+} from "./runQuestionAudit";
 import { computeScore, type ScoringResult, type CategoryScore } from "./scoringEngine";
-import { runValidation, runVisionValidation, type ValidationResult, type ValidationIssue } from "./validationEngine";
+import { runValidation, runVisionValidation, type ValidationIssue } from "./validationEngine";
 import { buildRootIssueGroups, type RootIssueGroup } from "./rootIssueEngine";
 import { runPhotoAnalysis, type VisionAnalysisResult } from "./visionAnalysis";
 import type { QuestionResult } from "./questionBank";
-import { getCarrierRuleset } from "./carrierRulesetService";
 
 export class AuditOperationalError extends Error {
   readonly code: string;
@@ -62,6 +64,7 @@ export interface AuditResponse {
   issues: IssueItem[];
   validation_checks: ValidationIssue[];
   vision_analysis: VisionAnalysisResult | null;
+  provider_request_ids: string[];
 }
 
 export interface RootIssueGroupOutput {
@@ -83,42 +86,6 @@ export interface IssueItem {
   impact: string;
   fix: string;
   evidence_locations: string[];
-}
-
-export function getFallbackAudit(): AuditResponse {
-  return {
-    claim_metadata: { claim_number: "", insured_name: "", carrier_name: "" },
-    overall_audit: {
-      overall_score_percent: 0,
-      overall_points_awarded: 0,
-      overall_points_possible: 200,
-      readiness: "NOT READY",
-      technical_risk: "HIGH",
-      failed_count: 11,
-      partial_count: 0,
-      passed_count: 0,
-      warning_count: 0,
-      action_required_count: 11,
-      executive_summary: "The audit could not be completed successfully.",
-    },
-    desk_adjuster_scorecard: {
-      score_percent: 0,
-      points_awarded: 0,
-      points_possible: 100,
-      denial_letter_applicable: false,
-      categories: [],
-    },
-    field_adjuster_scorecard: {
-      score_percent: 0,
-      points_awarded: 0,
-      points_possible: 100,
-      categories: [],
-    },
-    root_issue_groups: [],
-    issues: [],
-    validation_checks: [],
-    vision_analysis: null,
-  };
 }
 
 function buildIssues(scoring: ScoringResult): IssueItem[] {
@@ -166,7 +133,11 @@ function buildIssues(scoring: ScoringResult): IssueItem[] {
 export async function runFinalAudit(
   reportText: string,
   claimMeta?: { claim_number?: string; insured_name?: string; carrier_name?: string },
-  options?: { pdfBuffer?: Buffer; requestId?: string },
+  options?: {
+    pdfBuffer?: Buffer;
+    requestId?: string;
+    questionAuditConfiguration?: QuestionAuditConfiguration;
+  },
 ): Promise<AuditResponse> {
   logger.info("DA/FA carrier audit started");
 
@@ -199,7 +170,11 @@ export async function runFinalAudit(
     }
   }
 
-  const qResult = await runQuestionAudit(reportText, claimMeta?.carrier_name);
+  const qResult = await runQuestionAudit(
+    reportText,
+    claimMeta?.carrier_name ?? "",
+    options?.questionAuditConfiguration,
+  );
   const scoring = computeScore(
     qResult.da_results,
     qResult.fa_results,
@@ -243,7 +218,7 @@ export async function runFinalAudit(
       passed_count: scoring.passed_count,
       warning_count: scoring.warning_count,
       action_required_count: actionRequiredCount,
-      executive_summary: qResult.executive_summary || buildDefaultSummary(scoring, validation),
+      executive_summary: qResult.executive_summary,
     },
     desk_adjuster_scorecard: {
       score_percent: scoring.da.score_percent,
@@ -262,6 +237,7 @@ export async function runFinalAudit(
     issues,
     validation_checks: validation.checks,
     vision_analysis: visionResult,
+    provider_request_ids: qResult.provider_request_ids,
   };
 
   logger.info({
@@ -279,29 +255,4 @@ export async function runFinalAudit(
   }, "DA/FA carrier audit completed");
 
   return result;
-}
-
-function buildDefaultSummary(scoring: ScoringResult, validation: ValidationResult): string {
-  const parts: string[] = [];
-  parts.push(`Overall score: ${scoring.overall_score_percent}% (DA: ${scoring.da.score_percent}%, FA: ${scoring.fa.score_percent}%).`);
-
-  if (scoring.readiness === "READY") {
-    parts.push("The file appears ready for carrier submission.");
-  } else if (scoring.readiness === "REVIEW") {
-    parts.push("The file needs review before submission.");
-  } else {
-    parts.push("The file is not ready for carrier submission.");
-  }
-
-  if (scoring.failed_count > 0) {
-    parts.push(`${scoring.failed_count} question(s) failed.`);
-  }
-  if (scoring.partial_count > 0) {
-    parts.push(`${scoring.partial_count} question(s) received partial credit.`);
-  }
-  if (validation.checks.length > 0) {
-    parts.push(`${validation.checks.length} validation warning(s) flagged.`);
-  }
-
-  return parts.join(" ");
 }

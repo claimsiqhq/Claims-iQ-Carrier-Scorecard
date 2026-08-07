@@ -3,6 +3,7 @@ import logger from "../lib/logger";
 import { env } from "../env";
 import { getPrompt } from "./promptLoader";
 import { getCarrierRuleset } from "./carrierRulesetService";
+import { UNTRUSTED_SOURCE_GUARDRAIL } from "./auditPromptService";
 import type { CarrierScorecardCategory } from "./carrierRulesetTypes";
 
 export const CARRIER_SCORECARD_VERSION = "carrier_scorecard_v1" as const;
@@ -51,7 +52,36 @@ function buildCarrierScorecardRawSchema(categories: CarrierScorecardCategory[]) 
     issues: z.array(issueRaw),
     missing_info: z.array(z.string()),
     assumptions: z.array(z.string()),
-  }).strict();
+  }).strict().superRefine((value, context) => {
+    for (const category of categories) {
+      const occurrenceCount = value.categories.filter(
+        (candidate) => candidate.id === category.id,
+      ).length;
+      if (occurrenceCount !== 1) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["categories"],
+          message: `Category ${category.id} must appear exactly once.`,
+        });
+      }
+    }
+    const scoreRanges = {
+      pass: [5, 5],
+      minor_issues: [3, 4],
+      major_issues: [1, 2],
+      missing_info: [0, 0],
+    } as const;
+    value.categories.forEach((category, index) => {
+      const [minimum, maximum] = scoreRanges[category.status];
+      if (category.score < minimum || category.score > maximum) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["categories", index, "score"],
+          message: `Score is inconsistent with ${category.status}.`,
+        });
+      }
+    });
+  });
 }
 
 export const carrierScorecardRawSchema = buildCarrierScorecardRawSchema(
@@ -94,6 +124,15 @@ export const carrierScorecardNormalizedSchema = z.object({
 
 export type CarrierScorecardAuditResult = z.infer<typeof carrierScorecardNormalizedSchema>;
 
+export class CarrierScorecardResponseError extends Error {
+  readonly code = "carrier_scorecard_response_invalid";
+
+  constructor(message: string) {
+    super(message);
+    this.name = "CarrierScorecardResponseError";
+  }
+}
+
 interface CarrierScorecardRaw {
   overall: { summary: string; confidence: number };
   categories: Array<{
@@ -126,59 +165,8 @@ function normalizePercent(totalScore: number, maxScore: number): number {
   return Math.round((totalScore / maxScore) * 1000) / 10;
 }
 
-function missingCategory(categoryId: string) {
-  return {
-    id: categoryId,
-    status: "missing_info" as const,
-    score: 0,
-    finding: "No information provided in the final report.",
-    evidence: [] as string[],
-    recommendations: ["Review and complete this section."],
-  };
-}
-
 function nowIso(): string {
   return new Date().toISOString();
-}
-
-export function buildCarrierScorecardFallback(params: {
-  requestId: string;
-  model: string;
-  reason: string;
-  categories?: CarrierScorecardCategory[];
-}): CarrierScorecardAuditResult {
-  const cats = params.categories ?? CARRIER_SCORECARD_CATEGORIES;
-  const categories = cats.map((c) => ({
-    ...missingCategory(c.id),
-    label: c.label,
-    max_score: c.max_score as 5,
-  }));
-
-  return {
-    version: CARRIER_SCORECARD_VERSION,
-    overall: {
-      total_score: 0,
-      max_score: cats.length * 5,
-      percent: 0,
-      grade: "F",
-      summary: "Audit could not be completed; fallback result returned.",
-      confidence: 0,
-    },
-    categories,
-    issues: [
-      {
-        severity: "high",
-        title: "Carrier scorecard audit fallback",
-        description: params.reason,
-      },
-    ],
-    meta: {
-      model: params.model,
-      generated_at: nowIso(),
-      request_id: params.requestId,
-      validation_ok: false,
-    },
-  };
 }
 
 export function normalizeCarrierScorecard(
@@ -187,9 +175,17 @@ export function normalizeCarrierScorecard(
 ): CarrierScorecardAuditResult {
   const cats = context.categories ?? CARRIER_SCORECARD_CATEGORIES;
   const categoryMap = new Map(parsed.categories.map((c) => [c.id, c]));
+  if (
+    categoryMap.size !== cats.length
+    || cats.some((category) => !categoryMap.has(category.id))
+  ) {
+    throw new CarrierScorecardResponseError(
+      "Carrier scorecard response omitted or duplicated a required category.",
+    );
+  }
 
   const categories = cats.map((base) => {
-    const value = categoryMap.get(base.id) ?? missingCategory(base.id);
+    const value = categoryMap.get(base.id)!;
     return {
       id: base.id,
       label: base.label,
@@ -253,12 +249,9 @@ export function parseCarrierScorecardJson(
   try {
     parsed = JSON.parse(content);
   } catch {
-    return buildCarrierScorecardFallback({
-      requestId: context.requestId,
-      model: context.model,
-      reason: "OpenAI response JSON parsing failed.",
-      categories: context.categories,
-    });
+    throw new CarrierScorecardResponseError(
+      "Carrier scorecard provider returned invalid JSON.",
+    );
   }
 
   const schema = buildCarrierScorecardRawSchema(
@@ -266,13 +259,16 @@ export function parseCarrierScorecardJson(
   );
   const validated = schema.safeParse(parsed);
   if (!validated.success) {
-    logger.error({ requestId: context.requestId, issues: validated.error.issues }, "Carrier scorecard validation failed");
-    return buildCarrierScorecardFallback({
-      requestId: context.requestId,
-      model: context.model,
-      reason: "OpenAI response failed schema validation.",
-      categories: context.categories,
-    });
+    logger.error(
+      {
+        requestId: context.requestId,
+        issueCount: validated.error.issues.length,
+      },
+      "Carrier scorecard validation failed",
+    );
+    throw new CarrierScorecardResponseError(
+      "Carrier scorecard provider response failed schema validation.",
+    );
   }
 
   return normalizeCarrierScorecard(validated.data as CarrierScorecardRaw, {
@@ -291,13 +287,21 @@ export async function runCarrierScorecardAudit(input: {
   const startedAt = Date.now();
   const model = env.OPENAI_CARRIER_AUDIT_MODEL;
 
-  const ruleset = await getCarrierRuleset(input.carrier ?? "");
+  const ruleset = await getCarrierRuleset(
+    input.carrier ?? "",
+    { allowDefault: false },
+  );
   const categories = ruleset.scorecard_categories;
   const promptOverride = ruleset.carrier_scorecard_prompt_override;
 
   try {
     const { openai } = await import("@workspace/integrations-openai-ai-server");
-    const systemPrompt = promptOverride ?? await getPrompt("carrier_scorecard_v1");
+    const configuredPrompt =
+      promptOverride ?? await getPrompt("carrier_scorecard_v1");
+    const systemPrompt = [
+      UNTRUSTED_SOURCE_GUARDRAIL,
+      configuredPrompt,
+    ].join("\n\n");
     const response = await openai.chat.completions.create({
       model,
       temperature: 0,
@@ -329,10 +333,6 @@ export async function runCarrierScorecardAudit(input: {
       model,
       categories,
     });
-    if (!result.meta.validation_ok) {
-      throw new Error("Carrier scorecard provider response failed validation");
-    }
-
     logger.info({
       requestId: input.requestId,
       carrier: input.carrier ?? "default",

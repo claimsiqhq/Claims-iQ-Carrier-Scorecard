@@ -458,8 +458,10 @@ export const auditRuns = pgTable("audit_runs", {
   status: auditRunStateEnum("status").notNull(),
   rulesetVersion: text("ruleset_version").notNull(),
   rulesetHash: text("ruleset_hash"),
+  rulesetSnapshot: jsonb("ruleset_snapshot").$type<Record<string, unknown>>(),
   promptIdentifier: text("prompt_identifier").notNull(),
   promptHash: text("prompt_hash"),
+  promptSnapshot: jsonb("prompt_snapshot").$type<Record<string, unknown>>(),
   modelIdentifier: text("model_identifier").notNull(),
   sourceDocumentHashes: jsonb("source_document_hashes")
     .$type<Array<{ documentId: string; sha256: string | null }>>()

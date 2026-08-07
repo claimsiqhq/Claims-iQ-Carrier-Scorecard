@@ -17,6 +17,10 @@ export default defineConfig({
   "api-client-react": {
     input: {
       target: "./openapi.yaml",
+      filters: {
+        mode: "exclude",
+        tags: ["Webhooks"],
+      },
       override: {
         transformer: titleTransformer,
       },
@@ -43,6 +47,10 @@ export default defineConfig({
   zod: {
     input: {
       target: "./openapi.yaml",
+      filters: {
+        mode: "exclude",
+        tags: ["Webhooks"],
+      },
       override: {
         transformer: titleTransformer,
       },
@@ -62,7 +70,7 @@ export default defineConfig({
             param: ['boolean', 'number', 'string'],
           },
         },
-        useDates: true,
+        useDates: false,
       },
     },
   },

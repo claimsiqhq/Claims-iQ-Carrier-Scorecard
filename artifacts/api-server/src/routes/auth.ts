@@ -1,5 +1,6 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import bcrypt from "bcryptjs";
+import rateLimit from "express-rate-limit";
 import { db, usersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import {
@@ -13,14 +14,23 @@ import {
 import logger from "../lib/logger";
 
 const router: IRouter = Router();
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  message: { error: "Too many sign-in attempts. Try again later." },
+});
 
 function setSessionCookie(res: Response, sid: string) {
   res.cookie(SESSION_COOKIE, sid, {
     httpOnly: true,
-    secure: true,
+    secure: process.env.NODE_ENV !== "development",
     sameSite: "lax",
     path: "/",
     maxAge: SESSION_TTL,
+    priority: "high",
   });
 }
 
@@ -49,7 +59,7 @@ router.get("/auth/user", (req: Request, res: Response) => {
   }
 });
 
-router.post("/auth/login", async (req: Request, res: Response) => {
+router.post("/auth/login", loginLimiter, async (req: Request, res: Response) => {
   const { email, password } = req.body;
 
   if (!email || !password) {
@@ -88,7 +98,7 @@ router.post("/auth/login", async (req: Request, res: Response) => {
     const sid = await createSession(sessionData);
     setSessionCookie(res, sid);
 
-    logger.info({ userId: user.id, email: user.email }, "User logged in");
+    logger.info({ userId: user.id }, "User logged in");
 
     res.json({
       user: sessionData.user,

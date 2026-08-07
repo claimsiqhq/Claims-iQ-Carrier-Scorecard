@@ -1,16 +1,20 @@
-import { useMemo, useState } from "react"
+import { useDeferredValue, useEffect, useMemo, useState } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link, useLocation } from "wouter"
 import {
   ArrowDownUp,
   ArrowRight,
+  Columns3,
   Eye,
   Files,
   Filter,
   LayoutList,
   RotateCcw,
+  Save,
   Search,
+  Trash2,
   UploadCloud,
+  UserRoundCheck,
 } from "lucide-react"
 import { UploadClaimsDialog } from "@/components/complete-iq/upload-claims-dialog"
 import {
@@ -22,6 +26,23 @@ import {
 } from "@/components/complete-iq/status"
 import { PageBody, PageHeader } from "@/components/layout/app-shell"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import {
   Sheet,
   SheetContent,
@@ -30,17 +51,21 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet"
 import { api, apiErrorMessage, queryKeys } from "@/lib/api"
-import type { ClaimSummary } from "@/lib/types"
+import { useAuth } from "@/lib/auth-context"
+import type { ClaimSummary, SavedView } from "@/lib/types"
 
 type SortKey = "received" | "claim" | "carrier" | "score"
 type Density = "comfortable" | "compact"
-type Preset = "all" | "review" | "processing" | "risk" | "exceptions" | "custom"
+type Preset = "all" | "mine" | "review" | "processing" | "risk" | "exceptions" | "custom"
+type OptionalColumn = "carrier" | "ai" | "human" | "risk" | "score"
+
+const DEFAULT_COLUMNS: OptionalColumn[] = ["carrier", "ai", "human", "risk", "score"]
 
 const PER_PAGE = 20
 
-function nextAction(claim: ClaimSummary) {
+function nextAction(claim: ClaimSummary, canRetry = true) {
   if (claim.systemStatus === "error" || claim.aiStatus === "failed" || claim.status === "error") {
-    return "Retry processing"
+    return canRetry ? "Retry processing" : "Review processing exception"
   }
   if (
     claim.systemStatus === "processing" ||
@@ -61,94 +86,84 @@ function nextAction(claim: ClaimSummary) {
 
 export default function ClaimsPage() {
   const queryClient = useQueryClient()
+  const { user, organization } = useAuth()
   const [, setLocation] = useLocation()
   const dashboard = useQuery({ queryKey: queryKeys.dashboard, queryFn: api.getDashboard })
-  const claimsQuery = useQuery({ queryKey: queryKeys.claims, queryFn: () => api.getClaims(100, 0) })
+  const canAssign = Boolean(organization?.permissions.includes("claims:assign"))
+  const canCreate = Boolean(organization?.permissions.includes("claims:create"))
+  const canRetry = Boolean(organization?.permissions.includes("jobs:retry"))
+  const assigneesQuery = useQuery({
+    queryKey: queryKeys.claimAssignees,
+    queryFn: api.getClaimAssignees,
+  })
+  const savedViewsQuery = useQuery({
+    queryKey: queryKeys.savedViews("claims"),
+    queryFn: () => api.getSavedViews("claims"),
+  })
   const [search, setSearch] = useState("")
-  const [carrier, setCarrier] = useState("all")
-  const [status, setStatus] = useState("all")
-  const [risk, setRisk] = useState("all")
-  const [readiness, setReadiness] = useState("all")
+  const [carrier, setCarrier] = useState(
+    () => new URLSearchParams(window.location.search).get("carrier") || "all",
+  )
+  const [status, setStatus] = useState(
+    () => new URLSearchParams(window.location.search).get("status") || "all",
+  )
+  const [risk, setRisk] = useState(
+    () => new URLSearchParams(window.location.search).get("risk") || "all",
+  )
+  const [readiness, setReadiness] = useState(
+    () => new URLSearchParams(window.location.search).get("readiness") || "all",
+  )
   const [sort, setSort] = useState<SortKey>("received")
   const [density, setDensity] = useState<Density>("comfortable")
-  const [preset, setPreset] = useState<Preset>("all")
+  const [visibleColumns, setVisibleColumns] = useState<OptionalColumn[]>(DEFAULT_COLUMNS)
+  const [preset, setPreset] = useState<Preset>(() => {
+    const params = new URLSearchParams(window.location.search)
+    return ["carrier", "status", "risk", "readiness"].some((key) => params.has(key))
+      ? "custom"
+      : "all"
+  })
   const [page, setPage] = useState(1)
   const [previewId, setPreviewId] = useState<string | null>(null)
   const [retrying, setRetrying] = useState<Record<string, boolean>>({})
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const [saveViewOpen, setSaveViewOpen] = useState(false)
+  const [viewName, setViewName] = useState("")
+  const [savingView, setSavingView] = useState(false)
+  const [bulkSaving, setBulkSaving] = useState(false)
+  const [queueMessage, setQueueMessage] = useState<string | null>(null)
 
-  const allClaims = useMemo(() => {
-    const rich = new Map((dashboard.data?.recentClaims || []).map((claim) => [claim.id, claim]))
-    const merged = (claimsQuery.data || []).map((claim) => ({ ...claim, ...rich.get(claim.id) }))
-    rich.forEach((claim, id) => {
-      if (!merged.some((item) => item.id === id)) merged.push(claim)
-    })
-    return merged
-  }, [claimsQuery.data, dashboard.data])
-
-  const carriers = useMemo(
-    () =>
-      Array.from(new Set(allClaims.map((claim) => claim.carrier).filter(Boolean) as string[])).sort(),
-    [allClaims],
+  const deferredSearch = useDeferredValue(search)
+  const queueFilters = useMemo(
+    () => ({
+      page,
+      pageSize: PER_PAGE,
+      search: deferredSearch,
+      carrier,
+      status,
+      risk,
+      readiness,
+      preset,
+      sort,
+    }),
+    [carrier, deferredSearch, page, preset, readiness, risk, sort, status],
   )
-
-  const filtered = useMemo(() => {
-    const normalizedSearch = search.trim().toLowerCase()
-    const list = allClaims.filter((claim) => {
-      if (
-        normalizedSearch &&
-        ![claim.claimNumber, claim.insuredName, claim.carrier || "", claim.policyNumber || ""]
-          .join(" ")
-          .toLowerCase()
-          .includes(normalizedSearch)
-      ) {
-        return false
-      }
-      if (carrier !== "all" && claim.carrier !== carrier) return false
-      if (status !== "all" && (claim.systemStatus || claim.status) !== status) return false
-      if (risk !== "all" && (claim.riskLevel || "").toUpperCase() !== risk) return false
-      if (
-        readiness !== "all" &&
-        (claim.approvalStatus || "").toUpperCase() !== readiness
-      ) {
-        return false
-      }
-      if (preset === "review") {
-        return (
-          ["pending", "in_review", "changes_requested"].includes(claim.humanReviewStatus || "") ||
-          (claim.approvalStatus || "").toUpperCase() === "REVIEW"
-        )
-      }
-      if (preset === "processing") {
-        return (
-          claim.systemStatus === "processing" ||
-          ["queued", "running"].includes(claim.aiStatus || "") ||
-          ["processing", "pending"].includes(claim.status)
-        )
-      }
-      if (preset === "risk") return (claim.riskLevel || "").toUpperCase() === "HIGH"
-      if (preset === "exceptions") {
-        return (
-          claim.systemStatus === "error" ||
-          claim.aiStatus === "failed" ||
-          claim.status === "error" ||
-          (claim.approvalStatus || "").toUpperCase() === "REVIEW" ||
-          (claim.riskLevel || "").toUpperCase() === "HIGH"
-        )
-      }
-      return true
-    })
-
-    return list.sort((left, right) => {
-      if (sort === "claim") return left.claimNumber.localeCompare(right.claimNumber)
-      if (sort === "carrier") return (left.carrier || "").localeCompare(right.carrier || "")
-      if (sort === "score") return (right.overallScore ?? -1) - (left.overallScore ?? -1)
-      return new Date(right.createdAt || 0).getTime() - new Date(left.createdAt || 0).getTime()
-    })
-  }, [allClaims, carrier, preset, readiness, risk, search, sort, status])
-
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PER_PAGE))
+  const claimsQuery = useQuery({
+    queryKey: queryKeys.claimsQueue(queueFilters),
+    queryFn: () => api.getClaimsQueue(queueFilters),
+    placeholderData: (previous) => previous,
+  })
+  const allClaims = claimsQuery.data?.items || []
+  const carriers = claimsQuery.data?.facets.carriers || []
+  const totalMatches = claimsQuery.data?.total || 0
+  const totalPages = Math.max(1, Math.ceil(totalMatches / PER_PAGE))
   const currentPage = Math.min(page, totalPages)
-  const visibleClaims = filtered.slice((currentPage - 1) * PER_PAGE, currentPage * PER_PAGE)
+  const visibleClaims = allClaims
+  const organizationHasClaims = (dashboard.data?.stats.totalClaims || totalMatches) > 0
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages)
+  }, [page, totalPages])
+  const allVisibleSelected =
+    visibleClaims.length > 0 && visibleClaims.every((claim) => selectedIds.includes(claim.id))
 
   const applyPreset = (next: Preset) => {
     setPreset(next)
@@ -163,6 +178,99 @@ export default function ClaimsPage() {
     setter(value)
     setPreset("custom")
     setPage(1)
+  }
+
+  const applySavedView = (view: SavedView) => {
+    const filters = view.filters || {}
+    const readFilter = (key: string, fallback: string) =>
+      typeof filters[key] === "string" ? String(filters[key]) : fallback
+    setSearch(readFilter("search", ""))
+    setCarrier(readFilter("carrier", "all"))
+    setStatus(readFilter("status", "all"))
+    setRisk(readFilter("risk", "all"))
+    setReadiness(readFilter("readiness", "all"))
+    const savedSort = typeof view.sort?.key === "string" ? view.sort.key : "received"
+    setSort(
+      ["received", "claim", "carrier", "score"].includes(savedSort)
+        ? (savedSort as SortKey)
+        : "received",
+    )
+    const savedColumns = (view.columns || []).filter((column): column is OptionalColumn =>
+      DEFAULT_COLUMNS.includes(column as OptionalColumn),
+    )
+    setVisibleColumns(view.columns ? savedColumns : DEFAULT_COLUMNS)
+    setPreset("custom")
+    setPage(1)
+    setQueueMessage(`Applied saved view “${view.name}”.`)
+  }
+
+  const saveCurrentView = async () => {
+    const name = viewName.trim()
+    if (!name) return
+    setSavingView(true)
+    setQueueMessage(null)
+    try {
+      await api.createSavedView({
+        name,
+        resourceType: "claims",
+        filters: { search, carrier, status, risk, readiness },
+        sort: { key: sort, direction: sort === "received" || sort === "score" ? "desc" : "asc" },
+        columns: visibleColumns,
+      })
+      await queryClient.invalidateQueries({ queryKey: queryKeys.savedViews("claims") })
+      setViewName("")
+      setSaveViewOpen(false)
+      setQueueMessage(`Saved view “${name}”.`)
+    } catch (error) {
+      setQueueMessage(apiErrorMessage(error, "The view could not be saved."))
+    } finally {
+      setSavingView(false)
+    }
+  }
+
+  const removeSavedView = async (view: SavedView) => {
+    setQueueMessage(null)
+    try {
+      await api.deleteSavedView(view.id)
+      await queryClient.invalidateQueries({ queryKey: queryKeys.savedViews("claims") })
+      setQueueMessage(`Deleted saved view “${view.name}”.`)
+    } catch (error) {
+      setQueueMessage(apiErrorMessage(error, "The saved view could not be deleted."))
+    }
+  }
+
+  const bulkAssign = async (assigneeUserId: string | null) => {
+    if (!selectedIds.length) return
+    setBulkSaving(true)
+    setQueueMessage(null)
+    const results = await Promise.allSettled(
+      selectedIds.map((claimId) => api.updateAssignment(claimId, assigneeUserId)),
+    )
+    const failed = results.filter((result) => result.status === "rejected").length
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: queryKeys.claims }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard }),
+    ])
+    setBulkSaving(false)
+    if (!failed) setSelectedIds([])
+    const assigneeName = assigneesQuery.data?.assignees.find(
+      (assignee) => assignee.userId === assigneeUserId,
+    )?.name
+    setQueueMessage(
+      failed
+        ? `${selectedIds.length - failed} assignments updated; ${failed} failed.`
+        : `${selectedIds.length} claim${selectedIds.length === 1 ? "" : "s"} ${
+            assigneeUserId ? `assigned to ${assigneeName || "an organization member"}` : "unassigned"
+          }.`,
+    )
+  }
+
+  const toggleSelected = (claimId: string, checked: boolean) => {
+    setSelectedIds((current) =>
+      checked
+        ? Array.from(new Set([...current, claimId]))
+        : current.filter((id) => id !== claimId),
+    )
   }
 
   const retryClaim = async (claimId: string) => {
@@ -189,8 +297,8 @@ export default function ClaimsPage() {
     }
   }
 
-  const isLoading = dashboard.isLoading && claimsQuery.isLoading
-  const isError = dashboard.isError && claimsQuery.isError
+  const isLoading = claimsQuery.isLoading
+  const isError = claimsQuery.isError
 
   if (isLoading) {
     return (
@@ -210,7 +318,7 @@ export default function ClaimsPage() {
         <PageState
           kind="error"
           title="The claim queue is unavailable"
-          description={apiErrorMessage(dashboard.error || claimsQuery.error)}
+          description={apiErrorMessage(claimsQuery.error)}
           actionLabel="Retry"
           onAction={() => {
             void dashboard.refetch()
@@ -232,27 +340,32 @@ export default function ClaimsPage() {
         description="Triage every intake by workflow state, carrier risk, and evidence readiness."
         meta={
           <>
-            <StatusPill value="neutral" label={`${allClaims.length} current records`} />
+            <StatusPill
+              value="neutral"
+              label={`${dashboard.data?.stats.totalClaims ?? totalMatches} current records`}
+            />
             <StatusPill
               value="review"
-              label={`${allClaims.filter((claim) => ["pending", "in_review", "changes_requested"].includes(claim.humanReviewStatus || "") || claim.approvalStatus?.toUpperCase() === "REVIEW").length} need review`}
+              label={`${dashboard.data?.stats.backlogCount ?? 0} need review`}
               tone="warning"
             />
           </>
         }
         actions={
-          <UploadClaimsDialog
-            initialOpen={uploadRequested}
-            onOpenChange={(open) => {
-              if (!open && uploadRequested) setLocation("/claims", { replace: true })
-            }}
-            trigger={
-              <Button className="border-white/15 bg-white text-[var(--ciq-aubergine)] hover:bg-[#f7f3ed]">
-                <UploadCloud aria-hidden="true" />
-                New intake
-              </Button>
-            }
-          />
+          canCreate ? (
+            <UploadClaimsDialog
+              initialOpen={uploadRequested}
+              onOpenChange={(open) => {
+                if (!open && uploadRequested) setLocation("/claims", { replace: true })
+              }}
+              trigger={
+                <Button className="border-white/15 bg-white text-[var(--ciq-aubergine)] hover:bg-[#f7f3ed]">
+                  <UploadCloud aria-hidden="true" />
+                  New intake
+                </Button>
+              }
+            />
+          ) : undefined
         }
       />
 
@@ -263,6 +376,7 @@ export default function ClaimsPage() {
               {(
                 [
                   ["all", "All claims"],
+                  ["mine", "My work"],
                   ["review", "Needs review"],
                   ["processing", "Processing"],
                   ["risk", "High risk"],
@@ -284,6 +398,59 @@ export default function ClaimsPage() {
                 </button>
               ))}
             </div>
+          </div>
+
+          <div className="flex flex-wrap items-end gap-2 border-b border-[var(--ciq-border)] bg-[var(--ciq-surface-subtle)] px-4 py-3">
+            <div className="ciq-field min-w-52">
+              <label htmlFor="saved-claim-view">Saved views</label>
+              <select
+                id="saved-claim-view"
+                className="ciq-control"
+                defaultValue=""
+                onChange={(event) => {
+                  const view = savedViewsQuery.data?.views.find(
+                    (candidate) => candidate.id === event.target.value,
+                  )
+                  if (view) applySavedView(view)
+                  event.target.value = ""
+                }}
+              >
+                <option value="">
+                  {savedViewsQuery.isLoading ? "Loading saved views…" : "Choose a saved view…"}
+                </option>
+                {(savedViewsQuery.data?.views || []).map((view) => (
+                  <option key={view.id} value={view.id}>
+                    {view.name}{view.isDefault ? " · default" : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <Button variant="outline" onClick={() => setSaveViewOpen(true)}>
+              <Save aria-hidden="true" />
+              Save current view
+            </Button>
+            {(savedViewsQuery.data?.views || []).map((view) => (
+              <span
+                className="inline-flex min-h-11 items-center overflow-hidden rounded-full border border-[var(--ciq-border)] bg-[var(--ciq-surface)]"
+                key={view.id}
+              >
+                <button
+                  type="button"
+                  className="min-h-11 px-3 text-xs font-semibold text-[var(--ciq-ink)]"
+                  onClick={() => applySavedView(view)}
+                >
+                  {view.name}
+                </button>
+                <button
+                  type="button"
+                  className="flex h-11 w-11 items-center justify-center border-l border-[var(--ciq-border)] text-[var(--ciq-ink-muted)] hover:text-[var(--ciq-critical)]"
+                  onClick={() => void removeSavedView(view)}
+                  aria-label={`Delete saved view ${view.name}`}
+                >
+                  <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                </button>
+              </span>
+            ))}
           </div>
 
           <div className="ciq-toolbar">
@@ -373,11 +540,41 @@ export default function ClaimsPage() {
                 ["compact", "Compact"],
               ]}
             />
+            <div className="ciq-field">
+              <span className="ciq-label">Columns</span>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" className="justify-between">
+                    <Columns3 aria-hidden="true" />
+                    Configure
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-52">
+                  <DropdownMenuLabel>Visible queue columns</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  {DEFAULT_COLUMNS.map((column) => (
+                    <DropdownMenuCheckboxItem
+                      key={column}
+                      checked={visibleColumns.includes(column)}
+                      onCheckedChange={(checked) =>
+                        setVisibleColumns((current) =>
+                          checked
+                            ? Array.from(new Set([...current, column]))
+                            : current.filter((value) => value !== column),
+                        )
+                      }
+                    >
+                      {humanize(column)}
+                    </DropdownMenuCheckboxItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           </div>
 
           <div className="flex items-center justify-between gap-3 border-b border-[var(--ciq-border)] px-4 py-2 text-xs text-[var(--ciq-ink-muted)]">
             <span>
-              {filtered.length.toLocaleString()} match{filtered.length === 1 ? "" : "es"}
+              {totalMatches.toLocaleString()} match{totalMatches === 1 ? "" : "es"}
               {preset === "custom" ? " · Custom view" : ` · ${humanize(preset)} view`}
             </span>
             <span className="hidden items-center gap-1 sm:flex">
@@ -386,36 +583,134 @@ export default function ClaimsPage() {
             </span>
           </div>
 
+          {(selectedIds.length > 0 || queueMessage) && (
+            <div
+              className="flex flex-wrap items-center gap-2 border-b border-[var(--ciq-border)] bg-[var(--ciq-info-soft)] px-4 py-2"
+              role="status"
+              aria-live="polite"
+            >
+              {selectedIds.length > 0 && (
+                <>
+                  <strong className="ciq-mono mr-1 text-xs">
+                    {selectedIds.length} selected
+                  </strong>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={!user?.id || bulkSaving}
+                    onClick={() => user?.id && void bulkAssign(user.id)}
+                  >
+                    <UserRoundCheck aria-hidden="true" />
+                    Assign to me
+                  </Button>
+                  <select
+                    className="ciq-control min-w-44"
+                    defaultValue=""
+                    disabled={!canAssign || bulkSaving || assigneesQuery.isLoading}
+                    onChange={(event) => {
+                      if (event.target.value) void bulkAssign(event.target.value)
+                      event.target.value = ""
+                    }}
+                    aria-label="Assign selected claims to an organization member"
+                  >
+                    <option value="">Assign to team member…</option>
+                    {(assigneesQuery.data?.assignees || []).map((assignee) => (
+                      <option key={assignee.userId} value={assignee.userId}>
+                        {assignee.name} · {humanize(assignee.role)}
+                      </option>
+                    ))}
+                  </select>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={bulkSaving}
+                    onClick={() => void bulkAssign(null)}
+                  >
+                    Clear assignment
+                  </Button>
+                </>
+              )}
+              {queueMessage && (
+                <span className="text-xs text-[var(--ciq-ink-muted)]">{queueMessage}</span>
+              )}
+            </div>
+          )}
+
           {visibleClaims.length ? (
             <>
               <div className="ciq-desktop-table overflow-x-auto">
                 <table
-                  className={`ciq-table min-w-[1120px] ${density === "compact" ? "ciq-table--compact" : ""}`}
+                  className={`ciq-table min-w-[1180px] ${density === "compact" ? "ciq-table--compact" : ""}`}
                 >
                   <caption>Complete iQ operational claim queue</caption>
                   <thead>
                     <tr>
+                      {canAssign && (
+                        <th scope="col" className="w-14">
+                          <Checkbox
+                            checked={allVisibleSelected}
+                            onCheckedChange={(checked) =>
+                              setSelectedIds((current) =>
+                                checked
+                                  ? Array.from(
+                                      new Set([
+                                        ...current,
+                                        ...visibleClaims.map((claim) => claim.id),
+                                      ]),
+                                    )
+                                  : current.filter(
+                                      (id) => !visibleClaims.some((claim) => claim.id === id),
+                                    ),
+                              )
+                            }
+                            aria-label="Select all claims on this page"
+                          />
+                        </th>
+                      )}
                       <th scope="col">Claim / received</th>
                       <th scope="col">Insured</th>
-                      <th scope="col">Carrier</th>
+                      {visibleColumns.includes("carrier") && <th scope="col">Carrier</th>}
                       <th scope="col">System workflow</th>
-                      <th scope="col">AI processing</th>
-                      <th scope="col">Human review</th>
-                      <th scope="col">Risk</th>
-                      <th scope="col">Score</th>
+                      {visibleColumns.includes("ai") && <th scope="col">AI processing</th>}
+                      {visibleColumns.includes("human") && <th scope="col">Human review</th>}
+                      {visibleColumns.includes("risk") && <th scope="col">Risk</th>}
+                      {visibleColumns.includes("score") && <th scope="col">Score</th>}
                       <th scope="col">Next action</th>
                       <th scope="col">Preview</th>
                     </tr>
                   </thead>
                   <tbody>
                     {visibleClaims.map((claim) => (
-                      <tr key={claim.id}>
+                      <tr
+                        key={claim.id}
+                        tabIndex={0}
+                        onKeyDown={(event) => {
+                          if (event.currentTarget !== event.target) return
+                          if (event.key === "Enter") {
+                            setLocation(`/claims/${claim.id}`)
+                          }
+                          if (event.key === " " && canAssign) {
+                            event.preventDefault()
+                            toggleSelected(claim.id, !selectedIds.includes(claim.id))
+                          }
+                        }}
+                        aria-label={`${claim.claimNumber}, ${claim.insuredName}`}
+                      >
+                        {canAssign && (
+                          <td>
+                            <Checkbox
+                              checked={selectedIds.includes(claim.id)}
+                              onCheckedChange={(checked) => toggleSelected(claim.id, checked === true)}
+                              aria-label={`Select claim ${claim.claimNumber}`}
+                            />
+                          </td>
+                        )}
                         <td>
                           <Link className="ciq-link ciq-mono" href={`/claims/${claim.id}`}>
                             {claim.claimNumber}
                           </Link>
                           <span className="mt-0.5 block text-[0.65rem] text-[var(--ciq-ink-muted)]">
-                            {formatDate(claim.createdAt)}
+                            {formatDate(claim.createdAt)} · {formatAge(claim.createdAt)}
                           </span>
                         </td>
                         <td>
@@ -426,34 +721,44 @@ export default function ClaimsPage() {
                             </span>
                           )}
                         </td>
-                        <td>{claim.carrier || <span className="ciq-empty-dash">—</span>}</td>
+                        {visibleColumns.includes("carrier") && (
+                          <td>{claim.carrier || <span className="ciq-empty-dash">—</span>}</td>
+                        )}
                         <td>
                           <StatusPill value={claim.systemStatus || claim.status} />
                         </td>
+                        {visibleColumns.includes("ai") && (
+                          <td>
+                            {claim.aiStatus ? (
+                              <StatusPill value={claim.aiStatus} />
+                            ) : (
+                              <span className="text-xs text-[var(--ciq-ink-faint)]">Unavailable</span>
+                            )}
+                          </td>
+                        )}
+                        {visibleColumns.includes("human") && (
+                          <td>
+                            {claim.humanReviewStatus ? (
+                              <StatusPill value={claim.humanReviewStatus} />
+                            ) : (
+                              <span className="text-xs text-[var(--ciq-ink-faint)]">Unavailable</span>
+                            )}
+                          </td>
+                        )}
+                        {visibleColumns.includes("risk") && (
+                          <td>
+                            {claim.riskLevel ? (
+                              <StatusPill value={claim.riskLevel} />
+                            ) : (
+                              <span className="ciq-empty-dash">—</span>
+                            )}
+                          </td>
+                        )}
+                        {visibleColumns.includes("score") && (
+                          <td className="ciq-mono font-semibold">{formatScore(claim.overallScore)}</td>
+                        )}
                         <td>
-                          {claim.aiStatus ? (
-                            <StatusPill value={claim.aiStatus} />
-                          ) : (
-                            <span className="text-xs text-[var(--ciq-ink-faint)]">Unavailable</span>
-                          )}
-                        </td>
-                        <td>
-                          {claim.humanReviewStatus ? (
-                            <StatusPill value={claim.humanReviewStatus} />
-                          ) : (
-                            <span className="text-xs text-[var(--ciq-ink-faint)]">Unavailable</span>
-                          )}
-                        </td>
-                        <td>
-                          {claim.riskLevel ? (
-                            <StatusPill value={claim.riskLevel} />
-                          ) : (
-                            <span className="ciq-empty-dash">—</span>
-                          )}
-                        </td>
-                        <td className="ciq-mono font-semibold">{formatScore(claim.overallScore)}</td>
-                        <td>
-                          {claim.systemStatus === "error" || claim.aiStatus === "failed" || claim.status === "error" ? (
+                          {(claim.systemStatus === "error" || claim.aiStatus === "failed" || claim.status === "error") && canRetry ? (
                             <Button
                               variant="outline"
                               size="sm"
@@ -465,7 +770,7 @@ export default function ClaimsPage() {
                             </Button>
                           ) : (
                             <Link className="ciq-link text-xs" href={`/claims/${claim.id}`}>
-                              {nextAction(claim)}
+                              {nextAction(claim, canRetry)}
                             </Link>
                           )}
                         </td>
@@ -492,13 +797,21 @@ export default function ClaimsPage() {
                     className="rounded-md border border-[var(--ciq-border)] bg-[var(--ciq-surface)] p-4"
                   >
                     <div className="flex items-start justify-between gap-3">
+                      {canAssign && (
+                        <Checkbox
+                          checked={selectedIds.includes(claim.id)}
+                          onCheckedChange={(checked) => toggleSelected(claim.id, checked === true)}
+                          aria-label={`Select claim ${claim.claimNumber}`}
+                          className="-ml-2 -mt-2"
+                        />
+                      )}
                       <div className="min-w-0">
                         <Link className="ciq-link ciq-mono text-sm" href={`/claims/${claim.id}`}>
                           {claim.claimNumber}
                         </Link>
                         <p className="mt-1 truncate text-sm font-semibold">{claim.insuredName}</p>
                         <p className="mt-0.5 text-xs text-[var(--ciq-ink-muted)]">
-                          {claim.carrier || "Carrier unavailable"}
+                          {claim.carrier || "Carrier unavailable"} · {formatAge(claim.createdAt)}
                         </p>
                       </div>
                       <span className="ciq-mono text-sm font-semibold">
@@ -530,24 +843,24 @@ export default function ClaimsPage() {
           ) : (
             <div className="p-4">
               <PageState
-                kind={allClaims.length ? "empty" : "unavailable"}
-                title={allClaims.length ? "No claims match this view" : "No claim records returned"}
+                kind={organizationHasClaims ? "empty" : "unavailable"}
+                title={organizationHasClaims ? "No claims match this view" : "No claim records returned"}
                 description={
-                  allClaims.length
+                  organizationHasClaims
                     ? "Adjust the current filters or return to the full queue."
                     : "Start an intake to add the first source package."
                 }
-                actionLabel={allClaims.length ? "Clear filters" : undefined}
-                onAction={allClaims.length ? () => applyPreset("all") : undefined}
+                actionLabel={organizationHasClaims ? "Clear filters" : undefined}
+                onAction={organizationHasClaims ? () => applyPreset("all") : undefined}
               />
             </div>
           )}
 
-          {filtered.length > 0 && (
+          {totalMatches > 0 && (
             <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--ciq-border)] bg-[var(--ciq-surface-subtle)] px-4 py-3 text-xs text-[var(--ciq-ink-muted)]">
               <span>
                 {(currentPage - 1) * PER_PAGE + 1}–
-                {Math.min(currentPage * PER_PAGE, filtered.length)} of {filtered.length}
+                {Math.min(currentPage * PER_PAGE, totalMatches)} of {totalMatches}
               </span>
               <div className="flex items-center gap-2">
                 <Button
@@ -574,6 +887,38 @@ export default function ClaimsPage() {
           )}
         </section>
       </PageBody>
+
+      <Dialog open={saveViewOpen} onOpenChange={(open) => !savingView && setSaveViewOpen(open)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Save this queue view</DialogTitle>
+            <DialogDescription>
+              Save the current search, filters, and sort order to your account in this organization.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="ciq-field">
+            <label htmlFor="saved-view-name">View name</label>
+            <input
+              id="saved-view-name"
+              className="ciq-control"
+              value={viewName}
+              maxLength={100}
+              onChange={(event) => setViewName(event.target.value)}
+              placeholder="Example: High-risk review queue"
+              autoFocus
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSaveViewOpen(false)} disabled={savingView}>
+              Cancel
+            </Button>
+            <Button onClick={() => void saveCurrentView()} disabled={!viewName.trim() || savingView}>
+              <Save aria-hidden="true" />
+              {savingView ? "Saving…" : "Save view"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <ClaimPreview claimId={previewId} onOpenChange={(open) => !open && setPreviewId(null)} />
     </div>
@@ -726,4 +1071,13 @@ function PreviewField({ label, value, mono = false }: { label: string; value: st
       <dd className={`mt-1 text-sm font-semibold ${mono ? "ciq-mono" : ""}`}>{value}</dd>
     </div>
   )
+}
+
+function formatAge(value?: string | null) {
+  if (!value) return "age unavailable"
+  const timestamp = new Date(value).getTime()
+  if (Number.isNaN(timestamp)) return "age unavailable"
+  const days = Math.max(0, Math.floor((Date.now() - timestamp) / 86_400_000))
+  if (days === 0) return "received today"
+  return `${days}d old`
 }

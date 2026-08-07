@@ -18,6 +18,7 @@ export type OrganizationPermission =
   | "jobs:cancel"
   | "jobs:retry"
   | "views:manage"
+  | "settings:manage"
   | "email:send";
 
 export const ALL_ORGANIZATION_PERMISSIONS: readonly OrganizationPermission[] = [
@@ -32,6 +33,7 @@ export const ALL_ORGANIZATION_PERMISSIONS: readonly OrganizationPermission[] = [
   "jobs:cancel",
   "jobs:retry",
   "views:manage",
+  "settings:manage",
   "email:send",
 ];
 

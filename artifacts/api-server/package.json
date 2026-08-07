@@ -7,13 +7,12 @@
     "dev": "NODE_ENV=development tsx ./src/index.ts",
     "build": "tsx ./build.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "tsx --test src/**/*.test.ts"
+    "test": "SUPABASE_DATABASE_URL=${SUPABASE_DATABASE_URL:-postgresql://postgres:postgres@127.0.0.1:5432/complete_iq_test} tsx --test src/**/*.test.ts"
   },
   "dependencies": {
-    "@google-cloud/storage": "^7.19.0",
     "@napi-rs/canvas": "^0.1.97",
     "@sendgrid/mail": "^8.1.6",
-    "@supabase/supabase-js": "^2.99.2",
+    "@supabase/supabase-js": "^2.112.2",
     "@workspace/api-zod": "workspace:*",
     "@workspace/db": "workspace:*",
     "@workspace/integrations-openai-ai-server": "workspace:*",
@@ -21,18 +20,16 @@
     "cookie-parser": "^1.4.7",
     "cors": "^2",
     "drizzle-orm": "catalog:",
-    "express": "^5",
-    "express-rate-limit": "^8.3.1",
-    "google-auth-library": "^10.6.2",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.6.2",
     "helmet": "^8.1.0",
-    "multer": "^2.1.1",
+    "multer": "^2.2.0",
     "pdfjs-dist": "^5.5.207",
     "pino": "^10.3.1",
     "pino-http": "^11.0.0",
     "zod": "catalog:"
   },
   "devDependencies": {
-    "@types/bcryptjs": "^3.0.0",
     "@types/cookie-parser": "^1.4.10",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",

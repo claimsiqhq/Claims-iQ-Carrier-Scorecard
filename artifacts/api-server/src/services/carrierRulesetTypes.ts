@@ -25,6 +25,9 @@ const questionSchema = z.object({
   scorecard: z.enum(["DA", "FA"]),
   categoryKey: z.string(),
   categoryName: z.string(),
+  applicability: z.string().optional(),
+  severity: z.enum(["critical", "high", "medium", "low", "info"]).optional(),
+  sourceReference: z.string().optional(),
 });
 
 const scorecardCategorySchema = z.object({

@@ -4,12 +4,12 @@ import { Link } from "wouter"
 import {
   ArrowRight,
   BarChart3,
-  CheckCircle2,
   Clock3,
+  CircleDollarSign,
   Files,
-  Gauge,
   Plus,
   ShieldAlert,
+  TrendingUp,
   UploadCloud,
 } from "lucide-react"
 import { UploadClaimsDialog } from "@/components/complete-iq/upload-claims-dialog"
@@ -80,7 +80,7 @@ export default function DashboardPage() {
     )
   }
 
-  const { stats, recentClaims, approvalDistribution } = dashboard.data
+  const { stats, recentClaims, recentActivity, approvalDistribution } = dashboard.data
   const reviewCount =
     approvalDistribution.REVIEW ??
     approvalDistribution.review ??
@@ -108,9 +108,9 @@ export default function DashboardPage() {
               tone="progress"
             />
             <StatusPill
-              value="unavailable"
-              label="Throughput: API unavailable"
-              tone="neutral"
+              value="verified"
+              label={`${stats.completedLast7Days} completed in 7 days`}
+              tone="verified"
             />
           </>
         }
@@ -129,31 +129,32 @@ export default function DashboardPage() {
       <PageBody overlap>
         <section className="ciq-metric-grid" aria-label="Current claim metrics">
           <MetricTile
-            label="Total claims"
-            value={stats.totalClaims.toLocaleString()}
-            detail="All claims in the current corpus"
-            icon={<Files />}
-          />
-          <MetricTile
-            label="Ready for review"
-            value={stats.analyzedCount.toLocaleString()}
-            detail="Server analysis completed"
-            tone="verified"
-            icon={<CheckCircle2 />}
-          />
-          <MetricTile
-            label="Backlog"
-            value={stats.pendingCount.toLocaleString()}
-            detail="Pending extraction or audit"
-            tone={stats.pendingCount > 0 ? "warning" : "verified"}
+            label="Review backlog"
+            value={stats.backlogCount.toLocaleString()}
+            detail={`${stats.totalClaims.toLocaleString()} total claims in this organization`}
+            tone={stats.backlogCount > 0 ? "warning" : "verified"}
             icon={<Clock3 />}
           />
           <MetricTile
-            label="Average score"
-            value={formatScore(stats.avgScore)}
-            detail={stats.avgScore === null ? "Unavailable from current API" : "Across completed audits"}
+            label="Dollars at risk"
+            value={formatCurrency(stats.dollarsAtRisk)}
+            detail="Exposure on high-risk or not-ready audits"
             tone="financial"
-            icon={<Gauge />}
+            icon={<CircleDollarSign />}
+          />
+          <MetricTile
+            label="Average aging"
+            value={`${stats.averageAgeDays}d`}
+            detail="Claims not fully approved and ready"
+            tone={stats.averageAgeDays > 7 ? "warning" : "neutral"}
+            icon={<Clock3 />}
+          />
+          <MetricTile
+            label="7-day throughput"
+            value={stats.completedLast7Days.toLocaleString()}
+            detail={`${stats.openFindingCount.toLocaleString()} open findings remain`}
+            tone="verified"
+            icon={<TrendingUp />}
           />
         </section>
 
@@ -266,7 +267,7 @@ export default function DashboardPage() {
             <div className="ciq-panel__header">
               <div>
                 <h2>Ranked intelligence</h2>
-                <p>Finding counts, not dollar estimates</p>
+                <p>Finding severity beside current financial exposure</p>
               </div>
               <ShieldAlert className="h-4 w-4 text-[var(--ciq-financial)]" aria-hidden="true" />
             </div>
@@ -307,9 +308,12 @@ export default function DashboardPage() {
                 </p>
               )}
               <div className="mt-5 border-t border-[var(--ciq-border)] pt-4">
-                <p className="text-xs leading-5 text-[var(--ciq-ink-muted)]">
-                  Recoverable-dollar values are not supplied by the dashboard API and are intentionally
-                  not estimated here.
+                <span className="ciq-section-title">Current dollars at risk</span>
+                <strong className="ciq-mono mt-2 block text-xl text-[var(--ciq-financial-strong)]">
+                  {formatCurrency(stats.dollarsAtRisk)}
+                </strong>
+                <p className="mt-1 text-xs leading-5 text-[var(--ciq-ink-muted)]">
+                  Sum of supplied claim exposure on high-risk or not-ready current audits.
                 </p>
               </div>
             </div>
@@ -325,25 +329,31 @@ export default function DashboardPage() {
               </div>
             </div>
             <div className="divide-y divide-[var(--ciq-border)]">
-              {recentClaims.slice(0, 4).map((claim) => (
-                <div key={claim.id} className="flex items-start gap-3 px-4 py-3">
-                  <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--ciq-info-soft)] text-[var(--ciq-info)]">
-                    <Files className="h-3.5 w-3.5" aria-hidden="true" />
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm text-[var(--ciq-ink)]">
-                      <Link className="ciq-link ciq-mono" href={`/claims/${claim.id}`}>
-                        {claim.claimNumber}
-                      </Link>{" "}
-                      is {humanize(claim.status).toLowerCase()}.
-                    </p>
-                    <p className="mt-0.5 text-xs text-[var(--ciq-ink-muted)]">
-                      {claim.insuredName} · {formatDate(claim.createdAt, true)}
-                    </p>
+              {recentActivity.length ? (
+                recentActivity.slice(0, 6).map((activity) => (
+                  <div key={activity.id} className="flex items-start gap-3 px-4 py-3">
+                    <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--ciq-info-soft)] text-[var(--ciq-info)]">
+                      <Files className="h-3.5 w-3.5" aria-hidden="true" />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm text-[var(--ciq-ink)]">
+                        <Link className="ciq-link ciq-mono" href={`/claims/${activity.claimId}`}>
+                          {activity.claimNumber}
+                        </Link>{" "}
+                        · {humanize(activity.type)}
+                      </p>
+                      <p className="mt-0.5 text-xs text-[var(--ciq-ink-muted)]">
+                        {formatDate(activity.createdAt, true)}
+                      </p>
+                    </div>
+                    <StatusPill value={activity.type} />
                   </div>
-                  <StatusPill value={claim.status} />
-                </div>
-              ))}
+                ))
+              ) : (
+                <p className="p-4 text-sm text-[var(--ciq-ink-muted)]">
+                  No immutable workflow activity has been recorded yet.
+                </p>
+              )}
             </div>
           </section>
 
@@ -388,4 +398,14 @@ function getGreeting() {
   if (hour < 12) return "morning"
   if (hour < 18) return "afternoon"
   return "evening"
+}
+
+function formatCurrency(value: string) {
+  const amount = Number(value)
+  if (!Number.isFinite(amount)) return "—"
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  }).format(amount)
 }

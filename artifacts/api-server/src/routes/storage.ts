@@ -1,61 +1,20 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import {
-  uploadFile,
   downloadFile,
   getSignedUrl,
-  ensureBucket,
   isOrganizationStoragePath,
 } from "../lib/supabaseStorage";
 import { and, eq } from "drizzle-orm";
 import { db, documents } from "@workspace/db";
 import { getAuthorizedDocument } from "../lib/authorization";
-import multer from "multer";
 import { requireAuth } from "../middlewares/requireAuth";
 import { requireOrganizationPermission } from "../middlewares/organizationContext";
 import logger from "../lib/logger";
 
-const MAX_FILE_SIZE = 50 * 1024 * 1024;
 const wildcardParam = (value: string | string[] | undefined): string =>
   Array.isArray(value) ? value.join("/") : (value ?? "");
 
 const router: IRouter = Router();
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_FILE_SIZE } });
-
-ensureBucket().catch((err) => {
-  logger.error({ err }, "Failed to ensure Supabase Storage bucket");
-});
-
-router.post("/storage/upload", requireAuth, requireOrganizationPermission("claims:create"), upload.single("file"), async (req: Request, res: Response) => {
-  try {
-    const file = req.file;
-    if (!file) {
-      res.status(400).json({ error: "No file provided" });
-      return;
-    }
-
-    if (file.size > MAX_FILE_SIZE) {
-      res.status(413).json({ error: `File too large. Maximum size is ${MAX_FILE_SIZE / 1024 / 1024}MB.` });
-      return;
-    }
-
-    const storagePath = await uploadFile(
-      file.buffer,
-      file.originalname,
-      file.mimetype,
-      req.organization!.organizationId,
-    );
-
-    res.json({
-      storagePath,
-      fileName: file.originalname,
-      contentType: file.mimetype,
-      size: file.size,
-    });
-  } catch (error: any) {
-    logger.error({ err: error }, "Upload error");
-    res.status(500).json({ error: "Failed to upload file" });
-  }
-});
 
 router.get("/documents/:documentId/download", requireAuth, requireOrganizationPermission("claims:read"), async (req: Request, res: Response) => {
   try {

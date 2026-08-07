@@ -4,6 +4,7 @@ import { BrandMark } from "@/components/complete-iq/brand-mark"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { useAuth } from "@/lib/auth-context"
+import { SESSION_EXPIRED_EVENT } from "@/lib/api"
 
 export default function LoginPage() {
   const { login } = useAuth()
@@ -13,6 +14,9 @@ export default function LoginPage() {
   const [password, setPassword] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [sessionExpired] = useState(
+    () => window.sessionStorage.getItem(SESSION_EXPIRED_EVENT) === "true",
+  )
 
   const handleSubmit = useCallback(
     async (event: React.FormEvent<HTMLFormElement>) => {
@@ -120,6 +124,15 @@ export default function LoginPage() {
                 />
               </div>
             </div>
+
+            {sessionExpired && !error && (
+              <p
+                className="rounded-md border border-[#e7c781] bg-[var(--ciq-warning-soft)] px-3 py-2.5 text-sm text-[var(--ciq-warning)]"
+                role="status"
+              >
+                Your protected session expired. Sign in again to continue.
+              </p>
+            )}
 
             {error && (
               <p

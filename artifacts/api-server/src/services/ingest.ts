@@ -90,7 +90,10 @@ export async function parseClaimFromText(extractedText: string): Promise<ParsedC
       summary: parsed.summary || "",
     };
   } catch (e) {
-    logger.error({ contentPreview: content?.substring(0, 200) }, "Failed to parse OpenAI claim extraction response");
+    logger.error(
+      { responseCharacters: content?.length ?? 0 },
+      "Failed to parse OpenAI claim extraction response",
+    );
     throw new ClaimParsingError("Claim metadata provider returned invalid JSON");
   }
 }

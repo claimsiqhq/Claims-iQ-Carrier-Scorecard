@@ -4,6 +4,7 @@ import {
   BarChart3,
   Building2,
   ChevronDown,
+  ChevronRight,
   Files,
   LayoutDashboard,
   LogOut,
@@ -11,12 +12,25 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
+  Search,
   Settings,
   ShieldCheck,
-  X,
 } from "lucide-react"
 import { BrandMark } from "@/components/complete-iq/brand-mark"
 import { Button } from "@/components/ui/button"
+import {
+  CommandDialog,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+  CommandShortcut,
+} from "@/components/ui/command"
+import {
+  DialogDescription,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -25,6 +39,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet"
 import { useAuth } from "@/lib/auth-context"
 import { cn } from "@/lib/utils"
 
@@ -35,13 +56,14 @@ interface NavItem {
   label: string
   icon: typeof LayoutDashboard
   admin?: boolean
+  globalAdmin?: boolean
 }
 
 const navItems: NavItem[] = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/claims", label: "Claims", icon: Files },
   { href: "/insights", label: "Insights", icon: BarChart3 },
-  { href: "/carriers", label: "Carriers", icon: Building2, admin: true },
+  { href: "/carriers", label: "Carriers", icon: Building2, globalAdmin: true },
   { href: "/settings", label: "Settings", icon: Settings, admin: true },
 ]
 
@@ -50,9 +72,15 @@ function isActive(location: string, href: string) {
   return location === href || location.startsWith(`${href}/`)
 }
 
-export function PrimaryNav({ className }: { className?: string }) {
+export function PrimaryNav({
+  className,
+  collapsible = true,
+}: {
+  className?: string
+  collapsible?: boolean
+}) {
   const [location] = useLocation()
-  const { isAdmin } = useAuth()
+  const { isAdmin, user } = useAuth()
   const [collapsed, setCollapsed] = useState(() => {
     try {
       return localStorage.getItem(NAV_COLLAPSED_KEY) === "true"
@@ -60,8 +88,13 @@ export function PrimaryNav({ className }: { className?: string }) {
       return false
     }
   })
+  const isCollapsed = collapsible && collapsed
 
-  const visibleItems = navItems.filter((item) => !item.admin || isAdmin)
+  const visibleItems = navItems.filter(
+    (item) =>
+      (!item.admin || isAdmin)
+      && (!item.globalAdmin || user?.role === "admin"),
+  )
 
   const toggle = () => {
     setCollapsed((current) => {
@@ -77,14 +110,14 @@ export function PrimaryNav({ className }: { className?: string }) {
 
   return (
     <aside
-      className={cn("ciq-primary-nav", collapsed && "ciq-primary-nav--collapsed", className)}
+      className={cn("ciq-primary-nav", isCollapsed && "ciq-primary-nav--collapsed", className)}
       aria-label="Primary navigation"
     >
       <div className="ciq-primary-nav__brand">
-        <BrandMark compact={collapsed} inverse />
+        <BrandMark compact={isCollapsed} inverse />
       </div>
       <nav className="ciq-primary-nav__links">
-        <span className="ciq-primary-nav__section">{collapsed ? "—" : "Workspace"}</span>
+        <span className="ciq-primary-nav__section">{isCollapsed ? "—" : "Workspace"}</span>
         {visibleItems.map((item) => {
           const Icon = item.icon
           const active = isActive(location, item.href)
@@ -94,16 +127,17 @@ export function PrimaryNav({ className }: { className?: string }) {
               key={item.href}
               className={cn("ciq-nav-link", active && "ciq-nav-link--active")}
               aria-current={active ? "page" : undefined}
-              title={collapsed ? item.label : undefined}
+              aria-label={item.label}
+              title={isCollapsed ? item.label : undefined}
             >
               <Icon aria-hidden="true" />
-              {!collapsed && <span>{item.label}</span>}
+              {!isCollapsed && <span>{item.label}</span>}
             </Link>
           )
         })}
       </nav>
       <div className="ciq-primary-nav__footer">
-        {!collapsed && (
+        {!isCollapsed && (
           <div className="ciq-primary-nav__assurance">
             <ShieldCheck aria-hidden="true" />
             <span>
@@ -112,15 +146,17 @@ export function PrimaryNav({ className }: { className?: string }) {
             </span>
           </div>
         )}
-        <button
-          type="button"
-          className="ciq-nav-collapse"
-          onClick={toggle}
-          aria-label={collapsed ? "Expand primary navigation" : "Collapse primary navigation"}
-        >
-          {collapsed ? <PanelLeftOpen aria-hidden="true" /> : <PanelLeftClose aria-hidden="true" />}
-          {!collapsed && <span>Collapse rail</span>}
-        </button>
+        {collapsible && (
+          <button
+            type="button"
+            className="ciq-nav-collapse"
+            onClick={toggle}
+            aria-label={isCollapsed ? "Expand primary navigation" : "Collapse primary navigation"}
+          >
+            {isCollapsed ? <PanelLeftOpen aria-hidden="true" /> : <PanelLeftClose aria-hidden="true" />}
+            {!isCollapsed && <span>Collapse rail</span>}
+          </button>
+        )}
       </div>
     </aside>
   )
@@ -128,8 +164,12 @@ export function PrimaryNav({ className }: { className?: string }) {
 
 export function MobileNav() {
   const [location] = useLocation()
-  const { isAdmin } = useAuth()
-  const items = navItems.filter((item) => !item.admin || isAdmin)
+  const { isAdmin, user } = useAuth()
+  const items = navItems.filter(
+    (item) =>
+      (!item.admin || isAdmin)
+      && (!item.globalAdmin || user?.role === "admin"),
+  )
 
   return (
     <nav className="ciq-mobile-nav" aria-label="Mobile navigation">
@@ -165,63 +205,143 @@ function pageName(location: string) {
 export function UtilityBar() {
   const [location, setLocation] = useLocation()
   const { user, organization, isAdmin, logout } = useAuth()
+  const [commandOpen, setCommandOpen] = useState(false)
   const initials = `${user?.firstName?.[0] ?? ""}${user?.lastName?.[0] ?? ""}` || "U"
+  const visibleItems = navItems.filter(
+    (item) =>
+      (!item.admin || isAdmin)
+      && (!item.globalAdmin || user?.role === "admin"),
+  )
+
+  useEffect(() => {
+    const handleShortcut = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault()
+        setCommandOpen((open) => !open)
+      }
+    }
+    window.addEventListener("keydown", handleShortcut)
+    return () => window.removeEventListener("keydown", handleShortcut)
+  }, [])
+
+  const navigateFromCommand = (href: string) => {
+    setCommandOpen(false)
+    setLocation(href)
+  }
 
   return (
-    <header className="ciq-utility-bar">
-      <div className="ciq-utility-bar__mobile-brand">
-        <BrandMark />
-      </div>
-      <div className="ciq-utility-bar__context">
-        <span>Complete iQ Carrier Audit</span>
-        <strong>{pageName(location)}</strong>
-      </div>
-      <div className="ciq-utility-bar__actions">
-        {!location.startsWith("/claims/") && (
-          <Button
-            size="sm"
-            className="hidden sm:inline-flex"
-            onClick={() => setLocation("/claims?upload=1")}
+    <>
+      <header className="ciq-utility-bar">
+        <div className="ciq-utility-bar__mobile-brand">
+          <BrandMark />
+        </div>
+        <nav className="ciq-utility-bar__context" aria-label="Breadcrumb">
+          <span>Complete iQ Carrier Audit</span>
+          <div>
+            <Link href="/">Workspace</Link>
+            <ChevronRight aria-hidden="true" />
+            <strong>{pageName(location)}</strong>
+          </div>
+        </nav>
+        <div className="ciq-utility-bar__actions">
+          <button
+            type="button"
+            className="ciq-command-trigger"
+            onClick={() => setCommandOpen(true)}
+            aria-label="Search and navigate"
           >
-            <Plus aria-hidden="true" />
-            New intake
-          </Button>
-        )}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button type="button" className="ciq-account-trigger" aria-label="Open account menu">
-              <span className="ciq-avatar" aria-hidden="true">
-                {initials}
-              </span>
-              <span className="ciq-account-trigger__label">
-                <strong>{user?.firstName || "Account"}</strong>
-                <small>{user?.role || "reviewer"}</small>
-              </span>
-              <ChevronDown aria-hidden="true" />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-64">
-            <DropdownMenuLabel>
-              <span className="block truncate">{user?.email || "Signed-in account"}</span>
-              <span className="mt-1 block text-xs font-normal text-muted-foreground">
-                {organization?.name || "Complete iQ tenant"}
-              </span>
-            </DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            {isAdmin && (
-              <DropdownMenuItem onSelect={() => setLocation("/settings")}>
-                <Settings aria-hidden="true" />
-                Tenant settings
+            <Search aria-hidden="true" />
+            <span>Search or jump</span>
+            <kbd>⌘K</kbd>
+          </button>
+          <span className="ciq-tenant-chip" title={organization?.name || "Complete iQ tenant"}>
+            <Building2 aria-hidden="true" />
+            <span>{organization?.name || "Complete iQ tenant"}</span>
+          </span>
+          {!location.startsWith("/claims/") && (
+            <Button
+              size="sm"
+              className="hidden sm:inline-flex"
+              onClick={() => setLocation("/claims?upload=1")}
+            >
+              <Plus aria-hidden="true" />
+              New intake
+            </Button>
+          )}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button type="button" className="ciq-account-trigger" aria-label="Open account menu">
+                <span className="ciq-avatar" aria-hidden="true">
+                  {initials}
+                </span>
+                <span className="ciq-account-trigger__label">
+                  <strong>{user?.firstName || "Account"}</strong>
+                  <small>{organization?.role || user?.role || "reviewer"}</small>
+                </span>
+                <ChevronDown aria-hidden="true" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-64">
+              <DropdownMenuLabel>
+                <span className="block truncate">{user?.email || "Signed-in account"}</span>
+                <span className="mt-1 block text-xs font-normal text-muted-foreground">
+                  {organization?.name || "Complete iQ tenant"}
+                </span>
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {isAdmin && (
+                <DropdownMenuItem onSelect={() => setLocation("/settings")}>
+                  <Settings aria-hidden="true" />
+                  Tenant settings
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuItem onSelect={() => void logout()}>
+                <LogOut aria-hidden="true" />
+                Sign out
               </DropdownMenuItem>
-            )}
-            <DropdownMenuItem onSelect={() => void logout()}>
-              <LogOut aria-hidden="true" />
-              Sign out
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-    </header>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </header>
+      <CommandDialog open={commandOpen} onOpenChange={setCommandOpen}>
+        <DialogTitle className="sr-only">Search Complete iQ Carrier Audit</DialogTitle>
+        <DialogDescription className="sr-only">
+          Navigate to a workspace or start a new claim intake.
+        </DialogDescription>
+        <CommandInput placeholder="Search pages and actions…" />
+        <CommandList>
+          <CommandEmpty>No matching workspace or action.</CommandEmpty>
+          <CommandGroup heading="Workspaces">
+            {visibleItems.map((item) => {
+              const Icon = item.icon
+              return (
+                <CommandItem
+                  key={item.href}
+                  value={`${item.label} ${item.href}`}
+                  onSelect={() => navigateFromCommand(item.href)}
+                >
+                  <Icon aria-hidden="true" />
+                  <span>{item.label}</span>
+                  {isActive(location, item.href) && (
+                    <CommandShortcut>Current</CommandShortcut>
+                  )}
+                </CommandItem>
+              )
+            })}
+          </CommandGroup>
+          <CommandGroup heading="Actions">
+            <CommandItem
+              value="new intake upload claim"
+              onSelect={() => navigateFromCommand("/claims?upload=1")}
+            >
+              <Plus aria-hidden="true" />
+              <span>Start new intake</span>
+              <CommandShortcut>Upload</CommandShortcut>
+            </CommandItem>
+          </CommandGroup>
+        </CommandList>
+      </CommandDialog>
+    </>
   )
 }
 
@@ -230,6 +350,13 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [location] = useLocation()
 
   useEffect(() => setMobileMenuOpen(false), [location])
+  useEffect(() => {
+    const closeAtDesktop = () => {
+      if (window.innerWidth >= 768) setMobileMenuOpen(false)
+    }
+    window.addEventListener("resize", closeAtDesktop)
+    return () => window.removeEventListener("resize", closeAtDesktop)
+  }, [])
 
   return (
     <div className="ciq-app-shell">
@@ -239,20 +366,24 @@ export function AppShell({ children }: { children: ReactNode }) {
       <PrimaryNav />
       <div className="ciq-app-shell__workspace">
         <UtilityBar />
-        <button
-          type="button"
-          className="ciq-mobile-menu-trigger"
-          onClick={() => setMobileMenuOpen((open) => !open)}
-          aria-label={mobileMenuOpen ? "Close navigation menu" : "Open navigation menu"}
-          aria-expanded={mobileMenuOpen}
-        >
-          {mobileMenuOpen ? <X aria-hidden="true" /> : <Menu aria-hidden="true" />}
-        </button>
-        {mobileMenuOpen && (
-          <div className="ciq-mobile-menu-panel">
-            <PrimaryNav />
-          </div>
-        )}
+        <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
+          <SheetTrigger asChild>
+            <button
+              type="button"
+              className="ciq-mobile-menu-trigger"
+              aria-label="Open navigation menu"
+            >
+              <Menu aria-hidden="true" />
+            </button>
+          </SheetTrigger>
+          <SheetContent side="left" className="ciq-mobile-menu-sheet">
+            <SheetTitle className="sr-only">Complete iQ navigation</SheetTitle>
+            <SheetDescription className="sr-only">
+              Navigate between carrier-audit workspaces.
+            </SheetDescription>
+            <PrimaryNav collapsible={false} />
+          </SheetContent>
+        </Sheet>
         <main id="main-content" className="ciq-app-shell__main" tabIndex={-1}>
           {children}
         </main>

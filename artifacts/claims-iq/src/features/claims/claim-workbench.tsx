@@ -4,6 +4,7 @@ import { Link, useLocation } from "wouter"
 import {
   AlertTriangle,
   ArrowLeft,
+  ArrowRight,
   CheckCircle2,
   ClipboardCheck,
   Download,
@@ -13,6 +14,7 @@ import {
   LoaderCircle,
   Mail,
   RefreshCw,
+  ReceiptText,
   ShieldCheck,
   Trash2,
   UserRoundCheck,
@@ -51,7 +53,10 @@ import type {
   AuditResult,
   CarrierOption,
   ClaimActivity,
+  ClaimAssignee,
   ClaimDetail,
+  ClaimDocument,
+  ClaimSummary,
   FindingDisposition,
   HumanReviewStatus,
   RootIssueGroup,
@@ -60,9 +65,9 @@ import type {
   VisionAnalysis,
 } from "@/lib/types"
 
-type WorkbenchTab = "summary" | "findings" | "files" | "timeline"
+type WorkbenchTab = "summary" | "findings" | "estimate" | "files" | "timeline"
 
-interface WorkFinding {
+export interface WorkFinding {
   key: string
   title: string
   severity: string
@@ -80,10 +85,16 @@ interface WorkFinding {
 
 export default function ClaimWorkbench({ claimId }: { claimId: string }) {
   const queryClient = useQueryClient()
-  const { user } = useAuth()
+  const { user, organization } = useAuth()
+  const canAssign = Boolean(organization?.permissions.includes("claims:assign"))
+  const canReview = Boolean(organization?.permissions.includes("findings:review"))
+  const canRunAudit = Boolean(organization?.permissions.includes("audits:run"))
+  const canDelete = Boolean(organization?.permissions.includes("claims:delete"))
+  const canSendEmail = Boolean(organization?.permissions.includes("email:send"))
   const [, setLocation] = useLocation()
   const [tab, setTab] = useState<WorkbenchTab>("summary")
   const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null)
+  const [selectedEvidencePage, setSelectedEvidencePage] = useState<number | null>(null)
   const [auditRunning, setAuditRunning] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
   const [deleteOpen, setDeleteOpen] = useState(false)
@@ -116,6 +127,15 @@ export default function ClaimWorkbench({ claimId }: { claimId: string }) {
     queryKey: queryKeys.claimActivity(claimId),
     queryFn: () => api.getClaimActivity(claimId),
   })
+  const assigneesQuery = useQuery({
+    queryKey: queryKeys.claimAssignees,
+    queryFn: api.getClaimAssignees,
+  })
+  const queueQuery = useQuery({
+    queryKey: queryKeys.claims,
+    queryFn: () => api.getClaims(100, 0),
+    staleTime: 30_000,
+  })
 
   useEffect(() => {
     if (!selectedDocumentId && claimQuery.data?.documents[0]) {
@@ -127,6 +147,30 @@ export default function ClaimWorkbench({ claimId }: { claimId: string }) {
     () => collectFindings(claimQuery.data?.audit),
     [claimQuery.data?.audit],
   )
+  const neighbors = useMemo(() => {
+    const claims = queueQuery.data || []
+    const index = claims.findIndex((candidate) => candidate.id === claimId)
+    return {
+      previous: index > 0 ? claims[index - 1] : undefined,
+      next: index >= 0 && index < claims.length - 1 ? claims[index + 1] : undefined,
+    }
+  }, [claimId, queueQuery.data])
+
+  useEffect(() => {
+    const handleQueueNavigation = (event: KeyboardEvent) => {
+      if (!event.altKey || event.metaKey || event.ctrlKey) return
+      if (event.key === "ArrowLeft" && neighbors.previous) {
+        event.preventDefault()
+        setLocation(`/claims/${neighbors.previous.id}`)
+      }
+      if (event.key === "ArrowRight" && neighbors.next) {
+        event.preventDefault()
+        setLocation(`/claims/${neighbors.next.id}`)
+      }
+    }
+    window.addEventListener("keydown", handleQueueNavigation)
+    return () => window.removeEventListener("keydown", handleQueueNavigation)
+  }, [neighbors.next, neighbors.previous, setLocation])
 
   if (claimQuery.isLoading) {
     return (
@@ -164,6 +208,11 @@ export default function ClaimWorkbench({ claimId }: { claimId: string }) {
     documents.find((document) => document.id === selectedDocumentId) || documents[0]
   const readiness = audit?.readiness || audit?.approvalStatus
   const risk = audit?.technicalRisk || audit?.riskLevel
+  const openEvidence = (location?: string) => {
+    const match = location?.match(/\bpage\s+(\d+)\b/i)
+    setSelectedEvidencePage(match ? Number.parseInt(match[1], 10) : null)
+    setTab("files")
+  }
 
   const refreshAll = async () => {
     await Promise.all([
@@ -306,7 +355,11 @@ export default function ClaimWorkbench({ claimId }: { claimId: string }) {
     setReviewingFinding((current) => ({ ...current, [findingId]: true }))
     setActionError(null)
     try {
-      await api.updateFinding(claimId, findingId, { disposition, notes: notes || null })
+      await api.updateFinding(claimId, findingId, {
+        disposition,
+        notes: notes || null,
+        overrideReason: disposition === "overridden" ? notes || null : null,
+      })
       await Promise.all([claimQuery.refetch(), activityQuery.refetch()])
     } catch (error) {
       setActionError(apiErrorMessage(error, "Finding review could not be saved."))
@@ -370,6 +423,36 @@ export default function ClaimWorkbench({ claimId }: { claimId: string }) {
         }
         actions={
           <>
+            {neighbors.previous && (
+              <Button
+                asChild
+                variant="outline"
+                className="border-white/20 bg-transparent text-white hover:bg-white/10"
+              >
+                <Link
+                  href={`/claims/${neighbors.previous.id}`}
+                  title={`Previous claim: ${neighbors.previous.claimNumber}`}
+                >
+                  <ArrowLeft aria-hidden="true" />
+                  <span className="hidden 2xl:inline">Previous</span>
+                </Link>
+              </Button>
+            )}
+            {neighbors.next && (
+              <Button
+                asChild
+                variant="outline"
+                className="border-white/20 bg-transparent text-white hover:bg-white/10"
+              >
+                <Link
+                  href={`/claims/${neighbors.next.id}`}
+                  title={`Next claim: ${neighbors.next.claimNumber}`}
+                >
+                  <span className="hidden 2xl:inline">Next</span>
+                  <ArrowRight aria-hidden="true" />
+                </Link>
+              </Button>
+            )}
             {audit && (
               <Button
                 variant="outline"
@@ -399,13 +482,15 @@ export default function ClaimWorkbench({ claimId }: { claimId: string }) {
                 Email preview
               </Button>
             )}
-            <Button
-              className="border-white/15 bg-white text-[var(--ciq-aubergine)] hover:bg-[#f7f3ed]"
-              onClick={() => setReprocessOpen(true)}
-            >
-              <RefreshCw aria-hidden="true" />
-              Reprocess
-            </Button>
+            {canRunAudit && (
+              <Button
+                className="border-white/15 bg-white text-[var(--ciq-aubergine)] hover:bg-[#f7f3ed]"
+                onClick={() => setReprocessOpen(true)}
+              >
+                <RefreshCw aria-hidden="true" />
+                Reprocess
+              </Button>
+            )}
           </>
         }
       />
@@ -428,17 +513,20 @@ export default function ClaimWorkbench({ claimId }: { claimId: string }) {
           <ClaimLedger
             data={data}
             className="hidden xl:block"
-            onDelete={() => setDeleteOpen(true)}
+            onDelete={canDelete ? () => setDeleteOpen(true) : undefined}
           />
 
           <section className="min-w-0">
             <Tabs value={tab} onValueChange={(value) => setTab(value as WorkbenchTab)}>
-              <TabsList className="grid h-auto w-full grid-cols-4 border border-[var(--ciq-border)] bg-[var(--ciq-surface)] p-1">
+              <TabsList className="grid h-auto w-full grid-cols-5 border border-[var(--ciq-border)] bg-[var(--ciq-surface)] p-1">
                 <WorkbenchTabTrigger value="summary" icon={<ClipboardCheck />}>
                   Summary
                 </WorkbenchTabTrigger>
                 <WorkbenchTabTrigger value="findings" icon={<ShieldCheck />}>
                   Findings
+                </WorkbenchTabTrigger>
+                <WorkbenchTabTrigger value="estimate" icon={<ReceiptText />}>
+                  Estimate
                 </WorkbenchTabTrigger>
                 <WorkbenchTabTrigger value="files" icon={<FileText />}>
                   Files
@@ -452,7 +540,7 @@ export default function ClaimWorkbench({ claimId }: { claimId: string }) {
                 <ClaimLedger
                   data={data}
                   className="xl:hidden"
-                  onDelete={() => setDeleteOpen(true)}
+                  onDelete={canDelete ? () => setDeleteOpen(true) : undefined}
                 />
                 {audit ? (
                   <>
@@ -466,6 +554,9 @@ export default function ClaimWorkbench({ claimId }: { claimId: string }) {
                     <WorkflowActions
                       assigneeUserId={claim.assigneeUserId}
                       currentUserId={user?.id}
+                      assignees={assigneesQuery.data?.assignees || []}
+                      canAssign={canAssign}
+                      canReview={canReview}
                       humanReviewStatus={claim.humanReviewStatus || "unassigned"}
                       saving={workflowSaving}
                       onAssignment={updateAssignment}
@@ -488,7 +579,7 @@ export default function ClaimWorkbench({ claimId }: { claimId: string }) {
                     <RequiredActions
                       groups={audit.rootIssueGroups || []}
                       findings={findings}
-                      onEvidence={() => setTab("files")}
+                      onEvidence={openEvidence}
                     />
                   </>
                 ) : claim.status === "processing" || claim.status === "pending" ? (
@@ -502,8 +593,8 @@ export default function ClaimWorkbench({ claimId }: { claimId: string }) {
                     kind="unavailable"
                     title="No audit result is available"
                     description="The automatic workflow did not produce an audit result. A reviewer may start the existing manual audit endpoint."
-                    actionLabel={auditRunning ? "Running audit…" : "Run carrier audit"}
-                    onAction={() => void runAudit()}
+                    actionLabel={canRunAudit ? (auditRunning ? "Running audit…" : "Run carrier audit") : undefined}
+                    onAction={canRunAudit ? () => void runAudit() : undefined}
                   />
                 )}
               </TabsContent>
@@ -519,8 +610,9 @@ export default function ClaimWorkbench({ claimId }: { claimId: string }) {
                   <>
                     <FindingLedger
                       findings={findings}
-                      onEvidence={() => setTab("files")}
+                      onEvidence={openEvidence}
                       reviewing={reviewingFinding}
+                      canReview={canReview}
                       onDisposition={updateFindingDisposition}
                     />
                     <ValidationLedger checks={audit.validationChecks || []} />
@@ -529,11 +621,24 @@ export default function ClaimWorkbench({ claimId }: { claimId: string }) {
                 )}
               </TabsContent>
 
+              <TabsContent value="estimate" className="mt-4">
+                <EstimateLedger
+                  claim={claim}
+                  document={selectedDocument}
+                  documents={documents}
+                  onSelectDocument={setSelectedDocumentId}
+                />
+              </TabsContent>
+
               <TabsContent value="files" className="mt-4">
                 <FilesLedger
                   data={data}
                   selectedId={selectedDocument?.id}
-                  onSelect={setSelectedDocumentId}
+                  onSelect={(documentId) => {
+                    setSelectedDocumentId(documentId)
+                    setSelectedEvidencePage(null)
+                  }}
+                  selectedPage={selectedEvidencePage}
                 />
               </TabsContent>
 
@@ -553,7 +658,11 @@ export default function ClaimWorkbench({ claimId }: { claimId: string }) {
             document={selectedDocument}
             documents={documents}
             selectedId={selectedDocument?.id}
-            onSelect={setSelectedDocumentId}
+            onSelect={(documentId) => {
+              setSelectedDocumentId(documentId)
+              setSelectedEvidencePage(null)
+            }}
+            selectedPage={selectedEvidencePage}
             className="hidden xl:block"
           />
         </div>
@@ -612,7 +721,9 @@ export default function ClaimWorkbench({ claimId }: { claimId: string }) {
               Review scorecard email
             </DialogTitle>
             <DialogDescription>
-              Preview first. Sending requires a separate, explicit reviewer action.
+              {canSendEmail
+                ? "Preview first. Sending requires a separate, explicit reviewer action."
+                : "This is a read-only preview. Your organization role cannot send scorecards."}
             </DialogDescription>
           </DialogHeader>
           <div className="min-h-64 flex-1 overflow-hidden bg-[var(--ciq-canvas)]">
@@ -642,7 +753,8 @@ export default function ClaimWorkbench({ claimId }: { claimId: string }) {
                 className="ciq-control"
                 value={emailTo}
                 onChange={(event) => setEmailTo(event.target.value)}
-                placeholder="reviewer@example.com"
+                placeholder={canSendEmail ? "reviewer@example.com" : "Sending permission required"}
+                disabled={!canSendEmail}
               />
             </div>
             {emailMessage && !emailLoading && (
@@ -654,13 +766,15 @@ export default function ClaimWorkbench({ claimId }: { claimId: string }) {
               <Button variant="outline" onClick={() => setEmailOpen(false)}>
                 Close
               </Button>
-              <Button
-                onClick={() => void sendEmail()}
-                disabled={!emailTo || emailSending || emailLoading || !emailHtml}
-              >
-                <Mail aria-hidden="true" />
-                {emailSending ? "Sending…" : "Send scorecard"}
-              </Button>
+              {canSendEmail && (
+                <Button
+                  onClick={() => void sendEmail()}
+                  disabled={!emailTo || emailSending || emailLoading || !emailHtml}
+                >
+                  <Mail aria-hidden="true" />
+                  {emailSending ? "Sending…" : "Send scorecard"}
+                </Button>
+              )}
             </div>
           </div>
         </DialogContent>
@@ -714,6 +828,128 @@ function WorkbenchTabTrigger({
   )
 }
 
+function EstimateLedger({
+  claim,
+  document,
+  documents,
+  onSelectDocument,
+}: {
+  claim: ClaimSummary
+  document?: ClaimDocument
+  documents: ClaimDocument[]
+  onSelectDocument: (documentId: string) => void
+}) {
+  const indexedLines = useMemo(() => {
+    const matches: Array<{ page: number | null; text: string }> = []
+    let page: number | null = null
+    for (const rawLine of (document?.extractedText || "").split(/\r?\n/)) {
+      const marker = rawLine.match(/={3,}\s*page\s+(\d+)\s*={3,}/i)
+      if (marker) {
+        page = Number.parseInt(marker[1], 10)
+        continue
+      }
+      const line = rawLine.trim()
+      if (
+        line
+        && /(estimate|replacement cost|actual cash|deductible|subtotal|grand total|tax|depreciation|rcv|acv)/i.test(
+          line,
+        )
+      ) {
+        matches.push({ page, text: line })
+      }
+      if (matches.length >= 48) break
+    }
+    return matches
+  }, [document?.extractedText])
+  const extractedDocumentCount = documents.filter((item) => item.extractedText).length
+
+  return (
+    <section className="space-y-4">
+      <div className="grid gap-3 sm:grid-cols-3">
+        <article className="ciq-panel border-t-[3px] border-t-[var(--ciq-financial)] p-4">
+          <span className="ciq-section-title">Claim exposure</span>
+          <strong className="ciq-mono mt-3 block text-xl text-[var(--ciq-financial-strong)]">
+            {claim.totalClaimAmount || "—"}
+          </strong>
+          <p className="mt-1 text-xs text-[var(--ciq-ink-muted)]">
+            Supplied claim total; verify against source.
+          </p>
+        </article>
+        <article className="ciq-panel p-4">
+          <span className="ciq-section-title">Deductible</span>
+          <strong className="ciq-mono mt-3 block text-xl">
+            {claim.deductible || "—"}
+          </strong>
+          <p className="mt-1 text-xs text-[var(--ciq-ink-muted)]">
+            Structured intake value when available.
+          </p>
+        </article>
+        <article className="ciq-panel border-t-[3px] border-t-[var(--ciq-verified)] p-4">
+          <span className="ciq-section-title">Evidence completeness</span>
+          <strong className="ciq-mono mt-3 block text-xl">
+            {documents.length ? `${extractedDocumentCount}/${documents.length}` : "0/0"}
+          </strong>
+          <p className="mt-1 text-xs text-[var(--ciq-ink-muted)]">
+            Source documents with extracted text.
+          </p>
+        </article>
+      </div>
+
+      <section className="ciq-panel ciq-panel--flush">
+        <div className="ciq-panel__header">
+          <div>
+            <h2>Estimate evidence index</h2>
+            <p>Financial and estimate terms located in the selected source</p>
+          </div>
+          {documents.length > 1 && (
+            <select
+              className="ciq-control !w-auto min-w-44"
+              aria-label="Estimate source document"
+              value={document?.id || ""}
+              onChange={(event) => onSelectDocument(event.target.value)}
+            >
+              {documents.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {documentName(item)}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+        {indexedLines.length ? (
+          <ol className="divide-y divide-[var(--ciq-border)]">
+            {indexedLines.map((entry, index) => (
+              <li
+                key={`${entry.page ?? "unknown"}-${index}-${entry.text}`}
+                className="grid gap-2 p-4 text-sm sm:grid-cols-[5.5rem_minmax(0,1fr)]"
+              >
+                <span className="ciq-status ciq-mono">
+                  {entry.page ? `Page ${entry.page}` : "Page n/a"}
+                </span>
+                <span className="font-[var(--ciq-font-mono)] text-xs leading-6 text-[var(--ciq-ink)]">
+                  {entry.text}
+                </span>
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <div className="p-4">
+            <PageState
+              kind="unavailable"
+              title="No estimate index is available"
+              description="The selected source has no extracted estimate or financial terms. Review the Files tab before making a decision."
+            />
+          </div>
+        )}
+      </section>
+      <p className="text-xs leading-5 text-[var(--ciq-ink-muted)]">
+        This index is a navigation aid, not a recalculation. Monetary decisions must be
+        verified against the authorized source package.
+      </p>
+    </section>
+  )
+}
+
 function ClaimLedger({
   data,
   className,
@@ -721,7 +957,7 @@ function ClaimLedger({
 }: {
   data: ClaimDetail
   className?: string
-  onDelete: () => void
+  onDelete?: () => void
 }) {
   const { claim, audit, documents } = data
   return (
@@ -769,16 +1005,18 @@ function ClaimLedger({
           <strong className="ciq-mono">{audit?.actionRequiredCount ?? "—"}</strong>
         </div>
       </div>
-      <div className="space-y-2 border-t border-[var(--ciq-border)] p-4">
-        <Button
-          variant="ghost"
-          className="w-full justify-start text-[var(--ciq-critical)]"
-          onClick={onDelete}
-        >
-          <Trash2 aria-hidden="true" />
-          Archive claim
-        </Button>
-      </div>
+      {onDelete && (
+        <div className="space-y-2 border-t border-[var(--ciq-border)] p-4">
+          <Button
+            variant="ghost"
+            className="w-full justify-start text-[var(--ciq-critical)]"
+            onClick={onDelete}
+          >
+            <Trash2 aria-hidden="true" />
+            Archive claim
+          </Button>
+        </div>
+      )}
     </aside>
   )
 }
@@ -922,6 +1160,9 @@ function WorkflowSeparation({
 function WorkflowActions({
   assigneeUserId,
   currentUserId,
+  assignees,
+  canAssign,
+  canReview,
   humanReviewStatus,
   saving,
   onAssignment,
@@ -929,12 +1170,16 @@ function WorkflowActions({
 }: {
   assigneeUserId?: string | null
   currentUserId?: string
+  assignees: ClaimAssignee[]
+  canAssign: boolean
+  canReview: boolean
   humanReviewStatus: HumanReviewStatus
   saving: boolean
   onAssignment: (assigneeUserId: string | null) => Promise<void>
   onStatus: (status: HumanReviewStatus) => Promise<void>
 }) {
   const [nextStatus, setNextStatus] = useState<HumanReviewStatus>(humanReviewStatus)
+  const assignedName = assignees.find((assignee) => assignee.userId === assigneeUserId)?.name
 
   useEffect(() => setNextStatus(humanReviewStatus), [humanReviewStatus])
 
@@ -953,27 +1198,39 @@ function WorkflowActions({
       <div className="grid gap-4 p-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <div>
           <h3 className="ciq-section-title">Assignment</h3>
-          <p className="mt-2 text-xs leading-5 text-[var(--ciq-ink-muted)]">
-            Member directory lookup is not exposed, so this screen supports assigning to yourself or
-            clearing the current assignment.
-          </p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <Button
-              variant="outline"
-              disabled={!currentUserId || saving || assigneeUserId === currentUserId}
-              onClick={() => currentUserId && void onAssignment(currentUserId)}
-            >
-              <UserRoundCheck aria-hidden="true" />
-              Assign to me
-            </Button>
-            <Button
-              variant="ghost"
-              disabled={!assigneeUserId || saving}
-              onClick={() => void onAssignment(null)}
-            >
-              Clear assignment
-            </Button>
-          </div>
+          {canAssign ? (
+            <>
+              <select
+                className="ciq-control mt-2"
+                value={assigneeUserId || ""}
+                disabled={saving}
+                onChange={(event) => void onAssignment(event.target.value || null)}
+                aria-label="Claim assignee"
+              >
+                <option value="">Unassigned</option>
+                {assignees.map((assignee) => (
+                  <option key={assignee.userId} value={assignee.userId}>
+                    {assignee.name} · {humanize(assignee.role)}
+                  </option>
+                ))}
+              </select>
+              <div className="mt-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={!currentUserId || saving || assigneeUserId === currentUserId}
+                  onClick={() => currentUserId && void onAssignment(currentUserId)}
+                >
+                  <UserRoundCheck aria-hidden="true" />
+                  Assign to me
+                </Button>
+              </div>
+            </>
+          ) : (
+            <p className="mt-2 text-sm text-[var(--ciq-ink-muted)]">
+              {assignedName || (assigneeUserId ? "Assigned organization member" : "Unassigned")}
+            </p>
+          )}
         </div>
         <div className="ciq-field">
           <label htmlFor="human-review-status">Human review status</label>
@@ -983,7 +1240,7 @@ function WorkflowActions({
               className="ciq-control flex-1"
               value={nextStatus}
               onChange={(event) => setNextStatus(event.target.value as HumanReviewStatus)}
-              disabled={saving}
+              disabled={saving || !canReview}
             >
               <option value="unassigned">Unassigned</option>
               <option value="pending">Pending review</option>
@@ -991,12 +1248,14 @@ function WorkflowActions({
               <option value="approved">Approved</option>
               <option value="changes_requested">Changes requested</option>
             </select>
-            <Button
-              disabled={saving || nextStatus === humanReviewStatus}
-              onClick={() => void onStatus(nextStatus)}
-            >
-              {saving ? "Saving…" : "Save status"}
-            </Button>
+            {canReview && (
+              <Button
+                disabled={saving || nextStatus === humanReviewStatus}
+                onClick={() => void onStatus(nextStatus)}
+              >
+                {saving ? "Saving…" : "Save status"}
+              </Button>
+            )}
           </div>
         </div>
       </div>
@@ -1011,7 +1270,7 @@ function RequiredActions({
 }: {
   groups: RootIssueGroup[]
   findings: WorkFinding[]
-  onEvidence: () => void
+  onEvidence: (location?: string) => void
 }) {
   const priorityFindings = findings.filter((finding) =>
     ["fail", "critical", "high", "partial"].includes(finding.severity.toLowerCase()),
@@ -1077,7 +1336,7 @@ function ActionRow({
   impact?: string
   fix?: string
   evidence: string[]
-  onEvidence: () => void
+  onEvidence: (location?: string) => void
 }) {
   return (
     <article className="border-l-[3px] border-l-[var(--ciq-critical)] p-4">
@@ -1100,7 +1359,7 @@ function ActionRow({
               {location}
             </span>
           ))}
-          <Button variant="ghost" size="sm" onClick={onEvidence}>
+          <Button variant="ghost" size="sm" onClick={() => onEvidence(evidence[0])}>
             Open source
           </Button>
         </div>
@@ -1113,11 +1372,13 @@ function FindingLedger({
   findings,
   onEvidence,
   reviewing,
+  canReview,
   onDisposition,
 }: {
   findings: WorkFinding[]
-  onEvidence: () => void
+  onEvidence: (location?: string) => void
   reviewing: Record<string, boolean>
+  canReview: boolean
   onDisposition: (
     findingId: string,
     disposition: FindingDisposition,
@@ -1168,7 +1429,7 @@ function FindingLedger({
                   </div>
                 )}
               </div>
-              {finding.findingId && (
+              {finding.findingId && canReview && (
                 <FindingReviewControl
                   finding={finding}
                   saving={Boolean(reviewing[finding.findingId])}
@@ -1184,7 +1445,11 @@ function FindingLedger({
                       {location}
                     </span>
                   ))}
-                  <Button variant="ghost" size="sm" onClick={onEvidence}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => onEvidence(finding.evidence[0])}
+                  >
                     View extracted source
                   </Button>
                 </div>
@@ -1205,7 +1470,7 @@ function FindingLedger({
   )
 }
 
-function FindingReviewControl({
+export function FindingReviewControl({
   finding,
   saving,
   onSave,
@@ -1238,10 +1503,11 @@ function FindingReviewControl({
           onChange={(event) => setDisposition(event.target.value as FindingDisposition)}
           disabled={saving}
         >
-          <option value="open">Open</option>
-          <option value="accepted">Accepted</option>
-          <option value="dismissed">Dismissed</option>
-          <option value="remediated">Remediated</option>
+          <option value="open">Defer — keep open</option>
+          <option value="accepted">Accept as confirmed</option>
+          <option value="dismissed">Reject finding</option>
+          <option value="remediated">Mark resolved</option>
+          <option value="overridden">Modify / override</option>
         </select>
       </div>
       <div className="ciq-field">
@@ -1255,7 +1521,10 @@ function FindingReviewControl({
           disabled={saving}
         />
       </div>
-      <Button disabled={!dirty || saving} onClick={() => void onSave(disposition, notes)}>
+      <Button
+        disabled={!dirty || saving || (disposition === "overridden" && !notes.trim())}
+        onClick={() => void onSave(disposition, notes)}
+      >
         {saving ? "Saving…" : "Save review"}
       </Button>
     </div>
@@ -1356,12 +1625,17 @@ function FilesLedger({
   data,
   selectedId,
   onSelect,
+  selectedPage,
 }: {
   data: ClaimDetail
   selectedId?: string
   onSelect: (id: string) => void
+  selectedPage?: number | null
 }) {
   const selected = data.documents.find((document) => document.id === selectedId) || data.documents[0]
+  const displayedText = selectedPage
+    ? extractPageText(selected?.extractedText, selectedPage)
+    : selected?.extractedText
   return (
     <section className="ciq-panel ciq-panel--flush">
       <div className="ciq-panel__header">
@@ -1405,11 +1679,17 @@ function FilesLedger({
               </div>
               <StatusPill
                 value={selected?.extractedText ? "verified" : "warning"}
-                label={selected?.extractedText ? "Text available" : "Text unavailable"}
+                label={
+                  selectedPage
+                    ? `Page ${selectedPage}`
+                    : selected?.extractedText
+                      ? "Text available"
+                      : "Text unavailable"
+                }
               />
             </div>
             <pre className="max-h-[45rem] min-h-[28rem] overflow-auto whitespace-pre-wrap rounded-md border border-[var(--ciq-border)] bg-[var(--ciq-surface)] p-4 font-[var(--ciq-font-mono)] text-[0.72rem] leading-6 text-[var(--ciq-ink)]">
-              {selected?.extractedText ||
+              {displayedText ||
                 "No extracted text was returned for this document. Page coordinates and estimate line data are not inferred."}
             </pre>
           </div>
@@ -1432,20 +1712,28 @@ function SourcePane({
   documents,
   selectedId,
   onSelect,
+  selectedPage,
   className,
 }: {
   document: ClaimDetail["documents"][number] | undefined
   documents: ClaimDetail["documents"]
   selectedId?: string
   onSelect: (id: string) => void
+  selectedPage?: number | null
   className?: string
 }) {
+  const displayedText = selectedPage
+    ? extractPageText(document?.extractedText, selectedPage)
+    : document?.extractedText
   return (
     <aside className={`ciq-panel ciq-panel--flush sticky top-0 h-[calc(100dvh-7.5rem)] ${className || ""}`}>
       <div className="ciq-panel__header">
         <div className="min-w-0">
           <h2>Evidence source</h2>
-          <p className="truncate">{document ? documentName(document) : "No document"}</p>
+          <p className="truncate">
+            {document ? documentName(document) : "No document"}
+            {selectedPage ? ` · Page ${selectedPage}` : ""}
+          </p>
         </div>
       </div>
       {documents.length > 1 && (
@@ -1469,7 +1757,7 @@ function SourcePane({
       )}
       <div className="h-[calc(100%-7rem)] overflow-auto bg-[var(--ciq-canvas)] p-3">
         <pre className="min-h-full whitespace-pre-wrap rounded-md border border-[var(--ciq-border)] bg-[var(--ciq-surface)] p-3 font-[var(--ciq-font-mono)] text-[0.64rem] leading-5 text-[var(--ciq-ink)]">
-          {document?.extractedText ||
+          {displayedText ||
             "Extracted source text is unavailable. No page coordinates are generated by the client."}
         </pre>
       </div>
@@ -1632,7 +1920,15 @@ function collectFindings(audit?: AuditResult): WorkFinding[] {
 
   ;(audit.findings || []).forEach((finding) => {
     const key = `legacy-${finding.id}`
-    if (findings.some((item) => item.title === finding.title && item.issue === finding.issue)) return
+    const existing = findings.find(
+      (item) => item.title === finding.title && item.issue === (finding.issue || finding.description),
+    )
+    if (existing) {
+      existing.findingId = finding.id
+      existing.disposition = finding.disposition
+      existing.reviewNotes = finding.reviewNotes
+      return
+    }
     findings.push({
       key,
       findingId: finding.id,
@@ -1661,6 +1957,21 @@ function collectFindings(audit?: AuditResult): WorkFinding[] {
 function formatConfidence(value: number) {
   const percent = value <= 1 ? value * 100 : value
   return `${Math.round(percent)}%`
+}
+
+function extractPageText(text: string | undefined, pageNumber: number) {
+  if (!text) return undefined
+  const markerPattern = /^={3,}\s*page\s+(\d+)\s*={3,}\s*$/gim
+  const markers = Array.from(text.matchAll(markerPattern))
+  const markerIndex = markers.findIndex(
+    (match) => Number.parseInt(match[1], 10) === pageNumber,
+  )
+  if (markerIndex < 0) {
+    return `Page ${pageNumber} is cited, but the extracted source does not contain a matching page marker. Verify the original PDF before relying on this citation.`
+  }
+  const start = markers[markerIndex].index ?? 0
+  const end = markers[markerIndex + 1]?.index ?? text.length
+  return text.slice(start, end).trim()
 }
 
 function documentName(document: ClaimDetail["documents"][number]) {

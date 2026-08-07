@@ -18,6 +18,24 @@ jobs:
   quality:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/complete_iq_test
+      SUPABASE_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/complete_iq_test
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: complete_iq_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d complete_iq_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
 
     steps:
       - name: Check out repository
@@ -26,7 +44,7 @@ jobs:
       - name: Install pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 10
+          version: 11.11.0
 
       - name: Install Node.js
         uses: actions/setup-node@v4
@@ -39,6 +57,9 @@ jobs:
 
       - name: Typecheck workspace
         run: pnpm typecheck
+
+      - name: Rehearse tenant migration
+        run: pnpm --filter @workspace/scripts rehearse:migration
 
       - name: Run automated tests
         run: pnpm -r --if-present test

@@ -217,8 +217,10 @@ CREATE TABLE audit_runs (
   status audit_run_state NOT NULL,
   ruleset_version text NOT NULL,
   ruleset_hash text,
+  ruleset_snapshot jsonb,
   prompt_identifier text NOT NULL,
   prompt_hash text,
+  prompt_snapshot jsonb,
   model_identifier text NOT NULL,
   source_document_hashes jsonb NOT NULL DEFAULT '[]'::jsonb,
   provider_request_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
@@ -234,6 +236,10 @@ CREATE TABLE audit_runs (
     CHECK (jsonb_typeof(source_document_hashes) = 'array'),
   CONSTRAINT ck_audit_runs_provider_ids_array
     CHECK (jsonb_typeof(provider_request_ids) = 'array'),
+  CONSTRAINT ck_audit_runs_ruleset_snapshot_object
+    CHECK (ruleset_snapshot IS NULL OR jsonb_typeof(ruleset_snapshot) = 'object'),
+  CONSTRAINT ck_audit_runs_prompt_snapshot_object
+    CHECK (prompt_snapshot IS NULL OR jsonb_typeof(prompt_snapshot) = 'object'),
   CONSTRAINT ck_audit_runs_terminal_consistency CHECK (
     (status = 'succeeded' AND degraded = false AND fallback_used = false AND error_code IS NULL)
     OR status <> 'succeeded'
@@ -326,7 +332,9 @@ SET
   prompt_identifier = 'legacy-carrier-audit',
   model_identifier = 'legacy-unknown',
   started_at = coalesce(created_at, now()),
-  completed_at = coalesce(created_at, now());
+  completed_at = coalesce(created_at, now()),
+  approval_status = replace(upper(trim(approval_status)), ' ', '_'),
+  risk_level = upper(trim(risk_level));
 
 ALTER TABLE audits
   ALTER COLUMN organization_id SET NOT NULL,
@@ -553,10 +561,19 @@ CREATE INDEX idx_findings_org_audit
   ON audit_findings (organization_id, audit_id);
 CREATE INDEX idx_findings_org_disposition
   ON audit_findings (organization_id, disposition);
+CREATE INDEX idx_findings_source_document
+  ON audit_findings (source_document_id)
+  WHERE source_document_id IS NOT NULL;
 CREATE INDEX idx_audit_structured_org_audit
   ON audit_structured (organization_id, audit_id);
+CREATE INDEX idx_audit_structured_audit
+  ON audit_structured (audit_id);
 CREATE INDEX idx_audit_versions_org_claim
   ON audit_versions (organization_id, claim_id, version_number DESC);
+CREATE INDEX idx_audit_versions_audit
+  ON audit_versions (audit_id);
+CREATE INDEX idx_audit_versions_claim
+  ON audit_versions (claim_id);
 
 CREATE OR REPLACE FUNCTION reject_immutable_audit_mutation()
 RETURNS trigger

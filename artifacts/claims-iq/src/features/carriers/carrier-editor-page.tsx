@@ -9,7 +9,10 @@ import {
   ChevronDown,
   FlaskConical,
   GitCompareArrows,
+  History,
+  Play,
   Plus,
+  RotateCcw,
   Save,
   Trash2,
 } from "lucide-react"
@@ -26,14 +29,17 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
-import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { api, apiErrorMessage, queryKeys } from "@/lib/api"
 import type {
   CarrierCategory,
+  CarrierPreflightResult,
   CarrierProfile,
   CarrierQuestion,
   CarrierRuleset,
+  CarrierRulesetVersion,
+  CarrierSourceReference,
+  ClaimSummary,
 } from "@/lib/types"
 
 function emptyRuleset(): CarrierRuleset {
@@ -52,6 +58,8 @@ function emptyProfile(): CarrierProfile {
     logoUrl: null,
     active: false,
     ruleset: emptyRuleset(),
+    sourceReferences: [],
+    changeSummary: "",
   }
 }
 
@@ -71,6 +79,7 @@ function validateProfile(profile: CarrierProfile): ValidationSummary {
   if (!profile.ruleset.da_questions.length) errors.push("Add at least one desk-adjuster question.")
   if (!profile.ruleset.fa_questions.length) errors.push("Add at least one field-adjuster question.")
   if (!profile.ruleset.scorecard_categories.length) errors.push("Add at least one scorecard category.")
+  if (!profile.changeSummary?.trim()) errors.push("Add a change summary for this version.")
 
   const categories = new Set(profile.ruleset.scorecard_categories.map((category) => category.id))
   const questionIds = new Set<string>()
@@ -84,6 +93,13 @@ function validateProfile(profile: CarrierProfile): ValidationSummary {
     if (questionIds.has(question.id)) errors.push(`Question ID “${question.id}” is duplicated.`)
     questionIds.add(question.id)
   })
+  const allQuestions = [...profile.ruleset.da_questions, ...profile.ruleset.fa_questions]
+  const missingApplicability = allQuestions.filter((question) => !question.applicability?.trim()).length
+  const missingSeverity = allQuestions.filter((question) => !question.severity).length
+  const missingSources = allQuestions.filter((question) => !question.sourceReference?.trim()).length
+  if (missingApplicability) warnings.push(`${missingApplicability} questions do not define applicability guidance.`)
+  if (missingSeverity) warnings.push(`${missingSeverity} questions do not define failure severity.`)
+  if (missingSources) warnings.push(`${missingSources} questions do not include a source reference.`)
   profile.ruleset.scorecard_categories.forEach((category) => {
     if (!category.id.trim() || !category.label.trim()) errors.push("Every category needs an ID and label.")
   })
@@ -91,6 +107,7 @@ function validateProfile(profile: CarrierProfile): ValidationSummary {
     warnings.push("System prompt uses the global default.")
   }
   if (!profile.active) warnings.push("Profile is in draft and unavailable to live intake.")
+  if (!profile.sourceReferences?.length) warnings.push("No carrier policy source references are attached.")
   return {
     errors: Array.from(new Set(errors)),
     warnings: Array.from(new Set(warnings)),
@@ -113,11 +130,26 @@ export default function CarrierEditorPage({ carrierKey }: { carrierKey: string }
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [leaveOpen, setLeaveOpen] = useState(false)
+  const [publishingId, setPublishingId] = useState<string | null>(null)
+  const [rollbackTarget, setRollbackTarget] = useState<CarrierRulesetVersion | null>(null)
+  const [rollingBack, setRollingBack] = useState(false)
+  const [selectedClaimId, setSelectedClaimId] = useState("")
+  const [testing, setTesting] = useState(false)
+  const [testResult, setTestResult] = useState<CarrierPreflightResult | null>(null)
 
   const carrierQuery = useQuery({
     queryKey: queryKeys.carrier(carrierKey),
     queryFn: () => api.getCarrier(carrierKey),
     enabled: !isNew,
+  })
+  const versionsQuery = useQuery({
+    queryKey: queryKeys.carrierVersions(carrierKey),
+    queryFn: () => api.getCarrierVersions(carrierKey),
+    enabled: !isNew,
+  })
+  const claimsQuery = useQuery({
+    queryKey: [...queryKeys.claims, "carrier-test"],
+    queryFn: () => api.getClaims(100, 0),
   })
 
   useEffect(() => {
@@ -126,6 +158,8 @@ export default function CarrierEditorPage({ carrierKey }: { carrierKey: string }
     setProfile({
       ...carrierQuery.data,
       logoUrl: carrierQuery.data.logoUrl || null,
+      sourceReferences: carrierQuery.data.sourceReferences || [],
+      changeSummary: carrierQuery.data.changeSummary || "",
       ruleset: {
         ...emptyRuleset(),
         ...carrierQuery.data.ruleset,
@@ -179,12 +213,16 @@ export default function CarrierEditorPage({ carrierKey }: { carrierKey: string }
       await api.saveCarrier(key, {
         displayName: profile.displayName.trim(),
         logoUrl: profile.logoUrl || null,
-        active: profile.active,
+        active: false,
         ruleset: profile.ruleset,
+        sourceReferences: profile.sourceReferences || [],
+        changeSummary: profile.changeSummary || "",
       })
+      setProfile((current) => ({ ...current, active: false }))
       setDirty(false)
-      setMessage(profile.active ? "Published carrier profile saved." : "Draft carrier profile saved.")
+      setMessage("Draft carrier version saved. Publish it explicitly after review.")
       await queryClient.invalidateQueries({ queryKey: queryKeys.carriers })
+      await queryClient.invalidateQueries({ queryKey: queryKeys.carrierVersions(key) })
       if (isNew) setLocation(`/carriers/${key}`, { replace: true })
     } catch (saveError) {
       setError(apiErrorMessage(saveError, "The carrier profile could not be saved."))
@@ -200,9 +238,89 @@ export default function CarrierEditorPage({ carrierKey }: { carrierKey: string }
       await queryClient.invalidateQueries({ queryKey: queryKeys.carriers })
       setLocation("/carriers")
     } catch (deleteError) {
-      setError(apiErrorMessage(deleteError, "The carrier profile could not be deleted."))
+      setError(apiErrorMessage(deleteError, "The carrier profile could not be deactivated."))
       setDeleteOpen(false)
       setDeleting(false)
+    }
+  }
+
+  const publishVersion = async (versionId: string) => {
+    setPublishingId(versionId)
+    setMessage(null)
+    setError(null)
+    try {
+      const result = await api.publishCarrierVersion(profile.carrierKey, versionId)
+      setProfile((current) => ({
+        ...current,
+        active: true,
+        ruleset: result.version.ruleset,
+        displayName: result.version.displayName,
+        logoUrl: result.version.logoUrl,
+        sourceReferences: result.version.sourceReferences,
+        changeSummary: result.version.changeSummary,
+      }))
+      setMessage(`Version ${result.version.versionNumber} published after explicit approval.`)
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.carriers }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.carrier(profile.carrierKey) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.carrierVersions(profile.carrierKey) }),
+      ])
+    } catch (publishError) {
+      setError(apiErrorMessage(publishError, "The carrier version could not be published."))
+    } finally {
+      setPublishingId(null)
+    }
+  }
+
+  const rollbackVersion = async () => {
+    if (!rollbackTarget) return
+    setRollingBack(true)
+    setMessage(null)
+    setError(null)
+    try {
+      const result = await api.rollbackCarrierVersion(profile.carrierKey, rollbackTarget.id)
+      setProfile((current) => ({
+        ...current,
+        active: true,
+        ruleset: result.version.ruleset,
+        displayName: result.version.displayName,
+        logoUrl: result.version.logoUrl,
+        sourceReferences: result.version.sourceReferences,
+        changeSummary: result.version.changeSummary,
+      }))
+      setDirty(false)
+      setMessage(
+        `Restored historical version ${rollbackTarget.versionNumber} as new published version ${result.version.versionNumber}.`,
+      )
+      setRollbackTarget(null)
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.carriers }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.carrier(profile.carrierKey) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.carrierVersions(profile.carrierKey) }),
+      ])
+    } catch (rollbackError) {
+      setError(apiErrorMessage(rollbackError, "The historical version could not be restored."))
+    } finally {
+      setRollingBack(false)
+    }
+  }
+
+  const runRepresentativeTest = async (versionId?: string) => {
+    if (!selectedClaimId) {
+      setError("Select a representative claim first.")
+      return
+    }
+    setTesting(true)
+    setTestResult(null)
+    setError(null)
+    try {
+      setTestResult(
+        await api.testCarrierVersion(profile.carrierKey, selectedClaimId, versionId),
+      )
+    } catch (testError) {
+      setError(apiErrorMessage(testError, "The representative-claim preflight could not run."))
+    } finally {
+      setTesting(false)
     }
   }
 
@@ -255,6 +373,11 @@ export default function CarrierEditorPage({ carrierKey }: { carrierKey: string }
 
   const daWeight = profile.ruleset.da_questions.reduce((sum, question) => sum + question.weight, 0)
   const faWeight = profile.ruleset.fa_questions.reduce((sum, question) => sum + question.weight, 0)
+  const versions = versionsQuery.data?.versions || []
+  const draftVersion = versions.find((version) => version.status === "draft")
+  const publishedVersion = versions.find((version) => version.status === "published")
+  const versionDiff = compareRulesets(profile.ruleset, publishedVersion?.ruleset)
+  const testVersion = draftVersion || publishedVersion
 
   return (
     <div className="ciq-page">
@@ -262,7 +385,7 @@ export default function CarrierEditorPage({ carrierKey }: { carrierKey: string }
         compact
         eyebrow={isNew ? "New carrier draft" : `Carrier profile · ${profile.carrierKey}`}
         title={profile.displayName || "Untitled carrier"}
-        description="Validate the ruleset, review prompt policy, and explicitly choose draft or published availability."
+        description="Author a validated draft, inspect policy impact, test representative claim coverage, and publish through an explicit approval step."
         meta={
           <>
             <StatusPill
@@ -278,6 +401,12 @@ export default function CarrierEditorPage({ carrierKey }: { carrierKey: string }
               }
             />
             {dirty && <StatusPill value="warning" label="Unsaved changes" tone="warning" />}
+            {testVersion && (
+              <StatusPill
+                value={testVersion.status}
+                label={`Version ${testVersion.versionNumber} · ${testVersion.versionLabel}`}
+              />
+            )}
           </>
         }
         actions={
@@ -297,7 +426,18 @@ export default function CarrierEditorPage({ carrierKey }: { carrierKey: string }
                 onClick={() => setDeleteOpen(true)}
               >
                 <Trash2 aria-hidden="true" />
-                Delete
+                Deactivate
+              </Button>
+            )}
+            {draftVersion && !dirty && (
+              <Button
+                variant="outline"
+                className="border-white/20 bg-transparent text-white hover:bg-white/10"
+                onClick={() => void publishVersion(draftVersion.id)}
+                disabled={Boolean(publishingId) || Boolean(validation.errors.length)}
+              >
+                <CheckCircle2 aria-hidden="true" />
+                {publishingId === draftVersion.id ? "Publishing…" : "Approve & publish"}
               </Button>
             )}
             <Button
@@ -306,7 +446,7 @@ export default function CarrierEditorPage({ carrierKey }: { carrierKey: string }
               disabled={!dirty || saving || Boolean(validation.errors.length)}
             >
               <Save aria-hidden="true" />
-              {saving ? "Saving…" : profile.active ? "Save published" : "Save draft"}
+              {saving ? "Saving…" : "Save new draft"}
             </Button>
           </>
         }
@@ -355,19 +495,36 @@ export default function CarrierEditorPage({ carrierKey }: { carrierKey: string }
                   />
                 </EditorField>
               </div>
-              <div className="mt-4 flex items-center justify-between gap-4 rounded-md border border-[var(--ciq-border)] bg-[var(--ciq-surface-subtle)] p-4">
-                <div>
-                  <label htmlFor="carrier-published" className="text-sm font-semibold">
-                    Publish to live audit workflow
-                  </label>
-                  <p className="mt-1 text-xs leading-5 text-[var(--ciq-ink-muted)]">
-                    Off saves a draft. On makes this profile selectable for intake and reprocessing.
+              <div className="mt-4 grid gap-4 md:grid-cols-[minmax(0,1fr)_16rem]">
+                <EditorField
+                  label="Change summary"
+                  htmlFor="carrier-change-summary"
+                  hint="Required reviewer context for this new immutable version."
+                >
+                  <textarea
+                    id="carrier-change-summary"
+                    className="ciq-control min-h-24"
+                    value={profile.changeSummary || ""}
+                    onChange={(event) => updateProfile({ changeSummary: event.target.value })}
+                    placeholder="Explain why this ruleset is changing and the expected review impact."
+                  />
+                </EditorField>
+                <div className="rounded-md border border-[var(--ciq-border)] bg-[var(--ciq-surface-subtle)] p-4">
+                  <span className="ciq-section-title">Publication gate</span>
+                  <p className="mt-2 text-xs leading-5 text-[var(--ciq-ink-muted)]">
+                    Saving always creates a draft. A validated saved draft must be approved
+                    separately before it becomes the live ruleset.
                   </p>
                 </div>
-                <Switch
-                  id="carrier-published"
-                  checked={profile.active}
-                  onCheckedChange={(active) => updateProfile({ active })}
+              </div>
+              <div className="mt-4 border-t border-[var(--ciq-border)] pt-4">
+                <h2 className="text-sm font-semibold">Carrier policy sources</h2>
+                <p className="mt-1 text-xs text-[var(--ciq-ink-muted)]">
+                  Attach minimum-necessary policy references used to govern applicability and scoring.
+                </p>
+                <SourceReferenceEditor
+                  references={profile.sourceReferences || []}
+                  onChange={(sourceReferences) => updateProfile({ sourceReferences })}
                 />
               </div>
             </section>
@@ -513,15 +670,24 @@ export default function CarrierEditorPage({ carrierKey }: { carrierKey: string }
 
           <aside className="space-y-4 xl:sticky xl:top-0 xl:self-start">
             <ValidationPanel validation={validation} />
-            <PlaceholderPanel
-              icon={<GitCompareArrows />}
-              title="Version diff"
-              description="A compare endpoint is not available. Save history and published-vs-draft diffs are not simulated."
+            <VersionDiffPanel
+              diff={versionDiff}
+              affectedClaimCount={versionsQuery.data?.affectedClaimCount ?? 0}
             />
-            <PlaceholderPanel
-              icon={<FlaskConical />}
-              title="Ruleset test console"
-              description="A dry-run audit endpoint is not available. No synthetic claim results are generated."
+            <RulesetTestPanel
+              claims={claimsQuery.data || []}
+              selectedClaimId={selectedClaimId}
+              onClaimChange={setSelectedClaimId}
+              onRun={() => void runRepresentativeTest(testVersion?.id)}
+              testing={testing}
+              result={testResult}
+              disabled={!testVersion || dirty}
+            />
+            <VersionHistoryPanel
+              versions={versions}
+              publishingId={publishingId}
+              onPublish={(versionId) => void publishVersion(versionId)}
+              onRollback={setRollbackTarget}
             />
           </aside>
         </div>
@@ -553,14 +719,14 @@ export default function CarrierEditorPage({ carrierKey }: { carrierKey: string }
       <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete {profile.displayName}?</AlertDialogTitle>
+            <AlertDialogTitle>Deactivate {profile.displayName}?</AlertDialogTitle>
             <AlertDialogDescription>
-              This permanently removes the carrier profile and its ruleset. This action cannot be
-              undone.
+              This removes the carrier from new intake while preserving immutable publication
+              history and existing audit provenance.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleting}>Keep carrier</AlertDialogCancel>
+            <AlertDialogCancel disabled={deleting}>Keep active</AlertDialogCancel>
             <AlertDialogAction
               className="bg-[var(--ciq-critical)] text-white"
               onClick={(event) => {
@@ -570,7 +736,39 @@ export default function CarrierEditorPage({ carrierKey }: { carrierKey: string }
               disabled={deleting}
             >
               <Trash2 aria-hidden="true" />
-              {deleting ? "Deleting…" : "Delete carrier"}
+              {deleting ? "Deactivating…" : "Deactivate carrier"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={Boolean(rollbackTarget)}
+        onOpenChange={(open) => {
+          if (!open && !rollingBack) setRollbackTarget(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Restore version {rollbackTarget?.versionNumber}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              The current publication remains immutable and will be archived. A new published
+              version is created from this historical policy so the complete lineage is retained.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={rollingBack}>Keep current version</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault()
+                void rollbackVersion()
+              }}
+              disabled={rollingBack}
+            >
+              <RotateCcw aria-hidden="true" />
+              {rollingBack ? "Restoring…" : "Create rollback publication"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -785,6 +983,53 @@ function QuestionEditor({
                 }
               />
             </EditorField>
+            <EditorField label="Failure severity" htmlFor={`${scorecard}-${index}-severity`}>
+              <select
+                id={`${scorecard}-${index}-severity`}
+                className="ciq-control"
+                value={question.severity || ""}
+                onChange={(event) =>
+                  update(index, {
+                    severity:
+                      (event.target.value as CarrierQuestion["severity"]) || undefined,
+                  })
+                }
+              >
+                <option value="">Select severity…</option>
+                <option value="critical">Critical</option>
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+                <option value="info">Informational</option>
+              </select>
+            </EditorField>
+            <EditorField label="Policy source reference" htmlFor={`${scorecard}-${index}-source`}>
+              <input
+                id={`${scorecard}-${index}-source`}
+                className="ciq-control"
+                value={question.sourceReference || ""}
+                onChange={(event) =>
+                  update(index, { sourceReference: event.target.value || undefined })
+                }
+                placeholder="Policy §4.2 or source title"
+              />
+            </EditorField>
+            <div className="md:col-span-2">
+              <EditorField
+                label="Applicability guidance"
+                htmlFor={`${scorecard}-${index}-applicability`}
+              >
+                <textarea
+                  id={`${scorecard}-${index}-applicability`}
+                  className="ciq-control min-h-20"
+                  value={question.applicability || ""}
+                  onChange={(event) =>
+                    update(index, { applicability: event.target.value || undefined })
+                  }
+                  placeholder="Describe when this question applies and when NOT_APPLICABLE is valid."
+                />
+              </EditorField>
+            </div>
           </div>
         </article>
       ))}
@@ -851,23 +1096,302 @@ function ValidationPanel({ validation }: { validation: ValidationSummary }) {
   )
 }
 
-function PlaceholderPanel({
-  icon,
-  title,
-  description,
+function SourceReferenceEditor({
+  references,
+  onChange,
 }: {
-  icon: ReactNode
-  title: string
-  description: string
+  references: CarrierSourceReference[]
+  onChange: (references: CarrierSourceReference[]) => void
+}) {
+  const update = (index: number, patch: Partial<CarrierSourceReference>) =>
+    onChange(
+      references.map((reference, itemIndex) =>
+        itemIndex === index ? { ...reference, ...patch } : reference,
+      ),
+    )
+  return (
+    <div className="mt-3 space-y-2">
+      {references.map((reference, index) => (
+        <div
+          key={`${reference.label}-${index}`}
+          className="grid gap-2 rounded-md border border-[var(--ciq-border)] bg-[var(--ciq-surface-subtle)] p-3 md:grid-cols-[1fr_1fr_1fr_2.75rem]"
+        >
+          <input
+            className="ciq-control"
+            value={reference.label}
+            onChange={(event) => update(index, { label: event.target.value })}
+            aria-label={`Source ${index + 1} label`}
+            placeholder="Policy title"
+          />
+          <input
+            className="ciq-control"
+            value={reference.reference || ""}
+            onChange={(event) => update(index, { reference: event.target.value || undefined })}
+            aria-label={`Source ${index + 1} reference`}
+            placeholder="Section, edition, or date"
+          />
+          <input
+            className="ciq-control"
+            type="url"
+            value={reference.url || ""}
+            onChange={(event) => update(index, { url: event.target.value || undefined })}
+            aria-label={`Source ${index + 1} URL`}
+            placeholder="Optional source URL"
+          />
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-[var(--ciq-critical)]"
+            aria-label={`Remove source ${reference.label || index + 1}`}
+            onClick={() => onChange(references.filter((_, itemIndex) => itemIndex !== index))}
+          >
+            <Trash2 aria-hidden="true" />
+          </Button>
+        </div>
+      ))}
+      <Button
+        variant="outline"
+        className="w-full border-dashed"
+        onClick={() => onChange([...references, { label: "" }])}
+      >
+        <Plus aria-hidden="true" />
+        Add policy source
+      </Button>
+    </div>
+  )
+}
+
+interface RulesetDiff {
+  added: number
+  removed: number
+  changed: number
+  categoryDelta: number
+  pointsDelta: number
+  baselineAvailable: boolean
+}
+
+function compareRulesets(current: CarrierRuleset, published?: CarrierRuleset): RulesetDiff {
+  const currentQuestions = [...current.da_questions, ...current.fa_questions]
+  if (!published) {
+    return {
+      added: currentQuestions.length,
+      removed: 0,
+      changed: 0,
+      categoryDelta: current.scorecard_categories.length,
+      pointsDelta: currentQuestions.reduce((sum, question) => sum + question.weight, 0),
+      baselineAvailable: false,
+    }
+  }
+  const publishedQuestions = [...published.da_questions, ...published.fa_questions]
+  const previous = new Map(publishedQuestions.map((question) => [question.id, question]))
+  const currentMap = new Map(currentQuestions.map((question) => [question.id, question]))
+  const added = currentQuestions.filter((question) => !previous.has(question.id)).length
+  const removed = publishedQuestions.filter((question) => !currentMap.has(question.id)).length
+  const changed = currentQuestions.filter((question) => {
+    const prior = previous.get(question.id)
+    return prior
+      ? JSON.stringify(prior) !== JSON.stringify(question)
+      : false
+  }).length
+  const currentPoints = currentQuestions.reduce((sum, question) => sum + question.weight, 0)
+  const publishedPoints = publishedQuestions.reduce((sum, question) => sum + question.weight, 0)
+  return {
+    added,
+    removed,
+    changed,
+    categoryDelta:
+      current.scorecard_categories.length - published.scorecard_categories.length,
+    pointsDelta: currentPoints - publishedPoints,
+    baselineAvailable: true,
+  }
+}
+
+function VersionDiffPanel({
+  diff,
+  affectedClaimCount,
+}: {
+  diff: RulesetDiff
+  affectedClaimCount: number
 }) {
   return (
-    <section className="ciq-panel border-dashed p-4">
-      <span className="flex h-9 w-9 items-center justify-center rounded-md bg-[var(--ciq-info-soft)] text-[var(--ciq-info)] [&_svg]:h-4 [&_svg]:w-4">
-        {icon}
-      </span>
-      <h2 className="mt-3 text-sm font-semibold">{title}</h2>
-      <StatusPill value="unavailable" label="Endpoint unavailable" className="mt-2" />
-      <p className="mt-3 text-xs leading-5 text-[var(--ciq-ink-muted)]">{description}</p>
+    <section className="ciq-panel ciq-panel--flush">
+      <div className="ciq-panel__header">
+        <div>
+          <h2>Version impact</h2>
+          <p>{diff.baselineAvailable ? "Draft vs live publication" : "No published baseline"}</p>
+        </div>
+        <GitCompareArrows className="h-4 w-4 text-[var(--ciq-aubergine)]" aria-hidden="true" />
+      </div>
+      <dl className="grid grid-cols-2 gap-px bg-[var(--ciq-border)]">
+        {[
+          ["Questions added", diff.added],
+          ["Questions removed", diff.removed],
+          ["Questions changed", diff.changed],
+          ["Point delta", diff.pointsDelta > 0 ? `+${diff.pointsDelta}` : diff.pointsDelta],
+          ["Category delta", diff.categoryDelta > 0 ? `+${diff.categoryDelta}` : diff.categoryDelta],
+          ["Claims in scope", affectedClaimCount],
+        ].map(([label, value]) => (
+          <div key={label} className="bg-[var(--ciq-surface)] p-3">
+            <dt className="text-[0.65rem] font-bold uppercase tracking-wide text-[var(--ciq-ink-muted)]">
+              {label}
+            </dt>
+            <dd className="ciq-mono mt-1 text-lg font-semibold">{value}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
+  )
+}
+
+function RulesetTestPanel({
+  claims,
+  selectedClaimId,
+  onClaimChange,
+  onRun,
+  testing,
+  result,
+  disabled,
+}: {
+  claims: ClaimSummary[]
+  selectedClaimId: string
+  onClaimChange: (value: string) => void
+  onRun: () => void
+  testing: boolean
+  result: CarrierPreflightResult | null
+  disabled: boolean
+}) {
+  return (
+    <section className="ciq-panel">
+      <div className="ciq-panel__header">
+        <div>
+          <h2>Representative claim test</h2>
+          <p>Deterministic, zero-provider-cost preflight</p>
+        </div>
+        <FlaskConical className="h-4 w-4 text-[var(--ciq-info)]" aria-hidden="true" />
+      </div>
+      <div className="space-y-3 p-4">
+        <label className="ciq-label" htmlFor="carrier-test-claim">
+          Representative claim
+        </label>
+        <select
+          id="carrier-test-claim"
+          className="ciq-control"
+          value={selectedClaimId}
+          onChange={(event) => onClaimChange(event.target.value)}
+        >
+          <option value="">Select claim…</option>
+          {claims.map((claim) => (
+            <option key={claim.id} value={claim.id}>
+              {claim.claimNumber} · {claim.carrier || "Carrier unknown"}
+            </option>
+          ))}
+        </select>
+        <Button className="w-full" onClick={onRun} disabled={disabled || testing || !selectedClaimId}>
+          <Play aria-hidden="true" />
+          {testing ? "Running preflight…" : "Run compatibility preflight"}
+        </Button>
+        {disabled && (
+          <p className="text-xs text-[var(--ciq-ink-muted)]">
+            Save the current draft before testing its persisted version.
+          </p>
+        )}
+        {result && (
+          <div className="rounded-md border border-[var(--ciq-border)] bg-[var(--ciq-surface-subtle)] p-3">
+            <StatusPill
+              value={result.compatible ? "verified" : "critical"}
+              label={result.compatible ? "Preflight compatible" : "Preflight failed"}
+              tone={result.compatible ? "verified" : "critical"}
+            />
+            <dl className="mt-3 grid grid-cols-2 gap-2 text-xs">
+              <div>
+                <dt className="text-[var(--ciq-ink-muted)]">Questions</dt>
+                <dd className="ciq-mono font-semibold">
+                  {result.coverage.deskAdjusterQuestions + result.coverage.fieldAdjusterQuestions}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-[var(--ciq-ink-muted)]">Configured points</dt>
+                <dd className="ciq-mono font-semibold">{result.coverage.configuredPoints}</dd>
+              </div>
+            </dl>
+            <p className="mt-3 text-xs leading-5 text-[var(--ciq-ink-muted)]">{result.note}</p>
+          </div>
+        )}
+      </div>
+    </section>
+  )
+}
+
+function VersionHistoryPanel({
+  versions,
+  publishingId,
+  onPublish,
+  onRollback,
+}: {
+  versions: CarrierRulesetVersion[]
+  publishingId: string | null
+  onPublish: (versionId: string) => void
+  onRollback: (version: CarrierRulesetVersion) => void
+}) {
+  return (
+    <section className="ciq-panel ciq-panel--flush">
+      <div className="ciq-panel__header">
+        <div>
+          <h2>Publication history</h2>
+          <p>Immutable versions and approval actions</p>
+        </div>
+        <History className="h-4 w-4 text-[var(--ciq-aubergine)]" aria-hidden="true" />
+      </div>
+      {versions.length ? (
+        <div className="max-h-80 divide-y divide-[var(--ciq-border)] overflow-y-auto">
+          {versions.map((version) => (
+            <article key={version.id} className="p-3">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <strong className="ciq-mono text-xs">
+                    v{version.versionNumber} · {version.versionLabel}
+                  </strong>
+                  <p className="mt-1 text-[0.68rem] text-[var(--ciq-ink-muted)]">
+                    {new Date(version.createdAt).toLocaleString()}
+                  </p>
+                </div>
+                <StatusPill value={version.status} />
+              </div>
+              {version.changeSummary && (
+                <p className="mt-2 text-xs leading-5 text-[var(--ciq-ink-muted)]">
+                  {version.changeSummary}
+                </p>
+              )}
+              {version.status === "draft" && (
+                <Button
+                  size="sm"
+                  className="mt-2 w-full"
+                  onClick={() => onPublish(version.id)}
+                  disabled={Boolean(publishingId)}
+                >
+                  <CheckCircle2 aria-hidden="true" />
+                  {publishingId === version.id ? "Publishing…" : "Approve & publish"}
+                </Button>
+              )}
+              {version.status === "archived" && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="mt-2 w-full"
+                  onClick={() => onRollback(version)}
+                >
+                  <RotateCcw aria-hidden="true" />
+                  Restore as new version
+                </Button>
+              )}
+            </article>
+          ))}
+        </div>
+      ) : (
+        <p className="p-4 text-xs text-[var(--ciq-ink-muted)]">
+          Save the first draft to establish version history.
+        </p>
+      )}
     </section>
   )
 }

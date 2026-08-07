@@ -63,10 +63,13 @@ test("duplicate job requests produce the same organization-scoped key", () => {
 test("tenant isolation and granular role permissions deny cross-tenant writes", () => {
   const viewer = { permissions: permissionsForRole("viewer") };
   const reviewer = { permissions: permissionsForRole("reviewer") };
+  const admin = { permissions: permissionsForRole("admin") };
 
   assert.equal(organizationScopeMatches("org-a", "org-a"), true);
   assert.equal(organizationScopeMatches("org-b", "org-a"), false);
   assert.equal(hasOrganizationPermission(viewer, "claims:update"), false);
   assert.equal(hasOrganizationPermission(reviewer, "findings:review"), true);
   assert.equal(hasOrganizationPermission(reviewer, "claims:delete"), false);
+  assert.equal(hasOrganizationPermission(reviewer, "settings:manage"), false);
+  assert.equal(hasOrganizationPermission(admin, "settings:manage"), true);
 });

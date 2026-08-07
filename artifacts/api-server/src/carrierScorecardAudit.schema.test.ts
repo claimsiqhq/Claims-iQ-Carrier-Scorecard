@@ -1,7 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  CARRIER_SCORECARD_VERSION,
   carrierScorecardRawSchema,
   parseCarrierScorecardJson,
 } from "./services/carrierScorecardAudit";
@@ -101,17 +100,14 @@ test("schema validation fails for invalid enum status value", () => {
   assert.equal(parsed.success, false);
 });
 
-test("fallback result is returned when JSON parsing fails", () => {
-  const result = parseCarrierScorecardJson("not-valid-json", {
-    requestId: "req_test_1",
-    model: "gpt-4o",
-  });
-
-  assert.equal(result.version, CARRIER_SCORECARD_VERSION);
-  assert.equal(result.overall.total_score, 0);
-  assert.equal(result.overall.grade, "F");
-  assert.equal(result.meta.validation_ok, false);
-  assert.equal(result.categories.length, 7);
+test("invalid provider JSON is an operational failure, not a grade", () => {
+  assert.throws(
+    () => parseCarrierScorecardJson("not-valid-json", {
+      requestId: "req_test_1",
+      model: "gpt-4o",
+    }),
+    /invalid JSON/,
+  );
 });
 
 test("dynamic category schema accepts non-default carrier category ids", () => {
@@ -147,7 +143,7 @@ test("dynamic category schema accepts non-default carrier category ids", () => {
       {
         id: "estimate_quality",
         status: "pass",
-        score: 4,
+        score: 5,
         finding: "Estimate quality meets expectations.",
         evidence: [],
         recommendations: [],

@@ -10,6 +10,9 @@ export interface Question {
   scorecard: Scorecard;
   categoryKey: string;
   categoryName: string;
+  applicability?: string;
+  severity?: "critical" | "high" | "medium" | "low" | "info";
+  sourceReference?: string;
 }
 
 export interface QuestionResult {

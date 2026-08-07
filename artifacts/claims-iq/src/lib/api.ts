@@ -2,20 +2,29 @@ import type {
   AuthSession,
   AuthUser,
   CarrierOption,
+  CarrierPreflightResult,
   CarrierProfile,
+  CarrierRulesetVersion,
   ClaimDetail,
   ClaimSummary,
+  ClaimsQueueData,
+  ClaimAssignee,
   DashboardData,
   IngestResponse,
   FindingDisposition,
   HumanReviewStatus,
+  InsightsData,
   ClaimActivity,
   ProcessingJob,
   ProcessingStatus,
   PromptSettings,
+  SavedView,
+  SettingsOverview,
+  OrganizationSettingsInput,
 } from "@/lib/types"
 
 export const API_BASE_URL = (import.meta.env.VITE_API_URL || "/api").replace(/\/$/, "")
+export const SESSION_EXPIRED_EVENT = "complete-iq:session-expired"
 
 export class ApiError extends Error {
   status: number
@@ -68,6 +77,15 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
         : typeof body === "string" && body
           ? body
           : `Request failed (${response.status})`
+    if (
+      response.status === 401
+      && path !== "/auth/login"
+      && path !== "/auth/user"
+      && typeof window !== "undefined"
+    ) {
+      window.sessionStorage.setItem(SESSION_EXPIRED_EVENT, "true")
+      window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT))
+    }
     throw new ApiError(message, response.status, body)
   }
 
@@ -76,13 +94,21 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
 
 export const queryKeys = {
   dashboard: ["complete-iq", "dashboard"] as const,
+  insights: ["complete-iq", "insights"] as const,
   claims: ["complete-iq", "claims"] as const,
+  claimsQueue: (filters: Record<string, string | number>) =>
+    ["complete-iq", "claims", "queue", filters] as const,
+  claimAssignees: ["complete-iq", "claims", "assignees"] as const,
   claim: (id: string) => ["complete-iq", "claim", id] as const,
   claimActivity: (id: string) => ["complete-iq", "claim", id, "activity"] as const,
   claimJobs: (id: string) => ["complete-iq", "claim", id, "jobs"] as const,
+  savedViews: (resourceType = "claims") =>
+    ["complete-iq", "saved-views", resourceType] as const,
   carriers: ["complete-iq", "carriers"] as const,
   carrier: (key: string) => ["complete-iq", "carrier", key] as const,
+  carrierVersions: (key: string) => ["complete-iq", "carrier", key, "versions"] as const,
   prompts: ["complete-iq", "settings", "prompts"] as const,
+  settingsOverview: ["complete-iq", "settings", "overview"] as const,
 }
 
 export const api = {
@@ -95,8 +121,27 @@ export const api = {
   logout: () => apiRequest<void>("/auth/logout", { method: "POST" }),
 
   getDashboard: () => apiRequest<DashboardData>("/dashboard"),
+  getInsights: () => apiRequest<InsightsData>("/insights"),
   getClaims: (limit = 100, offset = 0) =>
     apiRequest<ClaimSummary[]>(`/claims?limit=${limit}&offset=${offset}`),
+  getClaimsQueue: (filters: {
+    page: number
+    pageSize: number
+    search: string
+    carrier: string
+    status: string
+    risk: string
+    readiness: string
+    preset: string
+    sort: string
+  }) => {
+    const params = new URLSearchParams(
+      Object.entries(filters).map(([key, value]) => [key, String(value)]),
+    )
+    return apiRequest<ClaimsQueueData>(`/claims/queue?${params.toString()}`)
+  },
+  getClaimAssignees: () =>
+    apiRequest<{ assignees: ClaimAssignee[] }>("/claims/assignees"),
   getClaim: (id: string) => apiRequest<ClaimDetail>(`/claims/${encodeURIComponent(id)}`),
   archiveClaim: (id: string) =>
     apiRequest<{ success: boolean; message?: string }>(`/claims/${encodeURIComponent(id)}`, {
@@ -123,9 +168,35 @@ export const api = {
     apiRequest<ProcessingStatus>(`/claims/${encodeURIComponent(id)}/processing-status`),
   getClaimJobs: (id: string) =>
     apiRequest<{ jobs: ProcessingJob[] }>(`/claims/${encodeURIComponent(id)}/processing-jobs`),
+  cancelJob: (jobId: string) =>
+    apiRequest<{ job: ProcessingJob }>(
+      `/processing-jobs/${encodeURIComponent(jobId)}/cancel`,
+      { method: "POST" },
+    ),
   getClaimActivity: (id: string, limit = 100) =>
     apiRequest<{ activity: ClaimActivity[] }>(
       `/claims/${encodeURIComponent(id)}/activity?limit=${limit}`,
+    ),
+  getSavedViews: (resourceType = "claims") =>
+    apiRequest<{ views: SavedView[] }>(
+      `/saved-views?resourceType=${encodeURIComponent(resourceType)}`,
+    ),
+  createSavedView: (input: {
+    name: string
+    resourceType?: string
+    filters: Record<string, unknown>
+    sort: Record<string, unknown>
+    columns?: string[] | null
+    isDefault?: boolean
+  }) =>
+    apiRequest<SavedView>("/saved-views", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  deleteSavedView: (viewId: string) =>
+    apiRequest<{ success: boolean }>(
+      `/saved-views/${encodeURIComponent(viewId)}`,
+      { method: "DELETE" },
     ),
   updateAssignment: (id: string, assigneeUserId: string | null) =>
     apiRequest<{ assigneeUserId: string | null; humanReviewStatus: HumanReviewStatus }>(
@@ -183,11 +254,36 @@ export const api = {
     apiRequest<CarrierProfile>(`/carriers/${encodeURIComponent(key)}`),
   saveCarrier: (
     key: string,
-    input: Pick<CarrierProfile, "displayName" | "logoUrl" | "active" | "ruleset">,
+    input: Pick<
+      CarrierProfile,
+      "displayName" | "logoUrl" | "active" | "ruleset" | "sourceReferences" | "changeSummary"
+    >,
   ) =>
-    apiRequest<{ success: boolean }>(`/carriers/${encodeURIComponent(key)}`, {
+    apiRequest<{ success: boolean; version: CarrierRulesetVersion }>(
+      `/carriers/${encodeURIComponent(key)}`,
+      {
       method: "PUT",
       body: JSON.stringify(input),
+      },
+    ),
+  getCarrierVersions: (key: string) =>
+    apiRequest<{ versions: CarrierRulesetVersion[]; affectedClaimCount: number }>(
+      `/carriers/${encodeURIComponent(key)}/versions`,
+    ),
+  publishCarrierVersion: (key: string, versionId: string) =>
+    apiRequest<{ version: CarrierRulesetVersion }>(
+      `/carriers/${encodeURIComponent(key)}/versions/${encodeURIComponent(versionId)}/publish`,
+      { method: "POST" },
+    ),
+  rollbackCarrierVersion: (key: string, versionId: string) =>
+    apiRequest<{ version: CarrierRulesetVersion }>(
+      `/carriers/${encodeURIComponent(key)}/versions/${encodeURIComponent(versionId)}/rollback`,
+      { method: "POST" },
+    ),
+  testCarrierVersion: (key: string, claimId: string, versionId?: string) =>
+    apiRequest<CarrierPreflightResult>(`/carriers/${encodeURIComponent(key)}/test`, {
+      method: "POST",
+      body: JSON.stringify({ claimId, versionId }),
     }),
   deleteCarrier: (key: string) =>
     apiRequest<{ success: boolean }>(`/carriers/${encodeURIComponent(key)}`, {
@@ -195,6 +291,20 @@ export const api = {
     }),
 
   getPrompts: () => apiRequest<PromptSettings>("/settings/prompts"),
+  getSettingsOverview: () => apiRequest<SettingsOverview>("/settings/overview"),
+  updateOrganizationSettings: (input: OrganizationSettingsInput) =>
+    apiRequest<SettingsOverview["organizationSettings"]>("/settings/organization", {
+      method: "PUT",
+      body: JSON.stringify(input),
+    }),
+  updateMemberRole: (membershipId: string, role: string) =>
+    apiRequest<{ membershipId: string; userId: string; role: string }>(
+      `/settings/members/${encodeURIComponent(membershipId)}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ role }),
+      },
+    ),
   savePrompts: (prompts: PromptSettings) =>
     apiRequest<{ success: boolean }>("/settings/prompts", {
       method: "PUT",

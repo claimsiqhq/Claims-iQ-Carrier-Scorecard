@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import { type Request, type Response } from "express";
-import { db, sessionsTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { db, sessionsTable, usersTable } from "@workspace/db";
+import { eq, inArray } from "drizzle-orm";
 
 export const SESSION_COOKIE = "sid";
 export const SESSION_TTL = 7 * 24 * 60 * 60 * 1000;
@@ -19,32 +19,69 @@ export interface SessionData {
   user: SessionUser;
 }
 
+function storedSessionId(sessionId: string): string {
+  return crypto.createHash("sha256").update(sessionId).digest("hex");
+}
+
 export async function createSession(data: SessionData): Promise<string> {
-  const sid = crypto.randomBytes(32).toString("hex");
+  const sessionToken = crypto.randomBytes(32).toString("hex");
   await db.insert(sessionsTable).values({
-    sid,
+    sid: storedSessionId(sessionToken),
     sess: data as unknown as Record<string, unknown>,
     expire: new Date(Date.now() + SESSION_TTL),
   });
-  return sid;
+  return sessionToken;
 }
 
-export async function getSession(sid: string): Promise<SessionData | null> {
+export async function getSession(sessionToken: string): Promise<SessionData | null> {
+  const hashedId = storedSessionId(sessionToken);
   const [row] = await db
     .select()
     .from(sessionsTable)
-    .where(eq(sessionsTable.sid, sid));
+    .where(inArray(sessionsTable.sid, [hashedId, sessionToken]));
 
   if (!row || row.expire < new Date()) {
-    if (row) await deleteSession(sid);
+    if (row) await deleteSession(sessionToken);
     return null;
   }
 
-  return row.sess as unknown as SessionData;
+  const stored = row.sess as unknown as SessionData;
+  if (!stored.user?.id) {
+    await deleteSession(sessionToken);
+    return null;
+  }
+
+  const [currentUser] = await db
+    .select()
+    .from(usersTable)
+    .where(eq(usersTable.id, stored.user.id))
+    .limit(1);
+  if (!currentUser) {
+    await deleteSession(sessionToken);
+    return null;
+  }
+
+  return {
+    user: {
+      id: currentUser.id,
+      email: currentUser.email,
+      firstName: currentUser.firstName,
+      lastName: currentUser.lastName,
+      profileImageUrl: currentUser.profileImageUrl,
+      role: currentUser.role,
+    },
+  };
 }
 
-export async function deleteSession(sid: string): Promise<void> {
-  await db.delete(sessionsTable).where(eq(sessionsTable.sid, sid));
+export async function deleteSession(sessionToken: string): Promise<void> {
+  await db
+    .delete(sessionsTable)
+    .where(
+      inArray(sessionsTable.sid, [
+        storedSessionId(sessionToken),
+        sessionToken,
+      ]),
+    );
 }
 
 export async function clearSession(
@@ -52,7 +89,12 @@ export async function clearSession(
   sid?: string,
 ): Promise<void> {
   if (sid) await deleteSession(sid);
-  res.clearCookie(SESSION_COOKIE, { path: "/" });
+  res.clearCookie(SESSION_COOKIE, {
+    path: "/",
+    httpOnly: true,
+    secure: process.env.NODE_ENV !== "development",
+    sameSite: "lax",
+  });
 }
 
 export function getSessionId(req: Request): string | undefined {

@@ -23,10 +23,14 @@ import {
 } from "./audit";
 import { InsufficientAuditEvidenceError } from "./scoringEngine";
 import {
-  getCarrierRuleset,
+  CarrierRulesetUnavailableError,
   normalizeCarrierKey,
 } from "./carrierRulesetService";
-import { SYSTEM_PROMPT } from "./prompts";
+import {
+  resolveQuestionAuditConfiguration,
+  type QuestionAuditConfiguration,
+} from "./runQuestionAudit";
+import { AuditPromptConfigurationError } from "./auditPromptService";
 import { env } from "../env";
 import { downloadFile } from "../lib/supabaseStorage";
 import logger from "../lib/logger";
@@ -96,18 +100,38 @@ function pageFromLocation(location: string): number | null {
 
 function buildEvidence(
   locations: string[],
-  singleSourceDocumentId: string | null,
+  sourceDocument: {
+    id: string;
+    pageCount: number | null;
+    extractedText: string | null;
+  } | null,
   confidence?: number,
 ) {
   return locations.map((rawLocation) => {
     const pageNumber = pageFromLocation(rawLocation);
-    const isMapped = Boolean(singleSourceDocumentId && pageNumber);
+    const markerPattern = pageNumber
+      ? new RegExp(`={3,}\\s*page\\s+${pageNumber}\\s*={3,}`, "i")
+      : null;
+    const pageIsVerified = Boolean(
+      sourceDocument
+      && pageNumber
+      && (
+        (sourceDocument.pageCount !== null
+          && pageNumber <= sourceDocument.pageCount)
+        || (
+          sourceDocument.pageCount === null
+          && markerPattern?.test(sourceDocument.extractedText ?? "")
+        )
+      ),
+    );
     return {
-      sourceDocumentId: isMapped ? singleSourceDocumentId : null,
-      isMapped,
+      sourceDocumentId: pageIsVerified ? sourceDocument!.id : null,
+      isMapped: pageIsVerified,
       pageNumber,
       rawLocation,
-      mappingMethod: isMapped ? "single_document_page_reference" : "unmapped",
+      mappingMethod: pageIsVerified
+        ? "verified_single_document_page_reference"
+        : "unmapped",
       confidence:
         typeof confidence === "number"
           ? String(Math.min(Math.max(confidence > 1 ? confidence / 100 : confidence, 0), 1))
@@ -123,9 +147,11 @@ async function persistTerminalRun(input: {
   actorUserId?: string | null;
   status: "degraded" | "failed";
   rulesetVersion: string;
-  rulesetHash: string;
+  rulesetHash: string | null;
+  rulesetSnapshot?: Record<string, unknown> | null;
   promptIdentifier: string;
-  promptHash: string;
+  promptHash: string | null;
+  promptSnapshot?: Record<string, unknown> | null;
   modelIdentifier: string;
   sourceDocumentHashes: SourceHash[];
   startedAt: Date;
@@ -137,7 +163,11 @@ async function persistTerminalRun(input: {
   const errorCode = operational?.code
     ?? (input.error instanceof InsufficientAuditEvidenceError
       ? input.error.code
-      : "audit_execution_failed");
+      : input.error instanceof CarrierRulesetUnavailableError
+        ? input.error.code
+        : input.error instanceof AuditPromptConfigurationError
+          ? input.error.code
+          : "audit_execution_failed");
   const errorMessage = input.error instanceof Error
     ? input.error.message
     : "Audit execution failed";
@@ -153,8 +183,10 @@ async function persistTerminalRun(input: {
       status: input.status,
       rulesetVersion: input.rulesetVersion,
       rulesetHash: input.rulesetHash,
+      rulesetSnapshot: input.rulesetSnapshot ?? null,
       promptIdentifier: input.promptIdentifier,
       promptHash: input.promptHash,
+      promptSnapshot: input.promptSnapshot ?? null,
       modelIdentifier: input.modelIdentifier,
       sourceDocumentHashes: input.sourceDocumentHashes,
       providerRequestIds: [],
@@ -257,13 +289,15 @@ export async function runAndSaveAudit(
   }
   const reportText = reportParts.join("\n");
 
-  const ruleset = await getCarrierRuleset(claim.carrier ?? "");
-  const rulesetVersion = ruleset.version || "unknown";
-  const rulesetHash = sha256(stableJson(ruleset));
-  const prompt = ruleset.system_prompt_override ?? SYSTEM_PROMPT;
-  const promptIdentifier = `carrier-audit:${normalizeCarrierKey(claim.carrier || "default")}`;
-  const promptHash = sha256(prompt);
-  const modelIdentifier = env.OPENAI_CARRIER_AUDIT_MODEL;
+  const carrierKey = normalizeCarrierKey(claim.carrier || "unidentified-carrier");
+  let questionAuditConfiguration: QuestionAuditConfiguration | undefined;
+  let rulesetVersion = "unavailable";
+  let rulesetHash: string | null = null;
+  let rulesetSnapshot: Record<string, unknown> | null = null;
+  let promptIdentifier = `carrier-audit:${carrierKey}:unresolved`;
+  let promptHash: string | null = null;
+  let promptSnapshot: Record<string, unknown> | null = null;
+  let modelIdentifier = env.OPENAI_CARRIER_AUDIT_MODEL;
 
   let pdfBuffer: Buffer | undefined;
   let sourceDownloadError: unknown;
@@ -305,6 +339,27 @@ export async function runAndSaveAudit(
 
   let auditResult: AuditResponse;
   try {
+    questionAuditConfiguration = await resolveQuestionAuditConfiguration(
+      claim.carrier ?? "",
+      context.organizationId,
+    );
+    rulesetVersion = questionAuditConfiguration.ruleset.version || "unknown";
+    rulesetHash = sha256(stableJson(questionAuditConfiguration.ruleset));
+    rulesetSnapshot = questionAuditConfiguration.ruleset as unknown as Record<
+      string,
+      unknown
+    >;
+    promptIdentifier = questionAuditConfiguration.prompts.promptIdentifier;
+    promptSnapshot = {
+      promptVersion: questionAuditConfiguration.prompts.promptVersion,
+      systemPrompt: questionAuditConfiguration.prompts.systemPrompt,
+      userPromptTemplate:
+        questionAuditConfiguration.prompts.userPromptTemplate,
+    };
+    promptHash = sha256(stableJson(promptSnapshot));
+    modelIdentifier =
+      questionAuditConfiguration.prompts.modelIdentifier;
+
     if (sourceDownloadError) {
       throw new AuditOperationalError({
         message: "The authorized source document could not be downloaded for auditing.",
@@ -351,6 +406,7 @@ export async function runAndSaveAudit(
       {
         pdfBuffer,
         requestId: context.processingJobId ?? randomUUID(),
+        questionAuditConfiguration,
       },
     );
   } catch (error) {
@@ -369,8 +425,10 @@ export async function runAndSaveAudit(
       status: outcome,
       rulesetVersion,
       rulesetHash,
+      rulesetSnapshot,
       promptIdentifier,
       promptHash,
+      promptSnapshot,
       modelIdentifier,
       sourceDocumentHashes,
       startedAt,
@@ -429,11 +487,13 @@ export async function runAndSaveAudit(
       status: "succeeded",
       rulesetVersion,
       rulesetHash,
+      rulesetSnapshot,
       promptIdentifier,
       promptHash,
+      promptSnapshot,
       modelIdentifier,
       sourceDocumentHashes,
-      providerRequestIds: [],
+      providerRequestIds: auditResult.provider_request_ids,
       fallbackUsed: false,
       degraded: false,
       startedAt,
@@ -511,8 +571,12 @@ export async function runAndSaveAudit(
       await tx.insert(auditSections).values(sectionValues);
     }
 
-    const singleDocumentId = claimDocuments.length === 1
-      ? claimDocuments[0]!.id
+    const singleSourceDocument = claimDocuments.length === 1
+      ? {
+          id: claimDocuments[0]!.id,
+          pageCount: claimDocuments[0]!.pageCount,
+          extractedText: claimDocuments[0]!.extractedText,
+        }
       : null;
     const pendingFindings: PendingFinding[] = [];
     const allQuestions = [
@@ -535,7 +599,7 @@ export async function runAndSaveAudit(
     for (const question of allQuestions) {
       const evidence = buildEvidence(
         question.evidence_locations,
-        singleDocumentId,
+        singleSourceDocument,
         question.confidence,
       );
       pendingFindings.push({
@@ -559,6 +623,7 @@ export async function runAndSaveAudit(
             category: "question_result",
             scorecard: question.scorecard,
             category_key: question.categoryKey,
+            root_issue: question.root_issue,
             answer: question.answer,
             points_awarded: question.points_awarded,
             points_possible: question.points_possible,
@@ -574,7 +639,10 @@ export async function runAndSaveAudit(
     }
 
     for (const issue of auditResult.issues) {
-      const evidence = buildEvidence(issue.evidence_locations, singleDocumentId);
+      const evidence = buildEvidence(
+        issue.evidence_locations,
+        singleSourceDocument,
+      );
       pendingFindings.push({
         values: {
           organizationId: context.organizationId,
@@ -590,6 +658,7 @@ export async function runAndSaveAudit(
             source_scorecard: issue.source_scorecard,
             category_key: issue.category_key,
             question_key: issue.question_key,
+            root_issue: issue.root_issue,
             impact: issue.impact,
             fix: issue.fix,
             evidence_locations: issue.evidence_locations,
@@ -622,7 +691,7 @@ export async function runAndSaveAudit(
     if (auditResult.vision_analysis) {
       for (const reading of auditResult.vision_analysis.tool_readings) {
         const rawLocation = `Page ${reading.page_number}`;
-        const evidence = buildEvidence([rawLocation], singleDocumentId);
+        const evidence = buildEvidence([rawLocation], singleSourceDocument);
         pendingFindings.push({
           values: {
             organizationId: context.organizationId,
@@ -640,7 +709,7 @@ export async function runAndSaveAudit(
       }
       for (const damage of auditResult.vision_analysis.damage_verifications) {
         const rawLocation = `Page ${damage.page_number}`;
-        const evidence = buildEvidence([rawLocation], singleDocumentId);
+        const evidence = buildEvidence([rawLocation], singleSourceDocument);
         pendingFindings.push({
           values: {
             organizationId: context.organizationId,

@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   boolean,
   index,
+  integer,
   jsonb,
   pgEnum,
   pgTable,
@@ -121,7 +122,57 @@ export const savedViews = pgTable(
   ],
 );
 
+export const organizationAuditEvents = pgTable(
+  "organization_audit_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    actorUserId: varchar("actor_user_id").references(() => usersTable.id, {
+      onDelete: "set null",
+    }),
+    eventType: text("event_type").notNull(),
+    targetType: text("target_type").notNull(),
+    targetId: text("target_id"),
+    metadata: jsonb("metadata")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("idx_organization_audit_events_org_created").on(
+      table.organizationId,
+      table.createdAt,
+    ),
+  ],
+);
+
+export const organizationSettings = pgTable("organization_settings", {
+  organizationId: uuid("organization_id")
+    .primaryKey()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  inAppNotificationsEnabled: boolean("in_app_notifications_enabled")
+    .notNull()
+    .default(true),
+  emailNotificationsEnabled: boolean("email_notifications_enabled")
+    .notNull()
+    .default(false),
+  retentionDays: integer("retention_days"),
+  purgeMode: text("purge_mode").notNull().default("manual"),
+  updatedByUserId: varchar("updated_by_user_id").references(() => usersTable.id, {
+    onDelete: "set null",
+  }),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
+});
+
 export type Organization = typeof organizations.$inferSelect;
 export type OrganizationMembership = typeof organizationMemberships.$inferSelect;
 export type OrganizationRole = OrganizationMembership["role"];
 export type SavedView = typeof savedViews.$inferSelect;
+export type OrganizationAuditEvent = typeof organizationAuditEvents.$inferSelect;
+export type OrganizationSettings = typeof organizationSettings.$inferSelect;

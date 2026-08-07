@@ -35,7 +35,14 @@ import { cn } from "@/lib/utils"
 const MAX_FILE_SIZE = 100 * 1024 * 1024
 const RECOVERY_KEY = "complete-iq-intake-recovery-v1"
 
-type UploadStage = "queued" | "uploading" | "extracting" | "auditing" | "ready" | "error"
+type UploadStage =
+  | "queued"
+  | "uploading"
+  | "extracting"
+  | "auditing"
+  | "ready"
+  | "error"
+  | "cancelled"
 
 interface UploadItem {
   id: string
@@ -46,6 +53,7 @@ interface UploadItem {
   claimId?: string
   jobId?: string
   claimNumber?: string
+  duplicate?: boolean
   error?: string
 }
 
@@ -56,6 +64,7 @@ const stageCopy: Record<UploadStage, string> = {
   auditing: "Automatic carrier audit",
   ready: "Ready for review",
   error: "Attention required",
+  cancelled: "Processing cancelled",
 }
 
 function readRecoveryQueue(): UploadItem[] {
@@ -87,6 +96,7 @@ export function UploadClaimsDialog({
   const queryClient = useQueryClient()
   const inputRef = useRef<HTMLInputElement>(null)
   const resumedRef = useRef(new Set<string>())
+  const cancelledRef = useRef(new Set<string>())
   const [open, setOpen] = useState(initialOpen)
   const [dragging, setDragging] = useState(false)
   const [carrier, setCarrier] = useState("")
@@ -124,7 +134,10 @@ export function UploadClaimsDialog({
       const recoverable = queue
         .filter(
           (item) =>
-            item.claimId && item.stage !== "ready" && item.stage !== "error",
+            item.claimId
+            && item.stage !== "ready"
+            && item.stage !== "error"
+            && item.stage !== "cancelled",
         )
         .map(({ id, fileName, claimId, jobId, stage }) => ({
           id,
@@ -193,6 +206,7 @@ export function UploadClaimsDialog({
             }
           }
         } catch (error) {
+          if (cancelledRef.current.has(itemId)) return
           updateItem(itemId, {
             stage: "error",
             error: apiErrorMessage(error, "Processing failed."),
@@ -223,6 +237,7 @@ export function UploadClaimsDialog({
           claimId,
           jobId: result.job.id,
           claimNumber: result.claim?.claimNumber,
+          duplicate: result.duplicate === true,
         })
         await waitForCompletion(item.id, claimId)
       } catch (error) {
@@ -271,6 +286,7 @@ export function UploadClaimsDialog({
   }
 
   const retryItem = async (item: UploadItem) => {
+    cancelledRef.current.delete(item.id)
     updateItem(item.id, { error: undefined })
     if (item.claimId) {
       try {
@@ -283,6 +299,25 @@ export function UploadClaimsDialog({
       return
     }
     await ingestItem({ ...item, stage: "queued" })
+  }
+
+  const cancelItem = async (item: UploadItem) => {
+    if (!item.jobId) return
+    cancelledRef.current.add(item.id)
+    try {
+      await api.cancelJob(item.jobId)
+      updateItem(item.id, {
+        stage: "cancelled",
+        error: undefined,
+      })
+      await refreshClaims()
+    } catch (error) {
+      cancelledRef.current.delete(item.id)
+      updateItem(item.id, {
+        stage: "error",
+        error: apiErrorMessage(error, "The processing job could not be cancelled."),
+      })
+    }
   }
 
   const queuedCount = queue.filter((item) => item.stage === "queued").length
@@ -406,7 +441,7 @@ export function UploadClaimsDialog({
                         "flex h-8 w-8 items-center justify-center rounded-md",
                         item.stage === "ready"
                           ? "bg-[var(--ciq-verified-soft)] text-[var(--ciq-verified)]"
-                          : item.stage === "error"
+                          : item.stage === "error" || item.stage === "cancelled"
                             ? "bg-[var(--ciq-critical-soft)] text-[var(--ciq-critical)]"
                             : "bg-[var(--ciq-info-soft)] text-[var(--ciq-info)]",
                       )}
@@ -424,7 +459,7 @@ export function UploadClaimsDialog({
                         {item.claimNumber || item.fileName}
                       </strong>
                       <span className="mt-0.5 block text-[0.68rem] text-[var(--ciq-ink-muted)]">
-                        {item.error || stageCopy[item.stage]}
+                        {item.error || (item.duplicate ? "Existing matching intake resumed" : stageCopy[item.stage])}
                         {item.size ? ` · ${(item.size / 1024 / 1024).toFixed(1)} MB` : ""}
                       </span>
                     </span>
@@ -434,7 +469,17 @@ export function UploadClaimsDialog({
                           <Link href={`/claims/${item.claimId}`}>Review</Link>
                         </Button>
                       )}
-                      {item.stage === "error" && (
+                      {["extracting", "auditing"].includes(item.stage) && item.jobId && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => void cancelItem(item)}
+                          aria-label={`Cancel processing for ${item.fileName}`}
+                        >
+                          <X aria-hidden="true" />
+                        </Button>
+                      )}
+                      {(item.stage === "error" || item.stage === "cancelled") && (
                         <Button
                           variant="ghost"
                           size="icon"
@@ -444,7 +489,12 @@ export function UploadClaimsDialog({
                           <RotateCcw aria-hidden="true" />
                         </Button>
                       )}
-                      {(item.stage === "queued" || item.stage === "ready" || item.stage === "error") && (
+                      {(
+                        item.stage === "queued"
+                        || item.stage === "ready"
+                        || item.stage === "error"
+                        || item.stage === "cancelled"
+                      ) && (
                         <Button
                           variant="ghost"
                           size="icon"

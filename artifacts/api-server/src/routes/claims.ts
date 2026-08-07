@@ -7,9 +7,12 @@ import {
   claimActivity,
   claims,
   documents,
+  organizationMemberships,
+  usersTable,
 } from "@workspace/db";
-import { and, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, ilike, or, sql, type SQL } from "drizzle-orm";
 import { ListClaimsResponse, GetClaimDetailResponse } from "@workspace/api-zod";
+import { z } from "zod";
 import { getCurrentAuthorizedAudit } from "../lib/authorization";
 import { requireAuth } from "../middlewares/requireAuth";
 import { requireOrganizationPermission } from "../middlewares/organizationContext";
@@ -18,6 +21,19 @@ import logger from "../lib/logger";
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const firstParam = (value: string | string[] | undefined): string =>
   Array.isArray(value) ? (value[0] ?? "") : (value ?? "");
+export const claimsQueueQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(20),
+  search: z.coerce.string().trim().max(200).default(""),
+  carrier: z.coerce.string().trim().max(100).default("all"),
+  status: z.coerce.string().trim().max(40).default("all"),
+  risk: z.coerce.string().trim().max(40).default("all"),
+  readiness: z.coerce.string().trim().max(40).default("all"),
+  preset: z
+    .enum(["all", "mine", "review", "processing", "risk", "exceptions", "custom"])
+    .default("all"),
+  sort: z.enum(["received", "claim", "carrier", "score"]).default("received"),
+});
 
 function mapClaim(c: any) {
   return {
@@ -130,6 +146,190 @@ router.get(
     logger.error({ err }, "Error listing claims");
     res.status(500).json({ error: "Failed to list claims" });
   }
+  },
+);
+
+router.get(
+  "/claims/queue",
+  requireAuth,
+  requireOrganizationPermission("claims:read"),
+  async (req, res) => {
+    try {
+      const organizationId = req.organization!.organizationId;
+      const parsedQuery = claimsQueueQuerySchema.safeParse(req.query);
+      if (!parsedQuery.success) {
+        res.status(400).json({
+          error: "Invalid claims queue query",
+          details: parsedQuery.error.flatten(),
+        });
+        return;
+      }
+      const {
+        page,
+        pageSize,
+        search,
+        carrier,
+        status,
+        preset,
+        sort,
+      } = parsedQuery.data;
+      const risk = parsedQuery.data.risk.toUpperCase();
+      const readiness = parsedQuery.data.readiness.toUpperCase();
+
+      const conditions: SQL[] = [eq(claims.organizationId, organizationId)];
+      if (search) {
+        const searchCondition = or(
+          ilike(claims.claimNumber, `%${search}%`),
+          ilike(claims.insuredName, `%${search}%`),
+          ilike(claims.carrier, `%${search}%`),
+          ilike(claims.policyNumber, `%${search}%`),
+        );
+        if (searchCondition) conditions.push(searchCondition);
+      }
+      if (carrier !== "all") conditions.push(eq(claims.carrier, carrier));
+      if (status !== "all") {
+        conditions.push(
+          sql`coalesce(${claims.systemStatus}::text, ${claims.status}::text) = ${status}`,
+        );
+      }
+      if (risk !== "ALL") {
+        conditions.push(sql`upper(coalesce(${audits.riskLevel}, '')) = ${risk}`);
+      }
+      if (readiness !== "ALL") {
+        conditions.push(
+          sql`replace(upper(coalesce(${audits.approvalStatus}, '')), ' ', '_') = ${readiness}`,
+        );
+      }
+      if (preset === "review") {
+        conditions.push(sql`(
+          ${claims.humanReviewStatus} in ('pending', 'in_review', 'changes_requested')
+          or upper(coalesce(${audits.approvalStatus}, '')) = 'REVIEW'
+        )`);
+      } else if (preset === "processing") {
+        conditions.push(sql`(
+          ${claims.systemStatus} = 'processing'
+          or ${claims.aiStatus} in ('queued', 'running')
+          or ${claims.status} in ('processing', 'pending')
+        )`);
+      } else if (preset === "risk") {
+        conditions.push(sql`upper(coalesce(${audits.riskLevel}, '')) = 'HIGH'`);
+      } else if (preset === "exceptions") {
+        conditions.push(sql`(
+          ${claims.systemStatus} = 'error'
+          or ${claims.aiStatus} = 'failed'
+          or ${claims.status} = 'error'
+          or upper(coalesce(${audits.approvalStatus}, '')) = 'REVIEW'
+          or upper(coalesce(${audits.riskLevel}, '')) = 'HIGH'
+        )`);
+      } else if (preset === "mine") {
+        conditions.push(eq(claims.assigneeUserId, req.user!.id));
+      }
+
+      let orderBy: SQL;
+      if (sort === "claim") orderBy = asc(claims.claimNumber);
+      else if (sort === "carrier") orderBy = asc(claims.carrier);
+      else if (sort === "score") orderBy = sql`${audits.overallScore} DESC NULLS LAST`;
+      else orderBy = sql`${claims.createdAt} DESC NULLS LAST`;
+
+      const [rows, [countRow], carrierRows] = await Promise.all([
+        db
+          .select({
+            claim: claims,
+            overallScore: audits.overallScore,
+            riskLevel: audits.riskLevel,
+            approvalStatus: audits.approvalStatus,
+          })
+          .from(claims)
+          .leftJoin(audits, eq(claims.currentAuditId, audits.id))
+          .where(and(...conditions))
+          .orderBy(orderBy)
+          .limit(pageSize)
+          .offset((page - 1) * pageSize),
+        db
+          .select({ total: sql<number>`count(*)::int` })
+          .from(claims)
+          .leftJoin(audits, eq(claims.currentAuditId, audits.id))
+          .where(and(...conditions)),
+        db
+          .selectDistinct({ carrier: claims.carrier })
+          .from(claims)
+          .where(eq(claims.organizationId, organizationId))
+          .orderBy(asc(claims.carrier)),
+      ]);
+
+      const mapped = rows.map((row) => ({
+        ...mapClaim(row.claim),
+        overallScore:
+          row.overallScore == null ? null : Number(row.overallScore),
+        riskLevel: row.riskLevel,
+        approvalStatus: row.approvalStatus,
+      }));
+      const items = ListClaimsResponse.parse(mapped).map((claim, index) => ({
+        ...claim,
+        ownerUserId: mapped[index]?.ownerUserId,
+        assigneeUserId: mapped[index]?.assigneeUserId,
+        systemStatus: mapped[index]?.systemStatus,
+        aiStatus: mapped[index]?.aiStatus,
+        humanReviewStatus: mapped[index]?.humanReviewStatus,
+        overallScore: mapped[index]?.overallScore,
+        riskLevel: mapped[index]?.riskLevel,
+        approvalStatus: mapped[index]?.approvalStatus,
+      }));
+
+      res.json({
+        items,
+        total: countRow.total,
+        page,
+        pageSize,
+        facets: {
+          carriers: carrierRows
+            .map((row) => row.carrier)
+            .filter((value): value is string => Boolean(value)),
+        },
+      });
+    } catch (err) {
+      logger.error({ err }, "Error loading claims queue");
+      res.status(500).json({ error: "Failed to load claims queue" });
+    }
+  },
+);
+
+router.get(
+  "/claims/assignees",
+  requireAuth,
+  requireOrganizationPermission("claims:read"),
+  async (req, res) => {
+    try {
+      const rows = await db
+        .select({
+          userId: organizationMemberships.userId,
+          role: organizationMemberships.role,
+          firstName: usersTable.firstName,
+          lastName: usersTable.lastName,
+        })
+        .from(organizationMemberships)
+        .innerJoin(usersTable, eq(usersTable.id, organizationMemberships.userId))
+        .where(
+          eq(
+            organizationMemberships.organizationId,
+            req.organization!.organizationId,
+          ),
+        )
+        .orderBy(asc(usersTable.firstName), asc(usersTable.lastName));
+
+      res.json({
+        assignees: rows.map((row) => ({
+          userId: row.userId,
+          role: row.role,
+          name:
+            [row.firstName, row.lastName].filter(Boolean).join(" ").trim()
+            || "Organization member",
+        })),
+      });
+    } catch (err) {
+      logger.error({ err }, "Error loading claim assignees");
+      res.status(500).json({ error: "Failed to load claim assignees" });
+    }
   },
 );
 

@@ -66,6 +66,12 @@ router.post(
         });
         return;
       }
+      if (file.buffer.subarray(0, 5).toString("ascii") !== "%PDF-") {
+        res.status(415).json({
+          error: "Only valid PDF claim packages are accepted.",
+        });
+        return;
+      }
 
       const sourceHash = createHash("sha256").update(file.buffer).digest("hex");
       const requestedCarrier =
@@ -107,7 +113,7 @@ router.post(
       uploadedStoragePath = await uploadFile(
         file.buffer,
         file.originalname,
-        file.mimetype,
+        "application/pdf",
         organization.organizationId,
       );
 
@@ -159,7 +165,7 @@ router.post(
             sourceSha256: sourceHash,
             metadata: {
               fileName: file.originalname,
-              contentType: file.mimetype,
+              contentType: "application/pdf",
               storagePath: uploadedStoragePath,
               size: file.size,
             },

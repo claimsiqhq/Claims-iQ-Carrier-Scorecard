@@ -1,201 +1,1587 @@
-openapi: 3.1.0
+openapi: 3.0.3
 info:
   title: Api
-  version: 0.1.0
-  description: Claims iQ Audit API
+  version: 1.0.0
+  description: |
+    Typed contract for the Complete iQ Carrier Audit API.
+
+    Authenticated requests use the `sid` HTTP-only session cookie. The optional
+    `X-Organization-Id` header selects one of the caller's organization
+    memberships; otherwise the default (or earliest) membership is used.
+    Organization-scoped lookups deliberately return `404` when a resource
+    belongs to another tenant so that cross-tenant identifiers are not
+    disclosed.
+
+    Job-enqueueing operations that accept `X-Idempotency-Key` scope that value
+    to the selected organization and operation inputs. Repeating an equivalent
+    request returns the existing durable processing job and sets `duplicate`
+    to `true` when that field is present.
 servers:
   - url: /api
-    description: Base API path
+    description: Application API
+security:
+  - cookieAuth: []
 tags:
-  - name: health
-    description: Health operations
-  - name: claims
-    description: Claims operations
+  - name: Health
+    description: Service health and operational metrics.
+  - name: Authentication
+    description: Session lifecycle and current organization context.
+  - name: Dashboard
+    description: Organization-scoped dashboard aggregates.
+  - name: Claims
+    description: Claim records and current audit detail.
+  - name: Workflow
+    description: Assignment, human review, findings, activity, and saved views.
+  - name: Intake
+    description: Claim-file intake and processing state.
+  - name: Jobs
+    description: Durable processing jobs and attempts.
+  - name: Audits
+    description: Asynchronous carrier-audit execution.
+  - name: Documents
+    description: Authorized document registration, extraction, and delivery.
+  - name: Carriers
+    description: Carrier choices and administrator-managed rulesets.
+  - name: Settings
+    description: Administrator-managed audit prompt settings.
+  - name: Email
+    description: Audit email preview and delivery.
+  - name: Webhooks
+    description: Root-mounted callbacks from trusted external services.
+  - name: Administration
+    description: Session-protected operational and global administration endpoints.
+
 paths:
   /healthz:
     get:
-      operationId: healthCheck
-      tags: [health]
-      summary: Health check
+      operationId: getHealth
+      tags: [Health]
+      summary: Check service health
+      description: Checks database connectivity and returns `503` when a dependency is degraded.
+      security: []
       responses:
         "200":
-          description: Healthy
+          description: All health checks passed.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+        "503":
+          description: One or more health checks failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /metrics:
+    get:
+      operationId: getMetrics
+      tags: [Health, Administration]
+      summary: Read in-memory request metrics
+      description: Returns per-route request counts, average latency, and error counts for this process.
+      parameters:
+        - $ref: "#/components/parameters/OrganizationId"
+      responses:
+        "200":
+          description: Current process-local route metrics.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RequestMetrics"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /auth/user:
+    get:
+      operationId: getAuthSession
+      tags: [Authentication]
+      summary: Get the current session
+      description: "Returns `user: null` when no valid session cookie is present."
+      security:
+        - {}
+        - cookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/OrganizationId"
+      responses:
+        "200":
+          description: Current user and selected organization context, if authenticated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthSession"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /auth/login:
+    post:
+      operationId: login
+      tags: [Authentication]
+      summary: Create a session
+      description: |
+        Validates credentials and sets the HTTP-only `sid` cookie (`Secure`
+        outside development). Failed sign-in attempts are limited to 10 per
+        15 minutes; successful requests do not count against that limiter.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Credentials accepted and session created.
+          headers:
+            Set-Cookie:
+              description: HTTP-only session cookie, marked Secure outside development.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /auth/logout:
+    post:
+      operationId: logout
+      tags: [Authentication]
+      summary: Clear the current session
+      description: Deletes the server-side session when present and clears the `sid` cookie.
+      security:
+        - {}
+        - cookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/OrganizationId"
+      responses:
+        "200":
+          description: Session cleared or no session was present.
+          headers:
+            Set-Cookie:
+              description: Expired session cookie.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Success"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /dashboard:
+    get:
+      operationId: getDashboard
+      tags: [Dashboard]
+      summary: Get dashboard aggregates
+      description: Requires the `claims:read` organization permission.
+      parameters:
+        - $ref: "#/components/parameters/OrganizationId"
+      responses:
+        "200":
+          description: Organization-scoped claim, score, carrier, and finding aggregates.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Dashboard"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /insights:
+    get:
+      operationId: getInsights
+      tags: [Dashboard]
+      summary: Get organization quality and workflow insights
+      description: Requires the `claims:read` organization permission.
+      parameters:
+        - $ref: "#/components/parameters/OrganizationId"
+      responses:
+        "200":
+          description: Carrier, reviewer, scoring, evidence, and processing-quality aggregates.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Insights"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
 
   /claims:
     get:
       operationId: listClaims
-      tags: [claims]
-      summary: List all claims
+      tags: [Claims]
+      summary: List claims
+      description: |
+        Returns claims in descending creation order for the selected organization.
+        Requires `claims:read`. Pagination is offset-based and the response is a
+        bare array; the active route does not return a total count.
+      parameters:
+        - $ref: "#/components/parameters/OrganizationId"
+        - $ref: "#/components/parameters/ClaimsLimit"
+        - $ref: "#/components/parameters/Offset"
       responses:
         "200":
-          description: List of claims
+          description: Page of claim summaries.
           content:
             application/json:
               schema:
                 type: array
                 items:
                   $ref: "#/components/schemas/Claim"
-
-  /claims/{id}:
-    get:
-      operationId: getClaimDetail
-      tags: [claims]
-      summary: Get a single claim with documents and audit
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    post:
+      operationId: createClaim
+      tags: [Claims]
+      summary: Create a claim record
+      description: Creates a pending claim without uploading a source file. Requires `claims:create`.
       parameters:
-        - name: id
-          in: path
-          required: true
+        - $ref: "#/components/parameters/OrganizationId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateClaimRequest"
+      responses:
+        "201":
+          description: Claim created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Claim"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /claims/queue:
+    get:
+      operationId: getClaimsQueue
+      tags: [Claims]
+      summary: Query the operational claims queue
+      description: |
+        Returns an organization-scoped, server-filtered and sorted page for the
+        operational queue. Requires `claims:read`.
+      parameters:
+        - $ref: "#/components/parameters/OrganizationId"
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 1, default: 1 }
+        - name: pageSize
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - name: search
+          in: query
+          schema: { type: string, maxLength: 200 }
+        - name: carrier
+          in: query
+          schema: { type: string, default: all }
+        - name: status
+          in: query
+          schema: { type: string, default: all }
+        - name: risk
+          in: query
+          schema: { type: string, default: all }
+        - name: readiness
+          in: query
+          schema: { type: string, default: all }
+        - name: preset
+          in: query
           schema:
             type: string
-            format: uuid
+            enum: [all, mine, review, processing, risk, exceptions, custom]
+            default: all
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [received, claim, carrier, score]
+            default: received
       responses:
         "200":
-          description: Claim with documents, audit, scores, and findings
+          description: Filtered operational queue page and available carrier facets.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClaimsQueueResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /claims/assignees:
+    get:
+      operationId: listClaimAssignees
+      tags: [Claims]
+      summary: List available claim assignees
+      description: Returns organization members available for claim assignment. Requires `claims:read`.
+      parameters:
+        - $ref: "#/components/parameters/OrganizationId"
+      responses:
+        "200":
+          description: Organization-scoped assignment directory.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClaimAssigneesResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /claims/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ClaimId"
+      - $ref: "#/components/parameters/OrganizationId"
+    get:
+      operationId: getClaimDetail
+      tags: [Claims]
+      summary: Get claim detail
+      description: |
+        Returns the claim, authorized documents, and the latest audit. Requires
+        `claims:read`. A claim owned by another organization is reported as not found.
+      responses:
+        "200":
+          description: Claim detail with current audit when available.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ClaimDetail"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
-          description: Claim not found
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    delete:
+      operationId: archiveClaim
+      tags: [Claims]
+      summary: Archive a claim
+      description: |
+        Marks the claim and system workflow as archived while retaining append-only
+        audit provenance. Requires `claims:delete`; this is not a physical deletion.
+      responses:
+        "200":
+          description: Claim archived.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Success"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
 
-  /storage/uploads/request-url:
-    post:
-      tags: [Storage]
-      operationId: requestUploadUrl
-      summary: Request a presigned URL for file upload
+  /claims/{id}/assignment:
+    patch:
+      operationId: updateClaimAssignment
+      tags: [Workflow]
+      summary: Assign or unassign a claim
+      description: |
+        Requires `claims:assign`. The assignee must be a member of the selected
+        organization; a cross-tenant or unknown assignee is reported as not found.
+      parameters:
+        - $ref: "#/components/parameters/ClaimId"
+        - $ref: "#/components/parameters/OrganizationId"
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/UploadUrlRequest'
+              $ref: "#/components/schemas/UpdateAssignmentRequest"
       responses:
-        '200':
-          description: Presigned upload URL generated.
+        "200":
+          description: Updated assignment and resulting review status.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/UploadUrlResponse'
-        '400':
-          description: Missing or invalid required fields.
+                $ref: "#/components/schemas/Assignment"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /claims/{id}/review-status:
+    patch:
+      operationId: updateClaimReviewStatus
+      tags: [Workflow]
+      summary: Update human review status
+      description: Requires `findings:review`.
+      parameters:
+        - $ref: "#/components/parameters/ClaimId"
+        - $ref: "#/components/parameters/OrganizationId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateReviewStatusRequest"
+      responses:
+        "200":
+          description: Updated human review status.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorEnvelope'
-        '500':
-          description: Failed to generate upload URL.
+                $ref: "#/components/schemas/ReviewStatus"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /claims/{id}/findings/{findingId}:
+    patch:
+      operationId: updateClaimFinding
+      tags: [Workflow]
+      summary: Review an audit finding
+      description: |
+        Updates disposition and reviewer notes. `overrideReason` is required when
+        disposition is `overridden`. Requires `findings:review`.
+      parameters:
+        - $ref: "#/components/parameters/ClaimId"
+        - $ref: "#/components/parameters/FindingId"
+        - $ref: "#/components/parameters/OrganizationId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateFindingRequest"
+      responses:
+        "200":
+          description: Updated finding review fields.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorEnvelope'
+                $ref: "#/components/schemas/FindingReview"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /claims/{id}/activity:
+    get:
+      operationId: listClaimActivity
+      tags: [Workflow]
+      summary: List claim activity
+      description: Returns newest activity first. Requires `claims:read`.
+      parameters:
+        - $ref: "#/components/parameters/ClaimId"
+        - $ref: "#/components/parameters/OrganizationId"
+        - $ref: "#/components/parameters/ActivityLimit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: Page of claim activity.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClaimActivityPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /saved-views:
+    get:
+      operationId: listSavedViews
+      tags: [Workflow]
+      summary: List the current user's saved views
+      description: Requires `views:manage`; results are scoped to the selected organization and current user.
+      parameters:
+        - $ref: "#/components/parameters/OrganizationId"
+        - name: resourceType
+          in: query
+          required: false
+          description: Resource family to list.
+          schema:
+            type: string
+            default: claims
+      responses:
+        "200":
+          description: Saved views ordered by default status and name.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SavedViewPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    post:
+      operationId: createSavedView
+      tags: [Workflow]
+      summary: Create a saved view
+      description: |
+        Requires `views:manage`. Setting `isDefault` clears the default flag on
+        the current user's other views for the same resource type.
+      parameters:
+        - $ref: "#/components/parameters/OrganizationId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSavedViewRequest"
+      responses:
+        "201":
+          description: Saved view created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SavedView"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /saved-views/{viewId}:
+    parameters:
+      - $ref: "#/components/parameters/SavedViewId"
+      - $ref: "#/components/parameters/OrganizationId"
+    put:
+      operationId: updateSavedView
+      tags: [Workflow]
+      summary: Update a saved view
+      description: Requires `views:manage`; only the owning user in the selected organization can update it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateSavedViewRequest"
+      responses:
+        "200":
+          description: Saved view updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SavedView"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    delete:
+      operationId: deleteSavedView
+      tags: [Workflow]
+      summary: Delete a saved view
+      description: Requires `views:manage`; only the owning user in the selected organization can delete it.
+      responses:
+        "200":
+          description: Saved view deleted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Success"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /ingest:
+    post:
+      operationId: ingestClaimFile
+      tags: [Intake, Jobs]
+      summary: Upload and enqueue a claim file
+      description: |
+        Stores a file, creates a processing claim and document, and enqueues an
+        `ingest` job. Requires `claims:create`. The idempotency identity includes
+        the selected organization, file SHA-256, requested carrier, and optional
+        caller key. Equivalent requests return the existing job with
+        `duplicate: true`.
+      parameters:
+        - $ref: "#/components/parameters/OrganizationId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/IngestRequest"
+      responses:
+        "202":
+          description: File accepted and durable processing job created or reused.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IngestResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /claims/{id}/processing-status:
+    get:
+      operationId: getClaimProcessingStatus
+      tags: [Intake, Jobs]
+      summary: Get the latest claim processing status
+      description: |
+        Requires `jobs:read`. Maps the latest durable job to the frontend
+        `processing`, `error`, or `ready` state.
+      parameters:
+        - $ref: "#/components/parameters/ClaimId"
+        - $ref: "#/components/parameters/OrganizationId"
+      responses:
+        "200":
+          description: Current claim workflow and latest job state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProcessingStatus"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /claims/{id}/retry:
+    post:
+      operationId: retryClaimProcessing
+      tags: [Intake, Jobs]
+      summary: Retry claim processing
+      description: |
+        Requires `jobs:retry`. A latest failed, degraded, or cancelled job is
+        reset in place; otherwise an equivalent retry job is created or reused.
+        `X-Idempotency-Key` participates when a new retry job is needed.
+      parameters:
+        - $ref: "#/components/parameters/ClaimId"
+        - $ref: "#/components/parameters/OrganizationId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "202":
+          description: Retry queued or an active equivalent job returned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnqueueJobResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /claims/{id}/reprocess:
+    post:
+      operationId: reprocessClaim
+      tags: [Intake, Jobs]
+      summary: Reprocess a claim with a carrier
+      description: |
+        Requires `audits:run`. Enqueues or reuses a `reprocess` job for the latest
+        claim-file document. The idempotency identity includes the carrier and
+        either `X-Idempotency-Key` or the current successful audit identity.
+      parameters:
+        - $ref: "#/components/parameters/ClaimId"
+        - $ref: "#/components/parameters/OrganizationId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReprocessClaimRequest"
+      responses:
+        "202":
+          description: Reprocessing queued or an equivalent active job returned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnqueueJobResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /claims/{id}/audit:
+    post:
+      operationId: enqueueClaimAudit
+      tags: [Audits, Jobs]
+      summary: Enqueue a carrier audit
+      description: |
+        Requires `audits:run`. Returns immediately with a durable `audit` job.
+        Idempotency is scoped to the organization, claim, latest document, and
+        either `X-Idempotency-Key` or the claim's current audit identity. Audit
+        requests are limited to 10 per 15 minutes.
+      parameters:
+        - $ref: "#/components/parameters/ClaimId"
+        - $ref: "#/components/parameters/OrganizationId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "202":
+          description: Audit job queued or an equivalent job returned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnqueueJobResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /claims/{id}/processing-jobs:
+    get:
+      operationId: listClaimProcessingJobs
+      tags: [Jobs]
+      summary: List processing jobs for a claim
+      description: Returns newest jobs first. Requires `jobs:read`.
+      parameters:
+        - $ref: "#/components/parameters/ClaimId"
+        - $ref: "#/components/parameters/OrganizationId"
+        - $ref: "#/components/parameters/JobsLimit"
+      responses:
+        "200":
+          description: Processing jobs for the claim.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProcessingJobPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /processing-jobs/{jobId}:
+    get:
+      operationId: getProcessingJob
+      tags: [Jobs]
+      summary: Get a durable processing job
+      description: |
+        Returns the organization-scoped job and all attempts, newest attempt
+        first. Requires `jobs:read`; cross-tenant job IDs return `404`.
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+        - $ref: "#/components/parameters/OrganizationId"
+      responses:
+        "200":
+          description: Job state and attempt history.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProcessingJobDetail"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /processing-jobs/{jobId}/cancel:
+    post:
+      operationId: cancelProcessingJob
+      tags: [Jobs]
+      summary: Cancel a processing job
+      description: Requires `jobs:cancel`. Only queued or running jobs can be cancelled.
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+        - $ref: "#/components/parameters/OrganizationId"
+      responses:
+        "200":
+          description: Job cancelled.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProcessingJobEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /processing-jobs/{jobId}/retry:
+    post:
+      operationId: retryProcessingJob
+      tags: [Jobs]
+      summary: Retry a terminal processing job
+      description: Requires `jobs:retry`. Only failed, degraded, or cancelled jobs can be reset to queued.
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+        - $ref: "#/components/parameters/OrganizationId"
+      responses:
+        "202":
+          description: Existing durable job reset and queued.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProcessingJobEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
 
   /claims/{id}/documents:
     post:
-      operationId: uploadClaimDocument
-      tags: [claims]
-      summary: Register an uploaded document to a claim
+      operationId: createClaimDocument
+      tags: [Documents]
+      summary: Register an uploaded claim document
+      description: |
+        Associates an organization-owned storage path with a claim. Upload the
+        bytes through `/storage/upload` first. Requires `claims:update`.
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
+        - $ref: "#/components/parameters/ClaimId"
+        - $ref: "#/components/parameters/OrganizationId"
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CreateDocumentRequest'
+              $ref: "#/components/schemas/CreateDocumentRequest"
       responses:
-        '201':
-          description: Document registered
+        "201":
+          description: Document registered.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Document'
-        '400':
-          description: Invalid request
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorEnvelope'
+                $ref: "#/components/schemas/CreatedDocument"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
 
   /claims/{id}/documents/{docId}:
     delete:
       operationId: deleteClaimDocument
-      tags: [claims]
-      summary: Delete a document from a claim
+      tags: [Documents]
+      summary: Delete a claim document
+      description: |
+        Requires `claims:update`. Deletion returns `409` when append-only audit
+        evidence still references the document.
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-        - name: docId
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
+        - $ref: "#/components/parameters/ClaimId"
+        - $ref: "#/components/parameters/DocumentId"
+        - $ref: "#/components/parameters/OrganizationId"
       responses:
-        '200':
-          description: Document deleted
+        "200":
+          description: Document metadata and eligible stored object deleted.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SuccessEnvelope'
-        '404':
-          description: Document not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorEnvelope'
+                $ref: "#/components/schemas/Success"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
 
   /claims/{id}/documents/{docId}/extract:
     post:
-      operationId: extractDocumentText
-      tags: [claims]
-      summary: Extract text from an uploaded document (PDF)
+      operationId: extractClaimDocument
+      tags: [Documents, Jobs]
+      summary: Enqueue document text extraction
+      description: |
+        Requires `claims:update`. Idempotency is scoped to the organization,
+        claim, document, source hash, and either `X-Idempotency-Key` or the
+        document's current update timestamp.
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-        - name: docId
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
+        - $ref: "#/components/parameters/ClaimId"
+        - $ref: "#/components/parameters/DocumentId"
+        - $ref: "#/components/parameters/OrganizationId"
+        - $ref: "#/components/parameters/IdempotencyKey"
       responses:
-        '200':
-          description: Text extracted
+        "202":
+          description: Extraction job queued or an equivalent job returned.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ExtractTextResponse'
-        '404':
-          description: Document not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorEnvelope'
+                $ref: "#/components/schemas/EnqueueJobResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
 
-  /claims/{id}/email/send:
-    post:
-      operationId: sendAuditEmail
-      tags: [claims]
-      summary: Send audit email via SendGrid
+  /documents/{documentId}/download:
+    get:
+      operationId: downloadDocument
+      tags: [Documents]
+      summary: Download an authorized document
+      description: Requires `claims:read`; cross-tenant document IDs return `404`.
       parameters:
-        - name: id
+        - $ref: "#/components/parameters/DocumentIdPath"
+        - $ref: "#/components/parameters/OrganizationId"
+      responses:
+        "200":
+          description: Raw document bytes using the stored content type when available.
+          headers:
+            Content-Length:
+              schema:
+                type: integer
+                format: int64
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /documents/{documentId}/signed-url:
+    get:
+      operationId: getDocumentSignedUrl
+      tags: [Documents]
+      summary: Create an authorized document signed URL
+      description: Requires `claims:read`; the returned URL expires after one hour.
+      parameters:
+        - $ref: "#/components/parameters/DocumentIdPath"
+        - $ref: "#/components/parameters/OrganizationId"
+      responses:
+        "200":
+          description: Time-limited document URL.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SignedUrl"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /storage/download/{storagePath}:
+    get:
+      operationId: downloadStorageObject
+      tags: [Documents]
+      summary: Download an authorized object by storage path
+      description: |
+        Legacy catch-all download route. `storagePath` may contain `/` path
+        separators and must match a document in the selected organization.
+        Prefer the document-ID route for generated clients.
+      parameters:
+        - $ref: "#/components/parameters/StoragePath"
+        - $ref: "#/components/parameters/OrganizationId"
+      responses:
+        "200":
+          description: Raw stored bytes.
+          headers:
+            Content-Length:
+              schema:
+                type: integer
+                format: int64
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /storage/signed-url/{storagePath}:
+    get:
+      operationId: getStorageObjectSignedUrl
+      tags: [Documents]
+      summary: Create a signed URL by storage path
+      description: |
+        Legacy catch-all signing route. `storagePath` may contain `/` path
+        separators and must match a document in the selected organization.
+      parameters:
+        - $ref: "#/components/parameters/StoragePath"
+        - $ref: "#/components/parameters/OrganizationId"
+      responses:
+        "200":
+          description: Time-limited object URL.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LegacySignedUrl"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /claims/{id}/download:
+    get:
+      operationId: downloadClaimAuditCsv
+      tags: [Claims, Audits]
+      summary: Download the current audit as CSV
+      description: Requires `claims:read`; returns `404` until the claim has a current audit.
+      parameters:
+        - $ref: "#/components/parameters/ClaimId"
+        - $ref: "#/components/parameters/OrganizationId"
+      responses:
+        "200":
+          description: Generated audit report.
+          headers:
+            Content-Disposition:
+              description: Attachment filename derived from the claim number.
+              schema:
+                type: string
+          content:
+            text/csv:
+              schema:
+                type: string
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /carriers:
+    get:
+      operationId: listActiveCarriers
+      tags: [Carriers]
+      summary: List active carrier choices
+      description: Authenticated carrier choices used by intake and reprocessing interfaces.
+      responses:
+        "200":
+          description: Active carriers.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CarrierOption"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /carriers/all:
+    get:
+      operationId: listCarriers
+      tags: [Carriers, Administration]
+      summary: List all carrier rulesets
+      description: Returns active and inactive global carrier rulesets. Requires global `admin`.
+      parameters:
+        - $ref: "#/components/parameters/OrganizationId"
+      responses:
+        "200":
+          description: All carrier ruleset records.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CarrierProfile"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /carriers/{key}:
+    parameters:
+      - $ref: "#/components/parameters/CarrierKey"
+      - $ref: "#/components/parameters/OrganizationId"
+    get:
+      operationId: getCarrier
+      tags: [Carriers]
+      summary: Get a carrier ruleset
+      description: Returns one global carrier ruleset. Requires global `admin`.
+      responses:
+        "200":
+          description: Carrier ruleset.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CarrierProfile"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    put:
+      operationId: upsertCarrier
+      tags: [Carriers, Administration]
+      summary: Create a governed carrier ruleset version
+      description: |
+        Requires global `admin`. A false `active` value creates an immutable draft
+        version; true creates and explicitly publishes a validated version while
+        preserving the prior publication.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpsertCarrierRequest"
+      responses:
+        "200":
+          description: Carrier ruleset stored.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CarrierVersionMutationResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    delete:
+      operationId: deleteCarrier
+      tags: [Carriers, Administration]
+      summary: Deactivate a carrier ruleset
+      description: Requires global `admin`; publication history is preserved.
+      responses:
+        "200":
+          description: Carrier ruleset deactivated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CarrierDeactivationResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /carriers/{key}/versions:
+    get:
+      operationId: listCarrierVersions
+      tags: [Carriers, Administration]
+      summary: List immutable carrier ruleset versions
+      description: Requires global `admin`.
+      parameters:
+        - $ref: "#/components/parameters/CarrierKey"
+        - $ref: "#/components/parameters/OrganizationId"
+      responses:
+        "200":
+          description: Version history and current-organization impact count.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CarrierVersionHistory"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /carriers/{key}/versions/{versionId}/publish:
+    post:
+      operationId: publishCarrierVersion
+      tags: [Carriers, Administration]
+      summary: Approve and publish a draft ruleset version
+      description: Requires global `admin`; validates the persisted draft before publication.
+      parameters:
+        - $ref: "#/components/parameters/CarrierKey"
+        - $ref: "#/components/parameters/OrganizationId"
+        - $ref: "#/components/parameters/CarrierVersionId"
+      responses:
+        "200":
+          description: Published version.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CarrierVersionResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /carriers/{key}/versions/{versionId}/rollback:
+    post:
+      operationId: rollbackCarrierVersion
+      tags: [Carriers, Administration]
+      summary: Restore a historical publication as a new version
+      description: Requires global `admin`; prior versions remain immutable.
+      parameters:
+        - $ref: "#/components/parameters/CarrierKey"
+        - $ref: "#/components/parameters/OrganizationId"
+        - $ref: "#/components/parameters/CarrierVersionId"
+      responses:
+        "200":
+          description: Newly created rollback publication.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CarrierVersionResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /carriers/{key}/test:
+    post:
+      operationId: testCarrierVersion
+      tags: [Carriers, Administration]
+      summary: Run deterministic representative-claim ruleset preflight
+      description: |
+        Requires global `admin` and `claims:read`. This does not call the AI
+        provider and does not mutate the representative claim.
+      parameters:
+        - $ref: "#/components/parameters/CarrierKey"
+        - $ref: "#/components/parameters/OrganizationId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CarrierPreflightRequest"
+      responses:
+        "200":
+          description: Ruleset compatibility and coverage result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CarrierPreflightResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /settings/overview:
+    get:
+      operationId: getSettingsOverview
+      tags: [Settings, Administration]
+      summary: Get organization administration overview
+      description: Requires `settings:manage` in the selected organization.
+      parameters:
+        - $ref: "#/components/parameters/OrganizationId"
+      responses:
+        "200":
+          description: Members, integration readiness, security policy, retention, and audit history.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SettingsOverview"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /settings/organization:
+    put:
+      operationId: updateOrganizationSettings
+      tags: [Settings, Administration]
+      summary: Update organization notification and retention policy
+      description: Requires `settings:manage`. This records policy only and does not delete retained data.
+      parameters:
+        - $ref: "#/components/parameters/OrganizationId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OrganizationSettingsInput"
+      responses:
+        "200":
+          description: Updated organization settings row.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrganizationSettings"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /settings/members/{membershipId}:
+    patch:
+      operationId: updateOrganizationMemberRole
+      tags: [Settings, Administration]
+      summary: Update an organization member role
+      description: Requires `settings:manage`; privileged role changes require an organization owner.
+      parameters:
+        - $ref: "#/components/parameters/OrganizationId"
+        - name: membershipId
           in: path
           required: true
           schema:
@@ -206,60 +1592,472 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/SendEmailRequest'
+              type: object
+              required: [role]
+              properties:
+                role:
+                  $ref: "#/components/schemas/OrganizationRole"
+              additionalProperties: false
       responses:
-        '200':
-          description: Email sent
+        "200":
+          description: Updated membership.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SuccessEnvelope'
-        '400':
-          description: Missing recipient
+                $ref: "#/components/schemas/OrganizationMemberRole"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /settings/prompts:
+    get:
+      operationId: getPromptSettings
+      tags: [Settings, Administration]
+      summary: Get audit prompt settings
+      description: Requires `settings:manage`; organization defaults are returned when no overrides are stored.
+      parameters:
+        - $ref: "#/components/parameters/OrganizationId"
+      responses:
+        "200":
+          description: Effective audit prompts.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorEnvelope'
-        '500':
-          description: Failed to send
+                $ref: "#/components/schemas/PromptSettings"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    put:
+      operationId: updatePromptSettings
+      tags: [Settings, Administration]
+      summary: Replace audit prompt settings
+      description: |
+        Requires `settings:manage`. Both prompts must be non-empty, and
+        `user_prompt_template` must include all required question and report placeholders.
+      parameters:
+        - $ref: "#/components/parameters/OrganizationId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PromptSettings"
+      responses:
+        "200":
+          description: Prompt overrides stored.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorEnvelope'
+                $ref: "#/components/schemas/Success"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /settings/prompts/reset:
+    post:
+      operationId: resetPromptSettings
+      tags: [Settings, Administration]
+      summary: Reset audit prompts
+      description: Deletes organization-scoped overrides and returns built-in defaults. Requires `settings:manage`.
+      parameters:
+        - $ref: "#/components/parameters/OrganizationId"
+      responses:
+        "200":
+          description: Prompt settings reset.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResetPromptSettingsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /claims/{id}/email:
+    get:
+      operationId: previewAuditEmail
+      tags: [Email]
+      summary: Preview the current audit email
+      description: Requires `claims:read`; returns `404` until the claim has a persisted audit response.
+      parameters:
+        - $ref: "#/components/parameters/ClaimId"
+        - $ref: "#/components/parameters/OrganizationId"
+      responses:
+        "200":
+          description: Rendered HTML email.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmailPreview"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /claims/{id}/email/send:
+    post:
+      operationId: sendAuditEmail
+      tags: [Email]
+      summary: Send the current audit email
+      description: |
+        Requires `email:send` and a persisted audit. Delivery is limited to
+        10 requests per hour.
+      parameters:
+        - $ref: "#/components/parameters/ClaimId"
+        - $ref: "#/components/parameters/OrganizationId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendEmailRequest"
+      responses:
+        "200":
+          description: Email sent.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Success"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /email/inbound:
+    post:
+      operationId: receiveInboundEmail
+      tags: [Webhooks]
+      summary: Acknowledge a SendGrid inbound email
+      description: |
+        Root-mounted SendGrid Inbound Parse callback (outside `/api`). A valid
+        query token is required. The route acknowledges accepted payloads with
+        plain-text `ok` before asynchronously resolving the sender's organization,
+        extracting a report, running the carrier scorecard audit, and sending a
+        reply. A `200` acknowledgement does not guarantee asynchronous processing
+        success. The generated browser and Zod clients exclude this operation
+        because it uses a different server base.
+      servers:
+        - url: /
+          description: Root-mounted external webhook
+      security:
+        - inboundToken: []
+      parameters:
+        - name: X-Request-Id
+          in: header
+          required: false
+          description: Optional caller correlation ID; the server creates one when omitted.
+          schema:
+            type: string
+        - name: token
+          in: query
+          required: true
+          description: Shared Inbound Parse callback token.
+          schema:
+            type: string
+            minLength: 1
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/InboundEmailRequest"
+      responses:
+        "200":
+          description: Payload acknowledged and asynchronous processing scheduled.
+          content:
+            text/plain:
+              schema:
+                type: string
+                enum: [ok]
+        "401":
+          description: Callback token is invalid.
+          content:
+            text/plain:
+              schema:
+                type: string
+                enum: [unauthorized]
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          description: Inbound parsing is disabled because no callback token is configured.
+          content:
+            text/plain:
+              schema:
+                type: string
 
 components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: sid
+      description: HTTP-only server session cookie, marked Secure outside development.
+    inboundToken:
+      type: apiKey
+      in: query
+      name: token
+      description: Shared secret configured for the SendGrid Inbound Parse callback.
+
+  parameters:
+    OrganizationId:
+      name: X-Organization-Id
+      in: header
+      required: false
+      description: |
+        Organization membership to use for this request. Omit to use the
+        caller's default membership. An inaccessible value returns `403`.
+      schema:
+        type: string
+        format: uuid
+    IdempotencyKey:
+      name: X-Idempotency-Key
+      in: header
+      required: false
+      description: |
+        Caller-provided idempotency key. It is combined with organization and
+        operation-specific inputs; equivalent requests reuse the durable job.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 255
+    ClaimId:
+      name: id
+      in: path
+      required: true
+      description: Claim identifier.
+      schema:
+        type: string
+        format: uuid
+    FindingId:
+      name: findingId
+      in: path
+      required: true
+      description: Audit finding identifier.
+      schema:
+        type: string
+        format: uuid
+    DocumentId:
+      name: docId
+      in: path
+      required: true
+      description: Claim document identifier.
+      schema:
+        type: string
+        format: uuid
+    DocumentIdPath:
+      name: documentId
+      in: path
+      required: true
+      description: Document identifier.
+      schema:
+        type: string
+        format: uuid
+    JobId:
+      name: jobId
+      in: path
+      required: true
+      description: Durable processing job identifier.
+      schema:
+        type: string
+        format: uuid
+    SavedViewId:
+      name: viewId
+      in: path
+      required: true
+      description: Saved view identifier.
+      schema:
+        type: string
+        format: uuid
+    CarrierKey:
+      name: key
+      in: path
+      required: true
+      description: Stable normalized carrier key.
+      schema:
+        type: string
+        minLength: 1
+    CarrierVersionId:
+      name: versionId
+      in: path
+      required: true
+      description: Immutable carrier ruleset version identifier.
+      schema:
+        type: string
+        format: uuid
+    StoragePath:
+      name: storagePath
+      in: path
+      required: true
+      description: Organization-prefixed storage path; may contain `/`.
+      schema:
+        type: string
+        minLength: 1
+    ClaimsLimit:
+      name: limit
+      in: query
+      required: false
+      description: Maximum claims to return.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 100
+    ActivityLimit:
+      name: limit
+      in: query
+      required: false
+      description: Maximum activity records to return.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 100
+    JobsLimit:
+      name: limit
+      in: query
+      required: false
+      description: Maximum jobs to return.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    Offset:
+      name: offset
+      in: query
+      required: false
+      description: Zero-based record offset.
+      schema:
+        type: integer
+        minimum: 0
+        default: 0
+
+  responses:
+    BadRequest:
+      description: Request parameters or body failed route validation.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unauthorized:
+      description: A valid session or organization membership is required.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Forbidden:
+      description: The caller lacks the selected organization or required permission.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: |
+        Resource not found in the selected organization. Organization-scoped
+        routes use this response for cross-tenant identifiers.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Conflict:
+      description: The resource state does not permit the requested transition.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    PayloadTooLarge:
+      description: Uploaded content exceeds the route limit.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    TooManyRequests:
+      description: Request rate limit exceeded.
+      headers:
+        RateLimit-Limit:
+          schema:
+            type: integer
+        RateLimit-Remaining:
+          schema:
+            type: integer
+        RateLimit-Reset:
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    InternalServerError:
+      description: The server could not complete the request.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
   schemas:
-    UploadUrlRequest:
+    Error:
       type: object
-      required: [name, size, contentType]
-      properties:
-        name:
-          type: string
-        size:
-          type: integer
-        contentType:
-          type: string
-
-    UploadUrlResponse:
-      type: object
-      required: [uploadURL, objectPath]
-      properties:
-        uploadURL:
-          type: string
-          format: uri
-        objectPath:
-          type: string
-        metadata:
-          $ref: '#/components/schemas/UploadUrlRequest'
-
-    ErrorEnvelope:
-      type: object
+      description: Shared JSON error payload.
       required: [error]
       properties:
         error:
           type: string
+          description: Human-readable error message.
+        code:
+          type: string
+          description: Optional stable machine-readable code.
+        details:
+          description: Optional structured diagnostic context.
+          nullable: true
+        requestId:
+          type: string
+          description: Optional request correlation identifier.
+      additionalProperties: false
 
-    SuccessEnvelope:
+    Success:
       type: object
       required: [success]
       properties:
@@ -267,47 +2065,181 @@ components:
           type: boolean
         message:
           type: string
+      additionalProperties: false
 
-    CreateDocumentRequest:
-      type: object
-      required: [type, objectPath, fileName]
-      properties:
-        type:
-          type: string
-        objectPath:
-          type: string
-        fileName:
-          type: string
-        contentType:
-          type: string
+    HealthCheckState:
+      type: string
+      enum: [ok, error]
 
-    ExtractTextResponse:
-      type: object
-      required: [documentId, extractedLength]
-      properties:
-        documentId:
-          type: string
-        extractedLength:
-          type: integer
-        preview:
-          type: string
-
-    SendEmailRequest:
-      type: object
-      required: [to]
-      properties:
-        to:
-          type: string
-          format: email
-        subject:
-          type: string
     HealthStatus:
       type: object
+      required: [status, checks]
       properties:
         status:
           type: string
-      required:
-        - status
+          enum: [ok, degraded]
+        checks:
+          type: object
+          required: [database]
+          properties:
+            database:
+              $ref: "#/components/schemas/HealthCheckState"
+          additionalProperties:
+            $ref: "#/components/schemas/HealthCheckState"
+      additionalProperties: false
+
+    RouteMetric:
+      type: object
+      required: [count, avgMs, errors]
+      properties:
+        count:
+          type: integer
+          minimum: 0
+        avgMs:
+          type: integer
+          minimum: 0
+        errors:
+          type: integer
+          minimum: 0
+      additionalProperties: false
+
+    RequestMetrics:
+      type: object
+      additionalProperties:
+        $ref: "#/components/schemas/RouteMetric"
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 1
+          format: password
+      additionalProperties: false
+
+    AuthUser:
+      type: object
+      required: [id, email, firstName, lastName, profileImageUrl, role]
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+          format: email
+          nullable: true
+        firstName:
+          type: string
+          nullable: true
+        lastName:
+          type: string
+          nullable: true
+        profileImageUrl:
+          type: string
+          nullable: true
+        role:
+          type: string
+      additionalProperties: false
+
+    OrganizationRole:
+      type: string
+      enum: [owner, admin, auditor, reviewer, member, viewer]
+
+    OrganizationPermission:
+      type: string
+      enum:
+        - claims:read
+        - claims:create
+        - claims:update
+        - claims:delete
+        - claims:assign
+        - audits:run
+        - findings:review
+        - jobs:read
+        - jobs:cancel
+        - jobs:retry
+        - views:manage
+        - settings:manage
+        - email:send
+
+    AuthOrganization:
+      type: object
+      required: [id, name, role, permissions]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        role:
+          $ref: "#/components/schemas/OrganizationRole"
+        permissions:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: "#/components/schemas/OrganizationPermission"
+      additionalProperties: false
+
+    AuthSession:
+      type: object
+      required: [user]
+      properties:
+        user:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/AuthUser"
+        organization:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/AuthOrganization"
+      additionalProperties: false
+
+    LoginResponse:
+      type: object
+      required: [user]
+      properties:
+        user:
+          $ref: "#/components/schemas/AuthUser"
+      additionalProperties: false
+
+    ClaimStatus:
+      type: string
+      enum: [processing, pending, analyzed, approved, denied, error, archived]
+
+    SystemWorkflowStatus:
+      type: string
+      enum: [uploaded, processing, ready, error, archived]
+
+    AiWorkflowStatus:
+      type: string
+      enum: [not_started, queued, running, succeeded, degraded, failed, cancelled]
+
+    HumanReviewStatus:
+      type: string
+      enum: [unassigned, pending, in_review, approved, changes_requested]
+
+    FindingDisposition:
+      type: string
+      enum: [open, accepted, dismissed, remediated, overridden]
+
+    ProcessingJobType:
+      type: string
+      enum: [ingest, audit, retry, reprocess, extract]
+
+    ProcessingJobStatus:
+      type: string
+      enum: [queued, running, succeeded, degraded, failed, cancelled]
+
+    ProcessingJobStage:
+      type: string
+      enum: [uploaded, scanning, extracting, auditing, degraded, completed, failed, cancelled]
+
+    ProcessingAttemptStatus:
+      type: string
+      enum: [running, succeeded, degraded, failed, cancelled, lease_expired]
 
     Claim:
       type: object
@@ -315,27 +2247,147 @@ components:
       properties:
         id:
           type: string
+          format: uuid
         claimNumber:
           type: string
         insuredName:
           type: string
         carrier:
           type: string
+          nullable: true
         dateOfLoss:
           type: string
+          nullable: true
         status:
+          $ref: "#/components/schemas/ClaimStatus"
+        policyNumber:
           type: string
+          nullable: true
+        lossType:
+          type: string
+          nullable: true
+        propertyAddress:
+          type: string
+          nullable: true
+        adjuster:
+          type: string
+          nullable: true
+        totalClaimAmount:
+          type: string
+          nullable: true
+        deductible:
+          type: string
+          nullable: true
+        summary:
+          type: string
+          nullable: true
+        ownerUserId:
+          type: string
+          nullable: true
+        assigneeUserId:
+          type: string
+          nullable: true
+        systemStatus:
+          $ref: "#/components/schemas/SystemWorkflowStatus"
+        aiStatus:
+          $ref: "#/components/schemas/AiWorkflowStatus"
+        humanReviewStatus:
+          $ref: "#/components/schemas/HumanReviewStatus"
         createdAt:
           type: string
+          format: date-time
+          nullable: true
+        overallScore:
+          type: number
+          nullable: true
+        riskLevel:
+          type: string
+          nullable: true
+        approvalStatus:
+          type: string
+          nullable: true
+      additionalProperties: false
 
-    Document:
+    ClaimsQueueResponse:
+      type: object
+      required: [items, total, page, pageSize, facets]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Claim"
+        total:
+          type: integer
+          minimum: 0
+        page:
+          type: integer
+          minimum: 1
+        pageSize:
+          type: integer
+          minimum: 1
+          maximum: 100
+        facets:
+          type: object
+          required: [carriers]
+          properties:
+            carriers:
+              type: array
+              items:
+                type: string
+          additionalProperties: false
+      additionalProperties: false
+
+    ClaimAssigneesResponse:
+      type: object
+      required: [assignees]
+      properties:
+        assignees:
+          type: array
+          items:
+            type: object
+            required: [userId, name, role]
+            properties:
+              userId:
+                type: string
+              name:
+                type: string
+              role:
+                type: string
+            additionalProperties: false
+      additionalProperties: false
+
+    CreateClaimRequest:
+      type: object
+      required: [claimNumber, insuredName]
+      properties:
+        claimNumber:
+          type: string
+          minLength: 1
+        insuredName:
+          type: string
+          minLength: 1
+        carrier:
+          type: string
+          nullable: true
+        dateOfLoss:
+          type: string
+          nullable: true
+      additionalProperties: false
+
+    DocumentMetadata:
+      type: object
+      additionalProperties: true
+
+    ClaimDocument:
       type: object
       required: [id, claimId, type]
       properties:
         id:
           type: string
+          format: uuid
         claimId:
           type: string
+          format: uuid
         type:
           type: string
         fileUrl:
@@ -343,33 +2395,265 @@ components:
         extractedText:
           type: string
         metadata:
-          type: object
+          $ref: "#/components/schemas/DocumentMetadata"
         createdAt:
           type: string
+          format: date-time
+      additionalProperties: false
 
-    AuditSection:
+    AuditAnswer:
+      type: string
+      enum: [PASS, PARTIAL, FAIL, NOT_APPLICABLE]
+
+    ScorecardQuestion:
       type: object
-      required: [id, auditId, section, score]
+      required: [id, answer, points_awarded, points_possible, root_issue, issue, impact, fix, evidence_locations, confidence]
       properties:
         id:
           type: string
+        answer:
+          $ref: "#/components/schemas/AuditAnswer"
+        points_awarded:
+          type: number
+        points_possible:
+          type: number
+        root_issue:
+          type: string
+        issue:
+          type: string
+        impact:
+          type: string
+        fix:
+          type: string
+        evidence_locations:
+          type: array
+          items:
+            type: string
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 100
+      additionalProperties: false
+
+    ScorecardCategory:
+      type: object
+      required: [category_key, category_name, points_awarded, points_possible, questions]
+      properties:
+        category_key:
+          type: string
+        category_name:
+          type: string
+        points_awarded:
+          type: number
+        points_possible:
+          type: number
+        questions:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScorecardQuestion"
+      additionalProperties: false
+
+    RootIssueGroup:
+      type: object
+      required: [root_issue, affects, issue, fix, impact, evidence_locations]
+      properties:
+        root_issue:
+          type: string
+        affects:
+          type: array
+          items:
+            type: string
+        issue:
+          type: string
+        fix:
+          type: string
+        impact:
+          type: string
+        evidence_locations:
+          type: array
+          items:
+            type: string
+      additionalProperties: false
+
+    AuditIssue:
+      type: object
+      required: [source_scorecard, category_key, question_key, root_issue, severity, issue, impact, fix, evidence_locations]
+      properties:
+        source_scorecard:
+          type: string
+          enum: [DA, FA]
+        category_key:
+          type: string
+        question_key:
+          type: string
+        root_issue:
+          type: string
+        severity:
+          type: string
+        issue:
+          type: string
+        impact:
+          type: string
+        fix:
+          type: string
+        evidence_locations:
+          type: array
+          items:
+            type: string
+      additionalProperties: false
+
+    ValidationSeverity:
+      type: string
+      enum: [critical, warning, info]
+
+    ValidationCheck:
+      type: object
+      required: [key, severity, message]
+      properties:
+        key:
+          type: string
+        severity:
+          $ref: "#/components/schemas/ValidationSeverity"
+        message:
+          type: string
+      additionalProperties: false
+
+    VisionToolReading:
+      type: object
+      required: [page_number, tool_type, reading_value, reading_unit, material_or_location]
+      properties:
+        page_number:
+          type: integer
+          minimum: 1
+        tool_type:
+          type: string
+        tool_model:
+          type: string
+        reading_value:
+          type: string
+        reading_unit:
+          type: string
+        material_or_location:
+          type: string
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 100
+      additionalProperties: true
+
+    VisionDamageVerification:
+      type: object
+      required: [page_number, caption_claim, damage_visible]
+      properties:
+        page_number:
+          type: integer
+          minimum: 1
+        caption_claim:
+          type: string
+        damage_visible:
+          type: boolean
+        damage_type:
+          type: string
+        discrepancy:
+          type: string
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 100
+      additionalProperties: true
+
+    VisionDiagnosticsSummary:
+      type: object
+      properties:
+        moisture_readings_found:
+          type: integer
+          minimum: 0
+        thermal_readings_found:
+          type: integer
+          minimum: 0
+        laser_readings_found:
+          type: integer
+          minimum: 0
+        captions_verified:
+          type: integer
+          minimum: 0
+        captions_with_discrepancy:
+          type: integer
+          minimum: 0
+      additionalProperties: true
+
+    VisionAnalysis:
+      type: object
+      properties:
+        analyzed_pages:
+          type: array
+          items:
+            type: integer
+            minimum: 1
+        total_photo_pages:
+          type: integer
+          minimum: 0
+        tool_readings:
+          type: array
+          items:
+            $ref: "#/components/schemas/VisionToolReading"
+        damage_verifications:
+          type: array
+          items:
+            $ref: "#/components/schemas/VisionDamageVerification"
+        photo_sequence_valid:
+          type: boolean
+        sequence_issues:
+          type: array
+          items:
+            type: string
+        diagnostics_summary:
+          $ref: "#/components/schemas/VisionDiagnosticsSummary"
+      additionalProperties: true
+
+    AuditSection:
+      type: object
+      required: [id, auditId, section, score, max, reasoning]
+      properties:
+        id:
+          type: string
+          format: uuid
         auditId:
           type: string
+          format: uuid
         section:
           type: string
         score:
           type: number
+        max:
+          type: number
         reasoning:
           type: string
+      additionalProperties: false
 
     AuditFinding:
       type: object
-      required: [id, auditId, type, severity, title, description]
+      required:
+        - id
+        - auditId
+        - type
+        - severity
+        - title
+        - description
+        - category
+        - sourceDocumentId
+        - disposition
+        - overrideReason
+        - reviewNotes
+        - reviewedByUserId
+        - reviewedAt
       properties:
         id:
           type: string
+          format: uuid
         auditId:
           type: string
+          format: uuid
         type:
           type: string
         severity:
@@ -380,27 +2664,170 @@ components:
           type: string
         category:
           type: string
+        answer:
+          type: string
+        issue:
+          type: string
+        impact:
+          type: string
+        fix:
+          type: string
+        evidence_locations:
+          type: array
+          items:
+            type: string
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 100
+        scorecard:
+          type: string
+          enum: [DA, FA]
+        category_key:
+          type: string
+        points_awarded:
+          type: number
+        points_possible:
+          type: number
+        sourceDocumentId:
+          type: string
+          format: uuid
+          nullable: true
+        disposition:
+          $ref: "#/components/schemas/FindingDisposition"
+        overrideReason:
+          type: string
+          nullable: true
+        reviewNotes:
+          type: string
+          nullable: true
+        reviewedByUserId:
+          type: string
+          nullable: true
+        reviewedAt:
+          type: string
+          format: date-time
+          nullable: true
+      additionalProperties: false
 
     AuditResult:
       type: object
-      required: [id, claimId, overallScore, technicalScore, presentationScore, riskLevel, approvalStatus, executiveSummary, sections, findings]
+      required:
+        - id
+        - claimId
+        - overallScore
+        - daScore
+        - daPointsAwarded
+        - daPointsPossible
+        - denialLetterApplicable
+        - faScore
+        - faPointsAwarded
+        - faPointsPossible
+        - readiness
+        - technicalRisk
+        - failedCount
+        - partialCount
+        - passedCount
+        - warningCount
+        - actionRequiredCount
+        - executiveSummary
+        - technicalScore
+        - technicalMax
+        - presentationScore
+        - presentationMax
+        - totalMax
+        - riskLevel
+        - approvalStatus
+        - daCategories
+        - faCategories
+        - rootIssueGroups
+        - issues
+        - validationChecks
+        - visionAnalysis
+        - sections
+        - findings
       properties:
         id:
           type: string
+          format: uuid
         claimId:
           type: string
+          format: uuid
         overallScore:
           type: number
+        daScore:
+          type: number
+        daPointsAwarded:
+          type: number
+        daPointsPossible:
+          type: number
+        denialLetterApplicable:
+          type: boolean
+        faScore:
+          type: number
+        faPointsAwarded:
+          type: number
+        faPointsPossible:
+          type: number
+        readiness:
+          type: string
+        technicalRisk:
+          type: string
+        failedCount:
+          type: integer
+          minimum: 0
+        partialCount:
+          type: integer
+          minimum: 0
+        passedCount:
+          type: integer
+          minimum: 0
+        warningCount:
+          type: integer
+          minimum: 0
+        actionRequiredCount:
+          type: integer
+          minimum: 0
+        executiveSummary:
+          type: string
         technicalScore:
           type: number
+        technicalMax:
+          type: number
         presentationScore:
+          type: number
+        presentationMax:
+          type: number
+        totalMax:
           type: number
         riskLevel:
           type: string
         approvalStatus:
           type: string
-        executiveSummary:
-          type: string
+        daCategories:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScorecardCategory"
+        faCategories:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScorecardCategory"
+        rootIssueGroups:
+          type: array
+          items:
+            $ref: "#/components/schemas/RootIssueGroup"
+        issues:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuditIssue"
+        validationChecks:
+          type: array
+          items:
+            $ref: "#/components/schemas/ValidationCheck"
+        visionAnalysis:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/VisionAnalysis"
         sections:
           type: array
           items:
@@ -409,6 +2836,10 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AuditFinding"
+        versionNumber:
+          type: integer
+          minimum: 1
+      additionalProperties: false
 
     ClaimDetail:
       type: object
@@ -419,6 +2850,1445 @@ components:
         documents:
           type: array
           items:
-            $ref: "#/components/schemas/Document"
+            $ref: "#/components/schemas/ClaimDocument"
         audit:
           $ref: "#/components/schemas/AuditResult"
+      additionalProperties: false
+
+    DashboardStats:
+      type: object
+      required:
+        - totalClaims
+        - analyzedCount
+        - pendingCount
+        - avgScore
+        - backlogCount
+        - dollarsAtRisk
+        - averageAgeDays
+        - completedLast7Days
+        - openFindingCount
+      properties:
+        totalClaims:
+          type: integer
+          minimum: 0
+        analyzedCount:
+          type: integer
+          minimum: 0
+        pendingCount:
+          type: integer
+          minimum: 0
+        avgScore:
+          type: integer
+          nullable: true
+        backlogCount:
+          type: integer
+          minimum: 0
+        dollarsAtRisk:
+          type: string
+          description: Decimal currency value represented as a string.
+        averageAgeDays:
+          type: integer
+          minimum: 0
+        completedLast7Days:
+          type: integer
+          minimum: 0
+        openFindingCount:
+          type: integer
+          minimum: 0
+      additionalProperties: false
+
+    NamedCountScore:
+      type: object
+      required: [name, count, avgScore]
+      properties:
+        name:
+          type: string
+        count:
+          type: integer
+          minimum: 0
+        avgScore:
+          type: integer
+          nullable: true
+      additionalProperties: false
+
+    CountDistribution:
+      type: object
+      additionalProperties:
+        type: integer
+        minimum: 0
+
+    Dashboard:
+      type: object
+      required:
+        - stats
+        - riskDistribution
+        - approvalDistribution
+        - carriers
+        - findingSeverity
+        - recentClaims
+        - recentActivity
+      properties:
+        stats:
+          $ref: "#/components/schemas/DashboardStats"
+        riskDistribution:
+          $ref: "#/components/schemas/CountDistribution"
+        approvalDistribution:
+          $ref: "#/components/schemas/CountDistribution"
+        carriers:
+          type: array
+          items:
+            $ref: "#/components/schemas/NamedCountScore"
+        findingSeverity:
+          $ref: "#/components/schemas/CountDistribution"
+        recentClaims:
+          type: array
+          items:
+            $ref: "#/components/schemas/Claim"
+        recentActivity:
+          type: array
+          items:
+            $ref: "#/components/schemas/DashboardActivity"
+      additionalProperties: false
+
+    DashboardActivity:
+      type: object
+      required: [id, type, claimId, claimNumber, metadata, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+        claimId:
+          type: string
+          format: uuid
+        claimNumber:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+        createdAt:
+          type: string
+          format: date-time
+      additionalProperties: false
+
+    InsightsSummary:
+      type: object
+      required:
+        - reviewAgreementRate
+        - overrideRate
+        - processingSuccessRate
+        - citationMappingRate
+        - averageLatencySeconds
+        - runCount
+        - degradedCount
+        - failedCount
+      properties:
+        reviewAgreementRate:
+          type: number
+          nullable: true
+        overrideRate:
+          type: number
+          nullable: true
+        processingSuccessRate:
+          type: number
+          nullable: true
+        citationMappingRate:
+          type: number
+          nullable: true
+        averageLatencySeconds:
+          type: integer
+          nullable: true
+        runCount:
+          type: integer
+          minimum: 0
+        degradedCount:
+          type: integer
+          minimum: 0
+        failedCount:
+          type: integer
+          minimum: 0
+      additionalProperties: false
+
+    CarrierPerformance:
+      type: object
+      required: [name, claimCount, averageScore, dollarsAtRisk]
+      properties:
+        name:
+          type: string
+        claimCount:
+          type: integer
+          minimum: 0
+        averageScore:
+          type: integer
+          nullable: true
+        dollarsAtRisk:
+          type: string
+      additionalProperties: false
+
+    ReviewerPerformance:
+      type: object
+      required:
+        - userId
+        - label
+        - assignedCount
+        - approvedCount
+        - changesRequestedCount
+        - averageScore
+      properties:
+        userId:
+          type: string
+          nullable: true
+        label:
+          type: string
+        assignedCount:
+          type: integer
+          minimum: 0
+        approvedCount:
+          type: integer
+          minimum: 0
+        changesRequestedCount:
+          type: integer
+          minimum: 0
+        averageScore:
+          type: integer
+          nullable: true
+      additionalProperties: false
+
+    ScoreDistribution:
+      type: object
+      required: [bucket, count]
+      properties:
+        bucket:
+          type: string
+        count:
+          type: integer
+          minimum: 0
+      additionalProperties: false
+
+    RootCause:
+      type: object
+      required: [label, severity, count]
+      properties:
+        label:
+          type: string
+        severity:
+          type: string
+        count:
+          type: integer
+          minimum: 0
+      additionalProperties: false
+
+    WorkflowDistribution:
+      type: object
+      required: [status, count, averageAgeDays]
+      properties:
+        status:
+          $ref: "#/components/schemas/HumanReviewStatus"
+        count:
+          type: integer
+          minimum: 0
+        averageAgeDays:
+          type: integer
+          minimum: 0
+      additionalProperties: false
+
+    Insights:
+      type: object
+      required:
+        - summary
+        - carrierPerformance
+        - reviewerPerformance
+        - scoreDistribution
+        - rootCauses
+        - workflowDistribution
+      properties:
+        summary:
+          $ref: "#/components/schemas/InsightsSummary"
+        carrierPerformance:
+          type: array
+          items:
+            $ref: "#/components/schemas/CarrierPerformance"
+        reviewerPerformance:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReviewerPerformance"
+        scoreDistribution:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScoreDistribution"
+        rootCauses:
+          type: array
+          items:
+            $ref: "#/components/schemas/RootCause"
+        workflowDistribution:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkflowDistribution"
+      additionalProperties: false
+
+    UpdateAssignmentRequest:
+      type: object
+      required: [assigneeUserId]
+      properties:
+        assigneeUserId:
+          type: string
+          nullable: true
+      additionalProperties: false
+
+    Assignment:
+      type: object
+      required: [assigneeUserId, humanReviewStatus]
+      properties:
+        assigneeUserId:
+          type: string
+          nullable: true
+        humanReviewStatus:
+          $ref: "#/components/schemas/HumanReviewStatus"
+      additionalProperties: false
+
+    UpdateReviewStatusRequest:
+      type: object
+      required: [status]
+      properties:
+        status:
+          $ref: "#/components/schemas/HumanReviewStatus"
+      additionalProperties: false
+
+    ReviewStatus:
+      type: object
+      required: [humanReviewStatus]
+      properties:
+        humanReviewStatus:
+          $ref: "#/components/schemas/HumanReviewStatus"
+      additionalProperties: false
+
+    UpdateFindingRequest:
+      type: object
+      properties:
+        disposition:
+          $ref: "#/components/schemas/FindingDisposition"
+        overrideReason:
+          type: string
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+      additionalProperties: false
+
+    FindingReview:
+      type: object
+      required: [id, disposition, overrideReason, reviewNotes, reviewedByUserId, reviewedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        disposition:
+          $ref: "#/components/schemas/FindingDisposition"
+        overrideReason:
+          type: string
+          nullable: true
+        reviewNotes:
+          type: string
+          nullable: true
+        reviewedByUserId:
+          type: string
+          nullable: true
+        reviewedAt:
+          type: string
+          format: date-time
+          nullable: true
+      additionalProperties: false
+
+    ClaimActivity:
+      type: object
+      required: [id, type, actorUserId, metadata, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+        actorUserId:
+          type: string
+          nullable: true
+        metadata:
+          type: object
+          additionalProperties: true
+        createdAt:
+          type: string
+          format: date-time
+      additionalProperties: false
+
+    ClaimActivityPage:
+      type: object
+      required: [activity]
+      properties:
+        activity:
+          type: array
+          items:
+            $ref: "#/components/schemas/ClaimActivity"
+      additionalProperties: false
+
+    SavedView:
+      type: object
+      required:
+        - id
+        - organizationId
+        - userId
+        - name
+        - resourceType
+        - filters
+        - sort
+        - columns
+        - isDefault
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        organizationId:
+          type: string
+          format: uuid
+        userId:
+          type: string
+        name:
+          type: string
+          maxLength: 100
+        resourceType:
+          type: string
+        filters:
+          type: object
+          additionalProperties: true
+        sort:
+          type: object
+          additionalProperties: true
+        columns:
+          type: array
+          nullable: true
+          items:
+            type: string
+        isDefault:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      additionalProperties: false
+
+    SavedViewPage:
+      type: object
+      required: [views]
+      properties:
+        views:
+          type: array
+          items:
+            $ref: "#/components/schemas/SavedView"
+      additionalProperties: false
+
+    CreateSavedViewRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        resourceType:
+          type: string
+          default: claims
+        filters:
+          type: object
+          additionalProperties: true
+        sort:
+          type: object
+          additionalProperties: true
+        columns:
+          type: array
+          nullable: true
+          items:
+            type: string
+        isDefault:
+          type: boolean
+          default: false
+      additionalProperties: false
+
+    UpdateSavedViewRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        filters:
+          type: object
+          additionalProperties: true
+        sort:
+          type: object
+          additionalProperties: true
+        columns:
+          type: array
+          nullable: true
+          items:
+            type: string
+        isDefault:
+          type: boolean
+      additionalProperties: false
+
+    JobError:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          nullable: true
+        message:
+          type: string
+          nullable: true
+      additionalProperties: false
+
+    ProcessingJobSummary:
+      type: object
+      required: [id, status, stage]
+      properties:
+        id:
+          type: string
+          format: uuid
+        claimId:
+          type: string
+          format: uuid
+          nullable: true
+        documentId:
+          type: string
+          format: uuid
+          nullable: true
+        type:
+          $ref: "#/components/schemas/ProcessingJobType"
+        status:
+          $ref: "#/components/schemas/ProcessingJobStatus"
+        stage:
+          $ref: "#/components/schemas/ProcessingJobStage"
+        progress:
+          type: integer
+          minimum: 0
+          maximum: 100
+        attemptCount:
+          type: integer
+          minimum: 0
+        maxAttempts:
+          type: integer
+          minimum: 1
+        error:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/JobError"
+      additionalProperties: false
+
+    ProcessingJob:
+      type: object
+      required:
+        - id
+        - claimId
+        - documentId
+        - type
+        - status
+        - stage
+        - progress
+        - attemptCount
+        - maxAttempts
+        - heartbeatAt
+        - createdAt
+        - startedAt
+        - completedAt
+        - error
+      properties:
+        id:
+          type: string
+          format: uuid
+        claimId:
+          type: string
+          format: uuid
+          nullable: true
+        documentId:
+          type: string
+          format: uuid
+          nullable: true
+        type:
+          $ref: "#/components/schemas/ProcessingJobType"
+        status:
+          $ref: "#/components/schemas/ProcessingJobStatus"
+        stage:
+          $ref: "#/components/schemas/ProcessingJobStage"
+        progress:
+          type: integer
+          minimum: 0
+          maximum: 100
+        attemptCount:
+          type: integer
+          minimum: 0
+        maxAttempts:
+          type: integer
+          minimum: 1
+        heartbeatAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        startedAt:
+          type: string
+          format: date-time
+          nullable: true
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+        error:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/JobError"
+      additionalProperties: false
+
+    ProcessingAttempt:
+      type: object
+      required: [attemptNumber, status, startedAt, completedAt, error]
+      properties:
+        attemptNumber:
+          type: integer
+          minimum: 1
+        status:
+          $ref: "#/components/schemas/ProcessingAttemptStatus"
+        startedAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+        error:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/JobError"
+      additionalProperties: false
+
+    EnqueueJobResponse:
+      type: object
+      required: [job]
+      properties:
+        job:
+          $ref: "#/components/schemas/ProcessingJobSummary"
+        duplicate:
+          type: boolean
+      additionalProperties: false
+
+    ProcessingJobEnvelope:
+      type: object
+      required: [job]
+      properties:
+        job:
+          $ref: "#/components/schemas/ProcessingJob"
+      additionalProperties: false
+
+    ProcessingJobDetail:
+      type: object
+      required: [job, attempts]
+      properties:
+        job:
+          $ref: "#/components/schemas/ProcessingJob"
+        attempts:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProcessingAttempt"
+      additionalProperties: false
+
+    ProcessingJobPage:
+      type: object
+      required: [jobs]
+      properties:
+        jobs:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProcessingJob"
+      additionalProperties: false
+
+    ProcessingDisplayStatus:
+      type: string
+      enum: [processing, error, ready]
+
+    ProcessingStatus:
+      type: object
+      required:
+        - claimId
+        - status
+        - claimNumber
+        - insuredName
+        - carrier
+        - dateOfLoss
+        - systemStatus
+        - aiStatus
+        - humanReviewStatus
+        - job
+      properties:
+        claimId:
+          type: string
+          format: uuid
+        status:
+          $ref: "#/components/schemas/ProcessingDisplayStatus"
+        error:
+          type: string
+          nullable: true
+        claimNumber:
+          type: string
+        insuredName:
+          type: string
+        carrier:
+          type: string
+        dateOfLoss:
+          type: string
+        systemStatus:
+          $ref: "#/components/schemas/SystemWorkflowStatus"
+        aiStatus:
+          $ref: "#/components/schemas/AiWorkflowStatus"
+        humanReviewStatus:
+          $ref: "#/components/schemas/HumanReviewStatus"
+        job:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/ProcessingJobSummary"
+      additionalProperties: false
+
+    IngestRequest:
+      type: object
+      required: [file]
+      properties:
+        file:
+          type: string
+          format: binary
+        carrier:
+          type: string
+      additionalProperties: false
+
+    IngestClaim:
+      type: object
+      required: [id, claimNumber, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        claimNumber:
+          type: string
+        status:
+          $ref: "#/components/schemas/ClaimStatus"
+      additionalProperties: false
+
+    IngestDocument:
+      type: object
+      required: [id, fileName]
+      properties:
+        id:
+          type: string
+          format: uuid
+        fileName:
+          type: string
+      additionalProperties: false
+
+    IngestResponse:
+      type: object
+      required: [job]
+      properties:
+        claim:
+          $ref: "#/components/schemas/IngestClaim"
+        document:
+          $ref: "#/components/schemas/IngestDocument"
+        job:
+          $ref: "#/components/schemas/ProcessingJobSummary"
+        duplicate:
+          type: boolean
+      additionalProperties: false
+
+    ReprocessClaimRequest:
+      type: object
+      required: [carrier]
+      properties:
+        carrier:
+          type: string
+          minLength: 1
+      additionalProperties: false
+
+    CreateDocumentRequest:
+      type: object
+      required: [storagePath, fileName]
+      properties:
+        type:
+          type: string
+          default: claim_file
+        storagePath:
+          type: string
+          minLength: 1
+        fileName:
+          type: string
+          minLength: 1
+        contentType:
+          type: string
+          default: application/octet-stream
+      additionalProperties: false
+
+    CreatedDocument:
+      type: object
+      required: [id, claimId, type]
+      properties:
+        id:
+          type: string
+          format: uuid
+        claimId:
+          type: string
+          format: uuid
+        type:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+      additionalProperties: false
+
+    SignedUrl:
+      type: object
+      required: [url, expiresIn]
+      properties:
+        url:
+          type: string
+          format: uri
+        expiresIn:
+          type: integer
+          minimum: 1
+          description: Lifetime in seconds.
+      additionalProperties: false
+
+    LegacySignedUrl:
+      type: object
+      required: [url]
+      properties:
+        url:
+          type: string
+          format: uri
+      additionalProperties: false
+
+    CarrierOption:
+      type: object
+      required: [key, displayName, logoUrl]
+      properties:
+        key:
+          type: string
+        displayName:
+          type: string
+        logoUrl:
+          type: string
+          nullable: true
+      additionalProperties: false
+
+    CarrierQuestion:
+      type: object
+      required: [id, text, weight, section, scorecard, categoryKey, categoryName]
+      properties:
+        id:
+          type: string
+        text:
+          type: string
+        weight:
+          type: integer
+          minimum: 0
+          maximum: 100
+        weightIfNoDenial:
+          type: integer
+          minimum: 0
+          maximum: 100
+        section:
+          type: string
+        scorecard:
+          type: string
+          enum: [DA, FA]
+        categoryKey:
+          type: string
+        categoryName:
+          type: string
+        applicability:
+          type: string
+        severity:
+          type: string
+          enum: [critical, high, medium, low, info]
+        sourceReference:
+          type: string
+      additionalProperties: false
+
+    CarrierCategory:
+      type: object
+      required: [id, label, max_score]
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+        max_score:
+          type: integer
+          minimum: 1
+      additionalProperties: false
+
+    CarrierRuleset:
+      type: object
+      required: [version, da_questions, fa_questions, scorecard_categories]
+      properties:
+        version:
+          type: string
+        da_questions:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/CarrierQuestion"
+        fa_questions:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/CarrierQuestion"
+        scorecard_categories:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/CarrierCategory"
+        system_prompt_override:
+          type: string
+        carrier_scorecard_prompt_override:
+          type: string
+      additionalProperties: false
+
+    CarrierProfile:
+      type: object
+      required: [id, carrierKey, displayName, logoUrl, active, ruleset, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        carrierKey:
+          type: string
+        displayName:
+          type: string
+        logoUrl:
+          type: string
+          nullable: true
+        active:
+          type: boolean
+        ruleset:
+          $ref: "#/components/schemas/CarrierRuleset"
+        sourceReferences:
+          type: array
+          items:
+            $ref: "#/components/schemas/CarrierSourceReference"
+        changeSummary:
+          type: string
+          nullable: true
+        hasDraft:
+          type: boolean
+        latestVersion:
+          allOf:
+            - $ref: "#/components/schemas/CarrierRulesetVersion"
+          nullable: true
+        publishedVersion:
+          allOf:
+            - $ref: "#/components/schemas/CarrierRulesetVersion"
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+          nullable: true
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true
+      additionalProperties: false
+
+    UpsertCarrierRequest:
+      type: object
+      required: [displayName, logoUrl, active, ruleset, sourceReferences, changeSummary]
+      properties:
+        displayName:
+          type: string
+          minLength: 1
+        logoUrl:
+          type: string
+          nullable: true
+        active:
+          type: boolean
+        ruleset:
+          $ref: "#/components/schemas/CarrierRuleset"
+        sourceReferences:
+          type: array
+          items:
+            $ref: "#/components/schemas/CarrierSourceReference"
+        changeSummary:
+          type: string
+          minLength: 1
+      additionalProperties: false
+
+    CarrierSourceReference:
+      type: object
+      required: [label]
+      properties:
+        label:
+          type: string
+          minLength: 1
+        url:
+          type: string
+          format: uri
+        reference:
+          type: string
+      additionalProperties: false
+
+    CarrierRulesetValidation:
+      type: object
+      required: [errors, warnings]
+      properties:
+        errors:
+          type: array
+          items:
+            type: string
+        warnings:
+          type: array
+          items:
+            type: string
+      additionalProperties: false
+
+    CarrierRulesetVersion:
+      type: object
+      required:
+        - id
+        - carrierKey
+        - versionNumber
+        - versionLabel
+        - status
+        - displayName
+        - logoUrl
+        - ruleset
+        - validation
+        - changeSummary
+        - sourceReferences
+        - createdByUserId
+        - approvedByUserId
+        - supersedesVersionId
+        - createdAt
+        - publishedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        carrierKey:
+          type: string
+        versionNumber:
+          type: integer
+          minimum: 1
+        versionLabel:
+          type: string
+        status:
+          type: string
+          enum: [draft, published, archived]
+        displayName:
+          type: string
+        logoUrl:
+          type: string
+          nullable: true
+        ruleset:
+          $ref: "#/components/schemas/CarrierRuleset"
+        validation:
+          $ref: "#/components/schemas/CarrierRulesetValidation"
+        changeSummary:
+          type: string
+          nullable: true
+        sourceReferences:
+          type: array
+          items:
+            $ref: "#/components/schemas/CarrierSourceReference"
+        createdByUserId:
+          type: string
+          nullable: true
+        approvedByUserId:
+          type: string
+          nullable: true
+        supersedesVersionId:
+          type: string
+          format: uuid
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        publishedAt:
+          type: string
+          format: date-time
+          nullable: true
+      additionalProperties: false
+
+    CarrierVersionHistory:
+      type: object
+      required: [versions, affectedClaimCount]
+      properties:
+        versions:
+          type: array
+          items:
+            $ref: "#/components/schemas/CarrierRulesetVersion"
+        affectedClaimCount:
+          type: integer
+          minimum: 0
+      additionalProperties: false
+
+    CarrierVersionResponse:
+      type: object
+      required: [version]
+      properties:
+        version:
+          $ref: "#/components/schemas/CarrierRulesetVersion"
+      additionalProperties: false
+
+    CarrierVersionMutationResponse:
+      type: object
+      required: [success, version]
+      properties:
+        success:
+          type: boolean
+        version:
+          $ref: "#/components/schemas/CarrierRulesetVersion"
+      additionalProperties: false
+
+    CarrierDeactivationResponse:
+      type: object
+      required: [success, deactivated]
+      properties:
+        success:
+          type: boolean
+        deactivated:
+          type: boolean
+      additionalProperties: false
+
+    CarrierPreflightRequest:
+      type: object
+      required: [claimId]
+      properties:
+        claimId:
+          type: string
+          format: uuid
+        versionId:
+          type: string
+          format: uuid
+      additionalProperties: false
+
+    CarrierPreflightResult:
+      type: object
+      required: [mode, claim, version, compatible, validation, coverage, note]
+      properties:
+        mode:
+          type: string
+          enum: [deterministic_preflight]
+        claim:
+          type: object
+          required: [id, claimNumber, carrier, currentScore, currentRisk]
+          properties:
+            id:
+              type: string
+              format: uuid
+            claimNumber:
+              type: string
+            carrier:
+              type: string
+              nullable: true
+            currentScore:
+              type: number
+              nullable: true
+            currentRisk:
+              type: string
+              nullable: true
+          additionalProperties: false
+        version:
+          type: object
+          required: [id, versionNumber, versionLabel, status]
+          properties:
+            id:
+              type: string
+              format: uuid
+            versionNumber:
+              type: integer
+            versionLabel:
+              type: string
+            status:
+              type: string
+              enum: [draft, published, archived]
+          additionalProperties: false
+        compatible:
+          type: boolean
+        validation:
+          $ref: "#/components/schemas/CarrierRulesetValidation"
+        coverage:
+          type: object
+          required:
+            - deskAdjusterQuestions
+            - fieldAdjusterQuestions
+            - categories
+            - configuredPoints
+          properties:
+            deskAdjusterQuestions:
+              type: integer
+            fieldAdjusterQuestions:
+              type: integer
+            categories:
+              type: integer
+            configuredPoints:
+              type: integer
+          additionalProperties: false
+        note:
+          type: string
+      additionalProperties: false
+
+    OrganizationMember:
+      type: object
+      required: [membershipId, userId, role, firstName, lastName, email, joinedAt]
+      properties:
+        membershipId:
+          type: string
+          format: uuid
+        userId:
+          type: string
+        role:
+          $ref: "#/components/schemas/OrganizationRole"
+        firstName:
+          type: string
+          nullable: true
+        lastName:
+          type: string
+          nullable: true
+        email:
+          type: string
+          format: email
+        joinedAt:
+          type: string
+          format: date-time
+      additionalProperties: false
+
+    OrganizationMemberRole:
+      type: object
+      required: [membershipId, userId, role]
+      properties:
+        membershipId:
+          type: string
+          format: uuid
+        userId:
+          type: string
+        role:
+          $ref: "#/components/schemas/OrganizationRole"
+      additionalProperties: false
+
+    OrganizationSettingsInput:
+      type: object
+      required:
+        - inAppNotificationsEnabled
+        - emailNotificationsEnabled
+        - retentionDays
+        - purgeMode
+      properties:
+        inAppNotificationsEnabled:
+          type: boolean
+        emailNotificationsEnabled:
+          type: boolean
+        retentionDays:
+          type: integer
+          minimum: 30
+          maximum: 3650
+          nullable: true
+        purgeMode:
+          type: string
+          enum: [manual, scheduled]
+      additionalProperties: false
+
+    OrganizationSettings:
+      type: object
+      required:
+        - inAppNotificationsEnabled
+        - emailNotificationsEnabled
+        - retentionDays
+        - purgeMode
+        - updatedAt
+      properties:
+        inAppNotificationsEnabled:
+          type: boolean
+        emailNotificationsEnabled:
+          type: boolean
+        retentionDays:
+          type: integer
+          nullable: true
+        purgeMode:
+          type: string
+          enum: [manual, scheduled]
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true
+      additionalProperties: false
+
+    SettingsAuditEvent:
+      type: object
+      required: [id, eventType, targetType, targetId, metadata, actorName, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        eventType:
+          type: string
+        targetType:
+          type: string
+        targetId:
+          type: string
+          nullable: true
+        metadata:
+          type: object
+          additionalProperties: true
+        actorName:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+      additionalProperties: false
+
+    SettingsOverview:
+      type: object
+      required:
+        - members
+        - integrations
+        - security
+        - organizationSettings
+        - auditHistory
+      properties:
+        members:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrganizationMember"
+        integrations:
+          type: object
+          required: [ai, storage, email]
+          properties:
+            ai:
+              type: object
+              required: [configured, modelIdentifier]
+              properties:
+                configured:
+                  type: boolean
+                modelIdentifier:
+                  type: string
+              additionalProperties: false
+            storage:
+              type: object
+              required: [configured]
+              properties:
+                configured:
+                  type: boolean
+              additionalProperties: false
+            email:
+              type: object
+              required: [configured]
+              properties:
+                configured:
+                  type: boolean
+              additionalProperties: false
+          additionalProperties: false
+        security:
+          type: object
+          required: [sessionTtlDays, cookieHttpOnly, sameSite, mfaReady, ssoReady]
+          properties:
+            sessionTtlDays:
+              type: integer
+            cookieHttpOnly:
+              type: boolean
+            sameSite:
+              type: string
+            mfaReady:
+              type: boolean
+            ssoReady:
+              type: boolean
+          additionalProperties: false
+        organizationSettings:
+          $ref: "#/components/schemas/OrganizationSettings"
+        auditHistory:
+          type: array
+          items:
+            $ref: "#/components/schemas/SettingsAuditEvent"
+      additionalProperties: false
+
+    PromptSettings:
+      type: object
+      required: [system_prompt, user_prompt_template]
+      properties:
+        system_prompt:
+          type: string
+          minLength: 1
+        user_prompt_template:
+          type: string
+          minLength: 1
+          description: Must include `{{DA_QUESTIONS}}`, `{{FA_QUESTIONS}}`, and `{{REPORT}}` when updating.
+        model_identifier:
+          type: string
+        updated_at:
+          type: string
+          format: date-time
+          nullable: true
+      additionalProperties: false
+
+    ResetPromptSettingsResponse:
+      type: object
+      required: [success, system_prompt, user_prompt_template]
+      properties:
+        success:
+          type: boolean
+        system_prompt:
+          type: string
+        user_prompt_template:
+          type: string
+      additionalProperties: false
+
+    EmailPreview:
+      type: object
+      required: [html]
+      properties:
+        html:
+          type: string
+      additionalProperties: false
+
+    SendEmailRequest:
+      type: object
+      required: [to]
+      properties:
+        to:
+          type: string
+          format: email
+        subject:
+          type: string
+      additionalProperties: false
+
+    InboundEmailRequest:
+      type: object
+      description: |
+        SendGrid Inbound Parse multipart fields. `from` and either report text
+        or a PDF attachment are needed for asynchronous processing, although
+        the callback acknowledges the multipart payload before that work runs.
+      properties:
+        from:
+          type: string
+        subject:
+          type: string
+          maxLength: 120
+        text:
+          type: string
+        html:
+          type: string
+        attachments:
+          type: array
+          maxItems: 10
+          items:
+            type: string
+            format: binary
+      additionalProperties: true

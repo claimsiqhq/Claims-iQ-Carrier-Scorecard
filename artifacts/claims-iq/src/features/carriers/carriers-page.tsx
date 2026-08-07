@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link } from "wouter"
-import { ArrowRight, Building2, FileCode2, Plus, Trash2 } from "lucide-react"
+import { Archive, ArrowRight, Building2, FileCode2, Plus } from "lucide-react"
 import { PageState, StatusPill, formatDate } from "@/components/complete-iq/status"
 import { PageBody, PageHeader } from "@/components/layout/app-shell"
 import {
@@ -34,7 +34,7 @@ export default function CarriersPage() {
       setDeleteTarget(null)
       await queryClient.invalidateQueries({ queryKey: queryKeys.carriers })
     } catch (error) {
-      setDeleteError(apiErrorMessage(error, "The carrier could not be deleted."))
+      setDeleteError(apiErrorMessage(error, "The carrier could not be deactivated."))
     } finally {
       setDeleting(false)
     }
@@ -68,6 +68,7 @@ export default function CarriersPage() {
 
   const profiles = carriers.data || []
   const published = profiles.filter((profile) => profile.active).length
+  const drafts = profiles.filter((profile) => profile.hasDraft).length
 
   return (
     <div className="ciq-page">
@@ -75,13 +76,13 @@ export default function CarriersPage() {
         compact
         eyebrow="Administrator workspace"
         title="Carrier profiles"
-        description="Maintain carrier-specific questions, categories, and prompt policy with an explicit draft or published state."
+        description="Govern carrier policy through validated drafts, explicit publication approval, immutable history, impact review, and rollback."
         meta={
           <>
             <StatusPill value="published" label={`${published} published`} tone="verified" />
             <StatusPill
               value="draft"
-              label={`${profiles.length - published} draft`}
+              label={`${drafts} with draft changes`}
               tone="progress"
             />
           </>
@@ -112,9 +113,10 @@ export default function CarriersPage() {
           {profiles.length ? (
             <div className="divide-y divide-[var(--ciq-border)]">
               {profiles.map((profile) => {
-                const daCount = profile.ruleset?.da_questions?.length || 0
-                const faCount = profile.ruleset?.fa_questions?.length || 0
-                const categoryCount = profile.ruleset?.scorecard_categories?.length || 0
+                const visibleRuleset = profile.latestVersion?.ruleset || profile.ruleset
+                const daCount = visibleRuleset?.da_questions?.length || 0
+                const faCount = visibleRuleset?.fa_questions?.length || 0
+                const categoryCount = visibleRuleset?.scorecard_categories?.length || 0
                 return (
                   <article
                     key={profile.carrierKey}
@@ -141,12 +143,15 @@ export default function CarriersPage() {
                             {profile.displayName}
                           </Link>
                           <StatusPill
-                            value={profile.active ? "published" : "draft"}
-                            label={profile.active ? "Published" : "Draft"}
+                            value={profile.active ? "published" : "unavailable"}
+                            label={profile.active ? "Live" : "Inactive"}
                           />
+                          {profile.hasDraft && <StatusPill value="draft" label="Draft pending" />}
                         </div>
                         <p className="ciq-mono mt-1 truncate text-[0.68rem] text-[var(--ciq-ink-muted)]">
-                          {profile.carrierKey} · v{profile.ruleset?.version || "1.0"}
+                          {profile.carrierKey} · version{" "}
+                          {profile.latestVersion?.versionNumber || 1} ·{" "}
+                          {visibleRuleset?.version || "1.0"}
                         </p>
                         <div className="mt-3 flex flex-wrap gap-2">
                           <span className="ciq-status">{daCount} DA questions</span>
@@ -171,9 +176,9 @@ export default function CarriersPage() {
                         size="icon"
                         className="text-[var(--ciq-critical)]"
                         onClick={() => setDeleteTarget(profile)}
-                        aria-label={`Delete ${profile.displayName}`}
+                        aria-label={`Deactivate ${profile.displayName}`}
                       >
-                        <Trash2 aria-hidden="true" />
+                        <Archive aria-hidden="true" />
                       </Button>
                     </div>
                   </article>
@@ -210,10 +215,10 @@ export default function CarriersPage() {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete {deleteTarget?.displayName}?</AlertDialogTitle>
+            <AlertDialogTitle>Deactivate {deleteTarget?.displayName}?</AlertDialogTitle>
             <AlertDialogDescription>
-              This permanently removes the carrier profile and ruleset. Claims already audited are
-              not rewritten.
+              New intake will no longer offer this carrier. Published versions and historical claim
+              provenance remain immutable and available for review.
             </AlertDialogDescription>
           </AlertDialogHeader>
           {deleteError && (
@@ -222,7 +227,7 @@ export default function CarriersPage() {
             </p>
           )}
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleting}>Keep carrier</AlertDialogCancel>
+            <AlertDialogCancel disabled={deleting}>Keep active</AlertDialogCancel>
             <AlertDialogAction
               className="bg-[var(--ciq-critical)] text-white"
               onClick={(event) => {
@@ -231,8 +236,8 @@ export default function CarriersPage() {
               }}
               disabled={deleting}
             >
-              <Trash2 aria-hidden="true" />
-              {deleting ? "Deleting…" : "Delete carrier"}
+              <Archive aria-hidden="true" />
+              {deleting ? "Deactivating…" : "Deactivate carrier"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

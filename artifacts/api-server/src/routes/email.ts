@@ -31,49 +31,9 @@ function getAuditHtml(claim: any, audit: any): string {
   const auditResult = raw as unknown as AuditResponse;
 
   if (!auditResult.overall_audit) {
-    const fallback: AuditResponse = {
-      claim_metadata: {
-        claim_number: claim.claimNumber ?? "",
-        insured_name: claim.insuredName ?? "",
-        carrier_name: claim.carrier ?? "",
-      },
-      overall_audit: {
-        overall_score_percent: Number(audit.overallScore ?? 0),
-        overall_points_awarded: 0,
-        overall_points_possible: 200,
-        readiness: "NOT READY",
-        technical_risk: String(audit.riskLevel ?? "MEDIUM") as any,
-        failed_count: 0,
-        partial_count: 0,
-        passed_count: 0,
-        warning_count: 0,
-        action_required_count: 0,
-        executive_summary: audit.executiveSummary ?? "",
-      },
-      desk_adjuster_scorecard: {
-        score_percent: 0,
-        points_awarded: 0,
-        points_possible: 100,
-        denial_letter_applicable: false,
-        categories: [],
-      },
-      field_adjuster_scorecard: {
-        score_percent: 0,
-        points_awarded: 0,
-        points_possible: 100,
-        categories: [],
-      },
-      issues: [],
-      validation_checks: [],
-      root_issue_groups: [],
-      vision_analysis: null,
-    };
-    return renderAuditEmail({
-      claimNumber: claim.claimNumber ?? "",
-      insuredName: claim.insuredName ?? "",
-      carrier: claim.carrier ?? "",
-      auditResult: fallback,
-    });
+    throw new Error(
+      "This audit does not contain a reproducible structured result.",
+    );
   }
 
   return renderAuditEmail({
