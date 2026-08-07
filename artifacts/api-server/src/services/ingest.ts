@@ -1,5 +1,6 @@
 import { openai } from "@workspace/integrations-openai-ai-server";
 import logger from "../lib/logger";
+import { env } from "../env";
 
 export interface ParsedClaimData {
   claimNumber: string;
@@ -14,6 +15,15 @@ export interface ParsedClaimData {
   totalClaimAmount: string;
   deductible: string;
   summary: string;
+}
+
+export class ClaimParsingError extends Error {
+  readonly code = "claim_parse_failed";
+
+  constructor(message: string) {
+    super(message);
+    this.name = "ClaimParsingError";
+  }
 }
 
 const PARSE_SYSTEM_PROMPT = `You are a structured data extraction engine for insurance claim documents.
@@ -44,7 +54,7 @@ export async function parseClaimFromText(extractedText: string): Promise<ParsedC
   const truncated = extractedText.substring(0, 30000);
 
   const response = await openai.chat.completions.create({
-    model: "gpt-4o",
+    model: env.OPENAI_CARRIER_AUDIT_MODEL,
     max_completion_tokens: 2048,
     messages: [
       { role: "system", content: PARSE_SYSTEM_PROMPT },
@@ -55,7 +65,7 @@ export async function parseClaimFromText(extractedText: string): Promise<ParsedC
   const content = response.choices[0]?.message?.content;
   if (!content) {
     logger.error("Empty OpenAI response for claim parsing");
-    return getFallbackParsedData();
+    throw new ClaimParsingError("Claim metadata provider returned an empty response");
   }
 
   const cleaned = content
@@ -81,23 +91,6 @@ export async function parseClaimFromText(extractedText: string): Promise<ParsedC
     };
   } catch (e) {
     logger.error({ contentPreview: content?.substring(0, 200) }, "Failed to parse OpenAI claim extraction response");
-    return getFallbackParsedData();
+    throw new ClaimParsingError("Claim metadata provider returned invalid JSON");
   }
-}
-
-function getFallbackParsedData(): ParsedClaimData {
-  return {
-    claimNumber: "",
-    insuredName: "",
-    carrier: "",
-    dateOfLoss: "",
-    policyNumber: "",
-    lossType: "",
-    propertyAddress: "",
-    adjusterName: "",
-    adjusterCompany: "",
-    totalClaimAmount: "",
-    deductible: "",
-    summary: "",
-  };
 }

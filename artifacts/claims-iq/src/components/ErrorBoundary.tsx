@@ -1,5 +1,6 @@
 import React from "react"
-import { BRAND, FONTS } from "@/lib/brand"
+import { BrandMark } from "@/components/complete-iq/brand-mark"
+import { Button } from "@/components/ui/button"
 
 interface Props {
   children: React.ReactNode
@@ -27,24 +28,20 @@ export class ErrorBoundary extends React.Component<Props, State> {
   render() {
     if (this.state.hasError) {
       return (
-        <div className="h-screen flex items-center justify-center" style={{ backgroundColor: BRAND.offWhite }}>
-          <div className="text-center max-w-md px-6">
-            <div className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4" style={{ backgroundColor: "#fef2f2" }}>
-              <span className="text-2xl">!</span>
+        <div className="flex h-[100dvh] items-center justify-center bg-[var(--ciq-canvas)] p-6">
+          <div className="ciq-panel max-w-md border-t-[3px] border-t-[var(--ciq-critical)] p-8 text-center">
+            <BrandMark className="mb-6 justify-center" />
+            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-[var(--ciq-critical-soft)] text-[var(--ciq-critical)]">
+              <span className="text-xl font-bold" aria-hidden="true">!</span>
             </div>
-            <h1 className="text-xl font-bold mb-2" style={{ color: BRAND.deepPurple, fontFamily: FONTS.heading }}>
-              Something went wrong
+            <h1 className="font-[var(--ciq-font-serif)] text-2xl font-semibold text-[var(--ciq-ink)]">
+              The evidence workspace stopped unexpectedly
             </h1>
-            <p className="text-sm mb-6" style={{ color: BRAND.purpleSecondary, fontFamily: FONTS.body }}>
-              An unexpected error occurred. Please refresh the page to try again.
+            <p className="mb-6 mt-2 text-sm leading-6 text-[var(--ciq-ink-muted)]">
+              No claim data was changed by this screen error. Refresh to reopen your protected
+              session.
             </p>
-            <button
-              className="px-6 py-2.5 rounded-lg text-white text-sm font-semibold"
-              style={{ backgroundColor: BRAND.purple, fontFamily: FONTS.heading }}
-              onClick={() => window.location.reload()}
-            >
-              Refresh Page
-            </button>
+            <Button onClick={() => window.location.reload()}>Refresh workspace</Button>
           </div>
         </div>
       )

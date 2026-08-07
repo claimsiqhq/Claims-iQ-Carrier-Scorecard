@@ -35,6 +35,14 @@ router.get("/auth/user", (req: Request, res: Response) => {
         profileImageUrl: req.user.profileImageUrl,
         role: req.user.role,
       },
+      organization: req.organization
+        ? {
+            id: req.organization.organizationId,
+            name: req.organization.organizationName,
+            role: req.organization.role,
+            permissions: req.organization.permissions,
+          }
+        : null,
     });
   } else {
     res.json({ user: null });

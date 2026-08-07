@@ -1,12 +1,18 @@
 import { Router, type IRouter } from "express";
-import { db, pool } from "@workspace/db";
-import { claims, documents, audits, auditSections, auditFindings, auditStructured, auditVersions } from "@workspace/db";
-import { eq, sql } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/node-postgres";
-import * as schema from "@workspace/db/schema";
+import { db } from "@workspace/db";
+import {
+  auditFindings,
+  auditSections,
+  audits,
+  claimActivity,
+  claims,
+  documents,
+} from "@workspace/db";
+import { and, eq, sql } from "drizzle-orm";
 import { ListClaimsResponse, GetClaimDetailResponse } from "@workspace/api-zod";
-import { deleteFile } from "../lib/supabaseStorage";
+import { getCurrentAuthorizedAudit } from "../lib/authorization";
 import { requireAuth } from "../middlewares/requireAuth";
+import { requireOrganizationPermission } from "../middlewares/organizationContext";
 import logger from "../lib/logger";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -28,13 +34,22 @@ function mapClaim(c: any) {
     totalClaimAmount: c.totalClaimAmount ?? undefined,
     deductible: c.deductible ?? undefined,
     summary: c.summary ?? undefined,
+    ownerUserId: c.ownerUserId ?? null,
+    assigneeUserId: c.assigneeUserId ?? null,
+    systemStatus: c.systemStatus ?? "uploaded",
+    aiStatus: c.aiStatus ?? "not_started",
+    humanReviewStatus: c.humanReviewStatus ?? "unassigned",
     createdAt: c.createdAt?.toISOString() ?? undefined,
   };
 }
 
 const router: IRouter = Router();
 
-router.post("/claims", requireAuth, async (req, res) => {
+router.post(
+  "/claims",
+  requireAuth,
+  requireOrganizationPermission("claims:create"),
+  async (req, res) => {
   try {
     const { claimNumber, insuredName, carrier, dateOfLoss } = req.body;
     if (!claimNumber || !insuredName) {
@@ -43,36 +58,86 @@ router.post("/claims", requireAuth, async (req, res) => {
     }
 
     const [newClaim] = await db.insert(claims).values({
+      organizationId: req.organization!.organizationId,
+      ownerUserId: req.user!.id,
       claimNumber,
       insuredName,
       carrier: carrier || null,
       dateOfLoss: dateOfLoss || null,
       status: "pending",
+      systemStatus: "uploaded",
+      aiStatus: "not_started",
     }).returning();
+
+    await db.insert(claimActivity).values({
+      organizationId: req.organization!.organizationId,
+      claimId: newClaim.id,
+      actorUserId: req.user!.id,
+      activityType: "claim_created",
+      metadata: {},
+    });
 
     res.status(201).json(mapClaim(newClaim));
   } catch (err) {
     logger.error({ err }, "Error creating claim");
     res.status(500).json({ error: "Failed to create claim" });
   }
-});
+  },
+);
 
-router.get("/claims", requireAuth, async (req, res) => {
+router.get(
+  "/claims",
+  requireAuth,
+  requireOrganizationPermission("claims:read"),
+  async (req, res) => {
   try {
     const limit = Math.min(Math.max(parseInt(req.query.limit as string) || 100, 1), 100);
     const offset = Math.max(parseInt(req.query.offset as string) || 0, 0);
 
-    const allClaims = await db.select().from(claims).limit(limit).offset(offset).orderBy(sql`${claims.createdAt} DESC NULLS LAST`);
-    const mapped = allClaims.map(mapClaim);
+    const allClaims = await db
+      .select({
+        claim: claims,
+        overallScore: audits.overallScore,
+        riskLevel: audits.riskLevel,
+        approvalStatus: audits.approvalStatus,
+      })
+      .from(claims)
+      .leftJoin(audits, eq(claims.currentAuditId, audits.id))
+      .where(eq(claims.organizationId, req.organization!.organizationId))
+      .limit(limit)
+      .offset(offset)
+      .orderBy(sql`${claims.createdAt} DESC NULLS LAST`);
+    const mapped = allClaims.map((row) => ({
+      ...mapClaim(row.claim),
+      overallScore:
+        row.overallScore == null ? null : Number(row.overallScore),
+      riskLevel: row.riskLevel,
+      approvalStatus: row.approvalStatus,
+    }));
     const data = ListClaimsResponse.parse(mapped);
-    res.json(data);
+    res.json(data.map((claim, index) => ({
+      ...claim,
+      ownerUserId: mapped[index]?.ownerUserId,
+      assigneeUserId: mapped[index]?.assigneeUserId,
+      systemStatus: mapped[index]?.systemStatus,
+      aiStatus: mapped[index]?.aiStatus,
+      humanReviewStatus: mapped[index]?.humanReviewStatus,
+      overallScore: mapped[index]?.overallScore,
+      riskLevel: mapped[index]?.riskLevel,
+      approvalStatus: mapped[index]?.approvalStatus,
+    })));
   } catch (err) {
     logger.error({ err }, "Error listing claims");
     res.status(500).json({ error: "Failed to list claims" });
   }
-});
+  },
+);
 
-router.get("/claims/:id", requireAuth, async (req, res) => {
+router.get(
+  "/claims/:id",
+  requireAuth,
+  requireOrganizationPermission("claims:read"),
+  async (req, res) => {
   try {
     const id = firstParam(req.params.id);
 
@@ -81,21 +146,61 @@ router.get("/claims/:id", requireAuth, async (req, res) => {
       return;
     }
 
-    const [claim] = await db.select().from(claims).where(eq(claims.id, id));
+    const [claim] = await db
+      .select()
+      .from(claims)
+      .where(
+        and(
+          eq(claims.id, id),
+          eq(claims.organizationId, req.organization!.organizationId),
+        ),
+      );
     if (!claim) {
       res.status(404).json({ error: "Claim not found" });
       return;
     }
 
-    const docs = await db.select().from(documents).where(eq(documents.claimId, id));
+    const docs = await db
+      .select()
+      .from(documents)
+      .where(
+        and(
+          eq(documents.claimId, id),
+          eq(documents.organizationId, req.organization!.organizationId),
+        ),
+      );
 
-    const [audit] = await db.select().from(audits).where(eq(audits.claimId, id));
+    const audit = claim.currentAuditId
+      ? await getCurrentAuthorizedAudit(req.organization!.organizationId, id)
+      : undefined;
 
     let auditResult = undefined;
     if (audit) {
       const [sectionRows, findingRows] = await Promise.all([
-        db.select().from(auditSections).where(eq(auditSections.auditId, audit.id)),
-        db.select().from(auditFindings).where(eq(auditFindings.auditId, audit.id)),
+        db
+          .select()
+          .from(auditSections)
+          .where(
+            and(
+              eq(auditSections.auditId, audit.id),
+              eq(
+                auditSections.organizationId,
+                req.organization!.organizationId,
+              ),
+            ),
+          ),
+        db
+          .select()
+          .from(auditFindings)
+          .where(
+            and(
+              eq(auditFindings.auditId, audit.id),
+              eq(
+                auditFindings.organizationId,
+                req.organization!.organizationId,
+              ),
+            ),
+          ),
       ]);
 
       const raw = audit.rawResponse as Record<string, unknown> | null;
@@ -250,6 +355,12 @@ router.get("/claims/:id", requireAuth, async (req, res) => {
             category_key: (meta?.category_key as string) ?? undefined,
             points_awarded: typeof meta?.points_awarded === "number" ? meta.points_awarded : undefined,
             points_possible: typeof meta?.points_possible === "number" ? meta.points_possible : undefined,
+            sourceDocumentId: f.sourceDocumentId ?? null,
+            disposition: f.disposition,
+            overrideReason: f.overrideReason ?? null,
+            reviewNotes: f.reviewNotes ?? null,
+            reviewedByUserId: f.reviewedByUserId ?? null,
+            reviewedAt: f.reviewedAt?.toISOString() ?? null,
           };
         }),
       };
@@ -270,14 +381,43 @@ router.get("/claims/:id", requireAuth, async (req, res) => {
     };
 
     const data = GetClaimDetailResponse.parse(result);
-    res.json(data);
+    const rawFindings =
+      auditResult && "findings" in auditResult && Array.isArray(auditResult.findings)
+        ? auditResult.findings
+        : [];
+    res.json({
+      ...data,
+      claim: {
+        ...data.claim,
+        ownerUserId: claim.ownerUserId,
+        assigneeUserId: claim.assigneeUserId,
+        systemStatus: claim.systemStatus,
+        aiStatus: claim.aiStatus,
+        humanReviewStatus: claim.humanReviewStatus,
+      },
+      audit: data.audit
+        ? {
+            ...data.audit,
+            versionNumber: audit?.versionNumber,
+            findings: data.audit.findings.map((finding, index) => ({
+              ...finding,
+              ...(rawFindings[index] ?? {}),
+            })),
+          }
+        : undefined,
+    });
   } catch (err) {
     logger.error({ err }, "Error getting claim detail");
     res.status(500).json({ error: "Failed to get claim" });
   }
-});
+  },
+);
 
-router.delete("/claims/:id", requireAuth, async (req, res) => {
+router.delete(
+  "/claims/:id",
+  requireAuth,
+  requireOrganizationPermission("claims:delete"),
+  async (req, res) => {
   try {
     const id = firstParam(req.params.id);
 
@@ -286,40 +426,52 @@ router.delete("/claims/:id", requireAuth, async (req, res) => {
       return;
     }
 
-    const [claim] = await db.select().from(claims).where(eq(claims.id, id));
+    const [claim] = await db
+      .select()
+      .from(claims)
+      .where(
+        and(
+          eq(claims.id, id),
+          eq(claims.organizationId, req.organization!.organizationId),
+        ),
+      );
     if (!claim) {
       res.status(404).json({ error: "Claim not found" });
       return;
     }
 
-    const client = await pool.connect();
-    try {
-      await client.query("BEGIN");
-      const txDb = drizzle(client, { schema });
+    await db.transaction(async (tx) => {
+      await tx
+        .update(claims)
+        .set({
+          status: "archived",
+          systemStatus: "archived",
+        })
+        .where(
+          and(
+            eq(claims.id, id),
+            eq(claims.organizationId, req.organization!.organizationId),
+          ),
+        );
+      await tx.insert(claimActivity).values({
+        organizationId: req.organization!.organizationId,
+        claimId: id,
+        actorUserId: req.user!.id,
+        activityType: "claim_archived",
+        metadata: {
+          retainedAuditId: claim.currentAuditId,
+          retentionReason: "append_only_audit_provenance",
+        },
+      });
+    });
 
-      const existingDocs = await txDb.select().from(documents).where(eq(documents.claimId, id));
-      await txDb.delete(claims).where(eq(claims.id, id));
-
-      await client.query("COMMIT");
-
-      for (const doc of existingDocs) {
-        if (doc.fileUrl) {
-          deleteFile(doc.fileUrl).catch((e) => logger.error({ err: e }, "Storage cleanup error"));
-        }
-      }
-
-      logger.info({ claimId: id }, "Claim deleted");
-      res.json({ success: true, message: "Claim deleted" });
-    } catch (txErr) {
-      await client.query("ROLLBACK");
-      throw txErr;
-    } finally {
-      client.release();
-    }
+    logger.info({ claimId: id }, "Claim archived with audit provenance retained");
+    res.json({ success: true, message: "Claim archived" });
   } catch (err) {
     logger.error({ err }, "Error deleting claim");
     res.status(500).json({ error: "Failed to delete claim" });
   }
-});
+  },
+);
 
 export default router;

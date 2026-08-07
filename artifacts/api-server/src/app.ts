@@ -4,6 +4,7 @@ import cookieParser from "cookie-parser";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import { authMiddleware } from "./middlewares/authMiddleware";
+import { organizationContextMiddleware } from "./middlewares/organizationContext";
 import { auditLog } from "./middlewares/auditLog";
 import { requestMetrics } from "./middlewares/requestMetrics";
 import logger from "./lib/logger";
@@ -22,7 +23,7 @@ app.use(helmet({
 app.use(cors({
   credentials: true,
   origin: true,
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
 }));
 
 app.use(cookieParser());
@@ -45,12 +46,13 @@ app.use(express.json({ limit: "100mb" }));
 app.use(express.urlencoded({ extended: true, limit: "100mb" }));
 
 app.use(authMiddleware);
+app.use(organizationContextMiddleware);
 app.use(requestMetrics);
 app.use(auditLog);
 app.use(emailInboundRouter);
 
 app.use((req: Request, res: Response, next: NextFunction) => {
-  if (["POST", "PUT", "DELETE"].includes(req.method) && !req.path.includes("/auth/login") && !req.path.includes("/auth/logout")) {
+  if (["POST", "PUT", "PATCH", "DELETE"].includes(req.method) && !req.path.includes("/auth/login") && !req.path.includes("/auth/logout")) {
     const origin = req.headers.origin;
     const referer = req.headers.referer;
     if (origin || referer) {

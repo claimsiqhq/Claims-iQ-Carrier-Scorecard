@@ -11,6 +11,8 @@ import ingestRouter from "./ingest";
 import dashboardRouter from "./dashboard";
 import carriersRouter from "./carriers";
 import downloadRouter from "./download";
+import jobsRouter from "./jobs";
+import workflowRouter from "./workflow";
 
 const router: IRouter = Router();
 
@@ -26,5 +28,7 @@ router.use(documentsRouter);
 router.use(ingestRouter);
 router.use(carriersRouter);
 router.use(downloadRouter);
+router.use(jobsRouter);
+router.use(workflowRouter);
 
 export default router;

@@ -1,11 +1,12 @@
 import { Router, type IRouter } from "express";
 import rateLimit from "express-rate-limit";
 import { db } from "@workspace/db";
-import { claims, audits } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { audits, claimActivity, claims } from "@workspace/db";
+import { and, eq } from "drizzle-orm";
 import { renderAuditEmail } from "../services/email";
 import { sendEmail } from "../services/sendgrid";
 import { requireAuth } from "../middlewares/requireAuth";
+import { requireOrganizationPermission } from "../middlewares/organizationContext";
 import logger from "../lib/logger";
 import type { AuditResponse } from "../services/audit";
 
@@ -83,7 +84,7 @@ function getAuditHtml(claim: any, audit: any): string {
   });
 }
 
-router.get("/claims/:id/email", requireAuth, async (req, res) => {
+router.get("/claims/:id/email", requireAuth, requireOrganizationPermission("claims:read"), async (req, res) => {
   try {
     const id = firstParam(req.params.id);
     if (!UUID_RE.test(id)) {
@@ -91,13 +92,31 @@ router.get("/claims/:id/email", requireAuth, async (req, res) => {
       return;
     }
 
-    const [claim] = await db.select().from(claims).where(eq(claims.id, id));
+    const [claim] = await db
+      .select()
+      .from(claims)
+      .where(
+        and(
+          eq(claims.id, id),
+          eq(claims.organizationId, req.organization!.organizationId),
+        ),
+      );
     if (!claim) {
       res.status(404).json({ error: "Claim not found" });
       return;
     }
 
-    const [audit] = await db.select().from(audits).where(eq(audits.claimId, id));
+    const [audit] = claim.currentAuditId
+      ? await db
+          .select()
+          .from(audits)
+          .where(
+            and(
+              eq(audits.id, claim.currentAuditId),
+              eq(audits.organizationId, req.organization!.organizationId),
+            ),
+          )
+      : [];
     if (!audit || !audit.rawResponse) {
       res.status(404).json({ error: "No audit found for this claim" });
       return;
@@ -111,7 +130,7 @@ router.get("/claims/:id/email", requireAuth, async (req, res) => {
   }
 });
 
-router.post("/claims/:id/email/send", requireAuth, emailSendLimiter, async (req, res) => {
+router.post("/claims/:id/email/send", requireAuth, requireOrganizationPermission("email:send"), emailSendLimiter, async (req, res) => {
   try {
     const id = firstParam(req.params.id);
     if (!UUID_RE.test(id)) {
@@ -130,13 +149,31 @@ router.post("/claims/:id/email/send", requireAuth, emailSendLimiter, async (req,
       return;
     }
 
-    const [claim] = await db.select().from(claims).where(eq(claims.id, id));
+    const [claim] = await db
+      .select()
+      .from(claims)
+      .where(
+        and(
+          eq(claims.id, id),
+          eq(claims.organizationId, req.organization!.organizationId),
+        ),
+      );
     if (!claim) {
       res.status(404).json({ error: "Claim not found" });
       return;
     }
 
-    const [audit] = await db.select().from(audits).where(eq(audits.claimId, id));
+    const [audit] = claim.currentAuditId
+      ? await db
+          .select()
+          .from(audits)
+          .where(
+            and(
+              eq(audits.id, claim.currentAuditId),
+              eq(audits.organizationId, req.organization!.organizationId),
+            ),
+          )
+      : [];
     if (!audit || !audit.rawResponse) {
       res.status(404).json({ error: "No audit found for this claim" });
       return;
@@ -146,6 +183,16 @@ router.post("/claims/:id/email/send", requireAuth, emailSendLimiter, async (req,
     const emailSubject = subject || `Claims iQ Audit — ${claim.claimNumber} — ${claim.insuredName}`;
 
     await sendEmail({ to: to.trim(), subject: emailSubject, html });
+    await db.insert(claimActivity).values({
+      organizationId: req.organization!.organizationId,
+      claimId: claim.id,
+      actorUserId: req.user!.id,
+      activityType: "audit_email_sent",
+      metadata: {
+        auditId: audit.id,
+        recipientDomain: to.trim().split("@")[1]?.toLowerCase() ?? null,
+      },
+    });
 
     logger.info({ claimId: claim.id }, "Audit email sent");
     res.json({ success: true, message: "Email sent successfully" });

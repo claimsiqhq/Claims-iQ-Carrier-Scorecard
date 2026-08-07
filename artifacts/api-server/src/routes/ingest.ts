@@ -1,421 +1,583 @@
+import { createHash } from "node:crypto";
 import { Router, type IRouter } from "express";
-import { randomUUID } from "crypto";
-import { db } from "@workspace/db";
-import { claims, documents, audits } from "@workspace/db";
-import { eq, inArray } from "drizzle-orm";
-import { uploadFile, downloadFile, fileExists } from "../lib/supabaseStorage";
-import { parseClaimFromText } from "../services/ingest";
-import { extractPdfTextWithVisionPages } from "../services/finalReportIngestion";
-import { runAndSaveAudit } from "../services/auditRunner";
-import { requireAuth } from "../middlewares/requireAuth";
-import logger from "../lib/logger";
 import multer from "multer";
+import {
+  and,
+  desc,
+  eq,
+} from "drizzle-orm";
+import {
+  claimActivity,
+  claims,
+  db,
+  documents,
+  processingJobs,
+} from "@workspace/db";
+import {
+  buildJobIdempotencyKey,
+  enqueueProcessingJob,
+  retryOrganizationJob,
+} from "../services/jobQueue";
+import {
+  deleteFile,
+  uploadFile,
+} from "../lib/supabaseStorage";
+import { getAuthorizedClaim } from "../lib/authorization";
+import { requireAuth } from "../middlewares/requireAuth";
+import { requireOrganizationPermission } from "../middlewares/organizationContext";
+import logger from "../lib/logger";
 
 const MAX_PDF_SIZE = 100 * 1024 * 1024;
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100 * 1024 * 1024 } });
-
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_PDF_SIZE },
+});
 const router: IRouter = Router();
 
-router.post("/ingest", requireAuth, upload.single("file"), async (req, res) => {
-  try {
-    const file = req.file;
-    if (!file) {
-      res.status(400).json({ error: "No file uploaded. Please attach a PDF." });
-      return;
-    }
-
-    const fileBuffer = file.buffer;
-    const fileName = file.originalname;
-    const contentType = file.mimetype;
-
-    if (fileBuffer.length > MAX_PDF_SIZE) {
-      res.status(413).json({ error: `File too large. Maximum size is ${MAX_PDF_SIZE / 1024 / 1024}MB.` });
-      return;
-    }
-
-    const storagePath = await uploadFile(fileBuffer, fileName, contentType);
-
-    const carrierFromForm = typeof req.body?.carrier === "string" ? req.body.carrier.trim() : null;
-
-    const [newClaim] = await db.insert(claims).values({
-      claimNumber: `CLM-${Date.now()}`,
-      insuredName: "Processing…",
-      status: "processing",
-      carrier: carrierFromForm || null,
-    }).returning();
-
-    const [doc] = await db.insert(documents).values({
-      claimId: newClaim.id,
-      type: "claim_file",
-      fileUrl: storagePath,
-      metadata: { fileName, contentType, storagePath },
-    }).returning();
-
-    logger.info({ claimId: newClaim.id, documentId: doc.id, fileName }, "Ingest accepted — starting background processing");
-
-    res.status(202).json({
-      claim: {
-        id: newClaim.id,
-        claimNumber: newClaim.claimNumber ?? "",
-        insuredName: "",
-        carrier: "",
-        dateOfLoss: "",
-        status: "processing",
-      },
-      document: { id: doc.id, fileName, storagePath },
-    });
-
-    processInBackground(newClaim.id, doc.id, fileBuffer, fileName, contentType, storagePath, carrierFromForm).catch((err) => {
-      logger.error({ err, claimId: newClaim.id }, "Background processing crashed unexpectedly");
-    });
-  } catch (err) {
-    logger.error({ err }, "Ingest error");
-    res.status(500).json({ error: "Failed to process claim file. Please try again." });
-  }
-});
-
-async function processInBackground(
-  claimId: string,
-  docId: string,
-  fileBuffer: Buffer,
-  fileName: string,
-  contentType: string,
-  storagePath: string,
-  userSelectedCarrier?: string | null,
-) {
-  try {
-    let extractedText = "";
-    let extractionMeta: Record<string, unknown> | undefined;
-
-    if (contentType === "application/pdf") {
-      const requestId = randomUUID();
-      const vision = await extractPdfTextWithVisionPages({
-        pdfBuffer: fileBuffer,
-        fileName,
-        requestId,
-      });
-      extractedText = vision.text;
-      extractionMeta = { extractionDocument: vision.extractionDocument };
-    } else {
-      extractedText = fileBuffer.toString("utf-8");
-    }
-
-    if (!extractedText || extractedText.trim().length < 50) {
-      await db.update(claims).set({ status: "error", summary: "Could not extract meaningful text from the PDF. The file may be image-only or corrupted." }).where(eq(claims.id, claimId));
-      logger.warn({ claimId }, "Background extraction produced insufficient text");
-      return;
-    }
-
-    logger.info({ claimId, extractedChars: extractedText.length }, "Background extraction complete, parsing claim");
-
-    const parsedData = await parseClaimFromText(extractedText);
-
-    const claimNumber = parsedData.claimNumber || `CLM-${Date.now()}`;
-    const insuredName = parsedData.insuredName || "Unknown Insured";
-
-    await db.update(claims).set({
-      claimNumber,
-      insuredName,
-      carrier: userSelectedCarrier || parsedData.carrier || null,
-      dateOfLoss: parsedData.dateOfLoss || null,
-      status: "pending",
-      policyNumber: parsedData.policyNumber || null,
-      lossType: parsedData.lossType || null,
-      propertyAddress: parsedData.propertyAddress || null,
-      adjuster: parsedData.adjusterName || null,
-      totalClaimAmount: parsedData.totalClaimAmount || null,
-      deductible: parsedData.deductible || null,
-      summary: parsedData.summary || null,
-    }).where(eq(claims.id, claimId));
-
-    await db.update(documents).set({
-      extractedText,
-      metadata: {
-        fileName,
-        contentType,
-        storagePath,
-        parsedData,
-        ...(extractionMeta ?? {}),
-      },
-    }).where(eq(documents.id, docId));
-
-    logger.info({ claimId }, "Background extraction complete — starting carrier audit");
-
-    try {
-      const auditResult = await runAndSaveAudit(claimId);
-      if (auditResult.success) {
-        logger.info({ claimId, auditId: auditResult.auditId, overallScore: auditResult.overallScore }, "Auto-audit completed successfully");
-      } else {
-        logger.warn({ claimId, error: auditResult.error }, "Auto-audit failed — claim remains in pending status");
-      }
-    } catch (auditErr) {
-      logger.error({ err: auditErr, claimId }, "Auto-audit crashed — claim remains in pending status");
-    }
-  } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : "Processing failed";
-    logger.error({ err, claimId }, "Background processing failed");
-    try {
-      await db.update(claims).set({ status: "error", summary: errorMessage }).where(eq(claims.id, claimId));
-    } catch (dbErr) {
-      logger.error({ err: dbErr, claimId }, "Failed to mark claim as error");
-    }
-  }
+function firstParam(value: string | string[] | undefined): string {
+  return Array.isArray(value) ? (value[0] ?? "") : (value ?? "");
 }
 
-router.get("/claims/:id/processing-status", requireAuth, async (req, res) => {
-  try {
-    const [claim] = await db.select({
-      id: claims.id,
-      status: claims.status,
-      claimNumber: claims.claimNumber,
-      insuredName: claims.insuredName,
-      carrier: claims.carrier,
-      dateOfLoss: claims.dateOfLoss,
-      summary: claims.summary,
-    }).from(claims).where(eq(claims.id, req.params.id as string));
+function callerIdempotencyKey(req: {
+  headers: Record<string, string | string[] | undefined>;
+}): string | null {
+  const value = req.headers["x-idempotency-key"];
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
 
-    if (!claim) {
-      res.status(404).json({ error: "Claim not found" });
-      return;
+router.post(
+  "/ingest",
+  requireAuth,
+  requireOrganizationPermission("claims:create"),
+  upload.single("file"),
+  async (req, res) => {
+    const organization = req.organization!;
+    let uploadedStoragePath: string | null = null;
+    try {
+      const file = req.file;
+      if (!file) {
+        res.status(400).json({ error: "No file uploaded. Please attach a document." });
+        return;
+      }
+      if (file.buffer.length > MAX_PDF_SIZE) {
+        res.status(413).json({
+          error: `File too large. Maximum size is ${MAX_PDF_SIZE / 1024 / 1024}MB.`,
+        });
+        return;
+      }
+
+      const sourceHash = createHash("sha256").update(file.buffer).digest("hex");
+      const requestedCarrier =
+        typeof req.body?.carrier === "string" && req.body.carrier.trim()
+          ? req.body.carrier.trim()
+          : null;
+      const idempotencyKey = buildJobIdempotencyKey({
+        organizationId: organization.organizationId,
+        type: "ingest",
+        sourceHash,
+        requestedCarrier,
+        callerKey: callerIdempotencyKey(req),
+      });
+
+      const [existing] = await db
+        .select()
+        .from(processingJobs)
+        .where(
+          and(
+            eq(processingJobs.organizationId, organization.organizationId),
+            eq(processingJobs.idempotencyKey, idempotencyKey),
+          ),
+        )
+        .limit(1);
+      if (existing) {
+        res.status(202).json({
+          job: {
+            id: existing.id,
+            claimId: existing.claimId,
+            status: existing.status,
+            stage: existing.stage,
+            progress: existing.progress,
+          },
+          duplicate: true,
+        });
+        return;
+      }
+
+      uploadedStoragePath = await uploadFile(
+        file.buffer,
+        file.originalname,
+        file.mimetype,
+        organization.organizationId,
+      );
+
+      const result = await db.transaction(async (tx) => {
+        const [reservedJob] = await tx
+          .insert(processingJobs)
+          .values({
+            organizationId: organization.organizationId,
+            requestedByUserId: req.user!.id,
+            type: "ingest",
+            status: "queued",
+            stage: "uploaded",
+            idempotencyKey,
+            payload: { carrier: requestedCarrier },
+          })
+          .onConflictDoNothing({
+            target: [
+              processingJobs.organizationId,
+              processingJobs.idempotencyKey,
+            ],
+          })
+          .returning();
+
+        if (!reservedJob) return null;
+
+        const [newClaim] = await tx
+          .insert(claims)
+          .values({
+            organizationId: organization.organizationId,
+            ownerUserId: req.user!.id,
+            claimNumber: `CLM-${reservedJob.id.slice(0, 8)}`,
+            insuredName: "Processing…",
+            status: "processing",
+            carrier: requestedCarrier,
+            systemStatus: "processing",
+            aiStatus: "queued",
+            humanReviewStatus: "unassigned",
+          })
+          .returning();
+
+        const [document] = await tx
+          .insert(documents)
+          .values({
+            organizationId: organization.organizationId,
+            claimId: newClaim.id,
+            uploadedByUserId: req.user!.id,
+            type: "claim_file",
+            fileUrl: uploadedStoragePath!,
+            sourceSha256: sourceHash,
+            metadata: {
+              fileName: file.originalname,
+              contentType: file.mimetype,
+              storagePath: uploadedStoragePath,
+              size: file.size,
+            },
+          })
+          .returning();
+
+        const [job] = await tx
+          .update(processingJobs)
+          .set({
+            claimId: newClaim.id,
+            documentId: document.id,
+          })
+          .where(eq(processingJobs.id, reservedJob.id))
+          .returning();
+
+        await tx.insert(claimActivity).values({
+          organizationId: organization.organizationId,
+          claimId: newClaim.id,
+          actorUserId: req.user!.id,
+          activityType: "claim_uploaded",
+          metadata: {
+            documentId: document.id,
+            processingJobId: job.id,
+            sourceSha256: sourceHash,
+          },
+        });
+
+        return { claim: newClaim, document, job };
+      });
+
+      if (!result) {
+        await deleteFile(uploadedStoragePath);
+        uploadedStoragePath = null;
+        const [raceWinner] = await db
+          .select()
+          .from(processingJobs)
+          .where(
+            and(
+              eq(processingJobs.organizationId, organization.organizationId),
+              eq(processingJobs.idempotencyKey, idempotencyKey),
+            ),
+          )
+          .limit(1);
+        if (!raceWinner) throw new Error("Failed to resolve duplicate ingestion");
+        res.status(202).json({
+          job: {
+            id: raceWinner.id,
+            claimId: raceWinner.claimId,
+            status: raceWinner.status,
+            stage: raceWinner.stage,
+            progress: raceWinner.progress,
+          },
+          duplicate: true,
+        });
+        return;
+      }
+
+      logger.info(
+        {
+          claimId: result.claim.id,
+          documentId: result.document.id,
+          jobId: result.job.id,
+          organizationId: organization.organizationId,
+        },
+        "Ingestion stored and queued",
+      );
+      res.status(202).json({
+        claim: {
+          id: result.claim.id,
+          claimNumber: result.claim.claimNumber,
+          status: result.claim.status,
+        },
+        document: {
+          id: result.document.id,
+          fileName: file.originalname,
+        },
+        job: {
+          id: result.job.id,
+          status: result.job.status,
+          stage: result.job.stage,
+          progress: result.job.progress,
+        },
+      });
+    } catch (error) {
+      if (uploadedStoragePath) {
+        await deleteFile(uploadedStoragePath).catch(() => undefined);
+      }
+      logger.error({ error }, "Ingestion enqueue failed");
+      res.status(500).json({ error: "Failed to store and queue claim file" });
     }
+  },
+);
 
-    if (claim.status === "processing") {
-      res.json({ status: "processing" });
-    } else if (claim.status === "error") {
-      res.json({ status: "error", error: claim.summary || "Processing failed" });
-    } else {
+router.get(
+  "/claims/:id/processing-status",
+  requireAuth,
+  requireOrganizationPermission("jobs:read"),
+  async (req, res) => {
+    try {
+      const claimId = firstParam(req.params.id);
+      if (!UUID_RE.test(claimId)) {
+        res.status(400).json({ error: "Invalid claim ID format" });
+        return;
+      }
+      const claim = await getAuthorizedClaim(
+        req.organization!.organizationId,
+        claimId,
+      );
+      if (!claim) {
+        res.status(404).json({ error: "Claim not found" });
+        return;
+      }
+      const [job] = await db
+        .select()
+        .from(processingJobs)
+        .where(
+          and(
+            eq(processingJobs.organizationId, req.organization!.organizationId),
+            eq(processingJobs.claimId, claimId),
+          ),
+        )
+        .orderBy(desc(processingJobs.createdAt))
+        .limit(1);
+
       res.json({
-        status: "ready",
+        claimId,
+        status:
+          job?.status === "queued" || job?.status === "running"
+            ? "processing"
+            : job?.status === "failed"
+              ? "error"
+              : "ready",
+        error: job?.status === "failed" ? job.errorMessage : undefined,
         claimNumber: claim.claimNumber,
         insuredName: claim.insuredName,
         carrier: claim.carrier ?? "",
         dateOfLoss: claim.dateOfLoss ?? "",
+        systemStatus: claim.systemStatus,
+        aiStatus: claim.aiStatus,
+        humanReviewStatus: claim.humanReviewStatus,
+        job: job
+          ? {
+              id: job.id,
+              type: job.type,
+              status: job.status,
+              stage: job.stage,
+              progress: job.progress,
+              attemptCount: job.attemptCount,
+              maxAttempts: job.maxAttempts,
+              error:
+                job.status === "failed" || job.status === "degraded"
+                  ? {
+                      code: job.errorCode,
+                      message: job.errorMessage,
+                    }
+                  : undefined,
+            }
+          : null,
       });
+    } catch (error) {
+      logger.error({ error }, "Processing status lookup failed");
+      res.status(500).json({ error: "Failed to check processing status" });
     }
-  } catch (err) {
-    logger.error({ err }, "Processing status check error");
-    res.status(500).json({ error: "Failed to check processing status" });
-  }
-});
+  },
+);
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+async function enqueueExistingClaimJob(input: {
+  organizationId: string;
+  userId: string;
+  claimId: string;
+  type: "retry" | "reprocess";
+  carrier?: string | null;
+  callerKey?: string | null;
+}) {
+  const [document] = await db
+    .select()
+    .from(documents)
+    .where(
+      and(
+        eq(documents.organizationId, input.organizationId),
+        eq(documents.claimId, input.claimId),
+        eq(documents.type, "claim_file"),
+      ),
+    )
+    .orderBy(desc(documents.createdAt))
+    .limit(1);
+  if (!document?.fileUrl) return null;
 
-router.post("/claims/:id/retry", requireAuth, async (req, res) => {
-  try {
-    const id = req.params.id as string;
-    if (!UUID_RE.test(id)) {
-      res.status(400).json({ error: "Invalid claim ID format" });
-      return;
-    }
+  const [active] = await db
+    .select()
+    .from(processingJobs)
+    .where(
+      and(
+        eq(processingJobs.organizationId, input.organizationId),
+        eq(processingJobs.claimId, input.claimId),
+        eq(processingJobs.status, "queued"),
+      ),
+    )
+    .orderBy(desc(processingJobs.createdAt))
+    .limit(1);
+  if (active) return { job: active, created: false };
 
-    const [claim] = await db.select().from(claims).where(eq(claims.id, id));
-    if (!claim) {
-      res.status(404).json({ error: "Claim not found" });
-      return;
-    }
+  const [running] = await db
+    .select()
+    .from(processingJobs)
+    .where(
+      and(
+        eq(processingJobs.organizationId, input.organizationId),
+        eq(processingJobs.claimId, input.claimId),
+        eq(processingJobs.status, "running"),
+      ),
+    )
+    .orderBy(desc(processingJobs.createdAt))
+    .limit(1);
+  if (running) return { job: running, created: false };
 
-    if (claim.status !== "processing" && claim.status !== "error" && claim.status !== "pending") {
-      res.status(400).json({ error: "Only claims in processing, pending, or error status can be retried" });
-      return;
-    }
-
-    const claimDocs = await db.select().from(documents).where(eq(documents.claimId, id));
-    const doc = claimDocs.find((d) => d.type === "claim_file" && d.fileUrl);
-    if (!doc || !doc.fileUrl) {
-      res.status(400).json({ error: "No document file found for this claim" });
-      return;
-    }
-
-    const storagePath = doc.fileUrl;
-    const check = await fileExists(storagePath);
-    if (!check.exists) {
-      if (check.error) {
-        logger.warn({ claimId: id, storagePath, storageError: check.error }, "Retry: storage check failed");
-        res.status(500).json({ error: "Could not verify file in storage — please try again" });
-      } else {
-        res.status(400).json({ error: "Original file not found in storage — please re-upload the claim" });
-      }
-      return;
-    }
-
-    let fileBuffer: Buffer;
-    try {
-      fileBuffer = await downloadFile(storagePath);
-    } catch (dlErr) {
-      logger.error({ err: dlErr, claimId: id }, "Retry: failed to download file from storage");
-      res.status(500).json({ error: "Failed to download file from storage" });
-      return;
-    }
-
-    await db.update(claims).set({
-      status: "processing",
-      summary: null,
-      insuredName: "Processing…",
-    }).where(eq(claims.id, id));
-
-    const meta = doc.metadata as Record<string, unknown> | null;
-    const fileName = (meta?.fileName as string) || "claim.pdf";
-    const contentType = (meta?.contentType as string) || "application/pdf";
-
-    logger.info({ claimId: id, storagePath, fileName }, "Retry: re-processing claim");
-
-    res.status(202).json({ status: "processing", claimId: id });
-
-    processInBackground(id, doc.id, fileBuffer, fileName, contentType, storagePath, claim.carrier).catch((err) => {
-      logger.error({ err, claimId: id }, "Retry: background processing crashed unexpectedly");
-    });
-  } catch (err) {
-    logger.error({ err }, "Retry endpoint error");
-    res.status(500).json({ error: "Failed to retry claim processing" });
-  }
-});
-
-router.post("/claims/:id/reprocess", requireAuth, async (req, res) => {
-  try {
-    const id = req.params.id as string;
-    if (!UUID_RE.test(id)) {
-      res.status(400).json({ error: "Invalid claim ID format" });
-      return;
-    }
-
-    const { carrier } = req.body as { carrier?: string };
-    if (!carrier || typeof carrier !== "string" || carrier.trim().length === 0) {
-      res.status(400).json({ error: "carrier is required" });
-      return;
-    }
-
-    const [claim] = await db.select().from(claims).where(eq(claims.id, id));
-    if (!claim) {
-      res.status(404).json({ error: "Claim not found" });
-      return;
-    }
-
-    if (claim.status === "processing") {
-      res.status(409).json({ error: "Claim is already being processed" });
-      return;
-    }
-
-    const claimDocs = await db.select().from(documents).where(eq(documents.claimId, id));
-    const doc = claimDocs.find((d) => d.type === "claim_file" && d.fileUrl);
-    if (!doc || !doc.fileUrl) {
-      res.status(400).json({ error: "No document file found for this claim" });
-      return;
-    }
-
-    const storagePath = doc.fileUrl;
-    const check = await fileExists(storagePath);
-    if (!check.exists) {
-      if (check.error) {
-        logger.warn({ claimId: id, storagePath, storageError: check.error }, "Reprocess: storage check failed");
-        res.status(500).json({ error: "Could not verify file in storage — please try again" });
-      } else {
-        res.status(400).json({ error: "Original file not found in storage — please re-upload the claim" });
-      }
-      return;
-    }
-
-    let fileBuffer: Buffer;
-    try {
-      fileBuffer = await downloadFile(storagePath);
-    } catch (dlErr) {
-      logger.error({ err: dlErr, claimId: id }, "Reprocess: failed to download file from storage");
-      res.status(500).json({ error: "Failed to download file from storage" });
-      return;
-    }
-
-    const trimmedCarrier = carrier.trim();
-
-    await db.delete(audits).where(eq(audits.claimId, id));
-
-    await db.update(claims).set({
-      status: "processing",
-      carrier: trimmedCarrier,
-      summary: null,
-      insuredName: "Processing…",
-    }).where(eq(claims.id, id));
-
-    const meta = doc.metadata as Record<string, unknown> | null;
-    const fileName = (meta?.fileName as string) || "claim.pdf";
-    const contentType = (meta?.contentType as string) || "application/pdf";
-
-    logger.info({ claimId: id, carrier: trimmedCarrier, storagePath, fileName }, "Reprocess: re-processing with new carrier");
-
-    res.status(202).json({ status: "processing", claimId: id, carrier: trimmedCarrier });
-
-    processInBackground(id, doc.id, fileBuffer, fileName, contentType, storagePath, trimmedCarrier).catch((err) => {
-      logger.error({ err, claimId: id }, "Reprocess: background processing crashed unexpectedly");
-    });
-  } catch (err) {
-    logger.error({ err }, "Reprocess endpoint error");
-    res.status(500).json({ error: "Failed to reprocess claim" });
-  }
-});
-
-const STUCK_THRESHOLD_MS = 10 * 60 * 1000;
-
-export async function recoverStuckClaims() {
-  try {
-    const stuckClaims = await db.select().from(claims).where(
-      inArray(claims.status, ["processing", "pending"]),
+  const [claim] = await db
+    .select({ currentAuditId: claims.currentAuditId })
+    .from(claims)
+    .where(
+      and(
+        eq(claims.id, input.claimId),
+        eq(claims.organizationId, input.organizationId),
+      ),
+    )
+    .limit(1);
+  const idempotencyKey = buildJobIdempotencyKey({
+    organizationId: input.organizationId,
+    type: input.type,
+    claimId: input.claimId,
+    documentId: document.id,
+    requestedCarrier: input.carrier,
+    callerKey:
+      input.callerKey
+      ?? `${input.type}:${claim?.currentAuditId ?? "no-successful-audit"}`,
+  });
+  const queued = await enqueueProcessingJob({
+    organizationId: input.organizationId,
+    claimId: input.claimId,
+    documentId: document.id,
+    requestedByUserId: input.userId,
+    type: input.type,
+    idempotencyKey,
+    payload: { carrier: input.carrier ?? null },
+  });
+  if (
+    !queued.created
+    && ["failed", "degraded", "cancelled"].includes(queued.job.status)
+  ) {
+    const retried = await retryOrganizationJob(
+      input.organizationId,
+      queued.job.id,
     );
+    if (retried) return { job: retried, created: false };
+  }
+  return queued;
+}
 
-    if (stuckClaims.length === 0) return;
+router.post(
+  "/claims/:id/retry",
+  requireAuth,
+  requireOrganizationPermission("jobs:retry"),
+  async (req, res) => {
+    try {
+      const claimId = firstParam(req.params.id);
+      if (!UUID_RE.test(claimId)) {
+        res.status(400).json({ error: "Invalid claim ID format" });
+        return;
+      }
+      const claim = await getAuthorizedClaim(
+        req.organization!.organizationId,
+        claimId,
+      );
+      if (!claim) {
+        res.status(404).json({ error: "Claim not found" });
+        return;
+      }
 
-    const now = Date.now();
-
-    for (const claim of stuckClaims) {
-      const createdAt = new Date(claim.createdAt!).getTime();
-      const age = now - createdAt;
-
-      if (age < STUCK_THRESHOLD_MS) continue;
-
-      if (claim.status === "pending") {
-        logger.info({ claimId: claim.id, claimNumber: claim.claimNumber }, "Recovering pending claim — running auto-audit");
-        runAndSaveAudit(claim.id).then((result) => {
-          if (result.success) {
-            logger.info({ claimId: claim.id, auditId: result.auditId }, "Recovery audit completed");
-          } else {
-            logger.warn({ claimId: claim.id, error: result.error }, "Recovery audit failed");
-          }
-        }).catch((err) => {
-          logger.error({ err, claimId: claim.id }, "Recovery audit crashed");
-        });
-      } else if (claim.status === "processing") {
-        const claimDocs = await db.select().from(documents).where(eq(documents.claimId, claim.id));
-        const doc = claimDocs.find((d) => d.type === "claim_file" && d.fileUrl);
-
-        if (doc?.extractedText && doc.extractedText.length > 50) {
-          logger.info({ claimId: claim.id, claimNumber: claim.claimNumber }, "Recovering stuck processing claim (text exists) — setting pending and running audit");
-          await db.update(claims).set({ status: "pending" }).where(eq(claims.id, claim.id));
-          runAndSaveAudit(claim.id).catch((err) => {
-            logger.error({ err, claimId: claim.id }, "Recovery audit crashed for previously-processing claim");
+      const [latest] = await db
+        .select()
+        .from(processingJobs)
+        .where(
+          and(
+            eq(processingJobs.organizationId, req.organization!.organizationId),
+            eq(processingJobs.claimId, claimId),
+          ),
+        )
+        .orderBy(desc(processingJobs.createdAt))
+        .limit(1);
+      if (
+        latest
+        && ["failed", "degraded", "cancelled"].includes(latest.status)
+      ) {
+        const retried = await retryOrganizationJob(
+          req.organization!.organizationId,
+          latest.id,
+        );
+        if (retried) {
+          res.status(202).json({
+            job: {
+              id: retried.id,
+              claimId,
+              status: retried.status,
+              stage: retried.stage,
+            },
           });
-        } else if (doc?.fileUrl) {
-          logger.info({ claimId: claim.id, claimNumber: claim.claimNumber }, "Recovering stuck processing claim (no text) — re-downloading and re-processing");
-          try {
-            const fileBuffer = await downloadFile(doc.fileUrl);
-            const meta = doc.metadata as Record<string, unknown> | null;
-            const fileName = (meta?.fileName as string) || "claim.pdf";
-            const contentType = (meta?.contentType as string) || "application/pdf";
-
-            processInBackground(claim.id, doc.id, fileBuffer, fileName, contentType, doc.fileUrl, claim.carrier).catch((err) => {
-              logger.error({ err, claimId: claim.id }, "Recovery re-processing crashed");
-            });
-          } catch (dlErr) {
-            logger.error({ err: dlErr, claimId: claim.id }, "Recovery: could not download file — marking as error");
-            await db.update(claims).set({ status: "error", summary: "File could not be recovered from storage" }).where(eq(claims.id, claim.id));
-          }
-        } else {
-          logger.warn({ claimId: claim.id }, "Stuck processing claim has no document — marking as error");
-          await db.update(claims).set({ status: "error", summary: "No document found — please re-upload" }).where(eq(claims.id, claim.id));
+          return;
         }
       }
-    }
 
-    logger.info({ count: stuckClaims.length }, "Stuck claim recovery check complete");
-  } catch (err) {
-    logger.error({ err }, "Stuck claim recovery failed");
-  }
+      const queued = await enqueueExistingClaimJob({
+        organizationId: req.organization!.organizationId,
+        userId: req.user!.id,
+        claimId,
+        type: "retry",
+        carrier: claim.carrier,
+        callerKey: callerIdempotencyKey(req),
+      });
+      if (!queued) {
+        res.status(400).json({ error: "No source document found for this claim" });
+        return;
+      }
+      await db
+        .update(claims)
+        .set({ status: "processing", systemStatus: "processing", aiStatus: "queued" })
+        .where(
+          and(
+            eq(claims.id, claimId),
+            eq(claims.organizationId, req.organization!.organizationId),
+          ),
+        );
+      res.status(202).json({
+        job: {
+          id: queued.job.id,
+          claimId,
+          status: queued.job.status,
+          stage: queued.job.stage,
+        },
+        duplicate: !queued.created,
+      });
+    } catch (error) {
+      logger.error({ error }, "Claim retry enqueue failed");
+      res.status(500).json({ error: "Failed to queue claim retry" });
+    }
+  },
+);
+
+router.post(
+  "/claims/:id/reprocess",
+  requireAuth,
+  requireOrganizationPermission("audits:run"),
+  async (req, res) => {
+    try {
+      const claimId = firstParam(req.params.id);
+      if (!UUID_RE.test(claimId)) {
+        res.status(400).json({ error: "Invalid claim ID format" });
+        return;
+      }
+      const carrier =
+        typeof req.body?.carrier === "string" ? req.body.carrier.trim() : "";
+      if (!carrier) {
+        res.status(400).json({ error: "carrier is required" });
+        return;
+      }
+      const claim = await getAuthorizedClaim(
+        req.organization!.organizationId,
+        claimId,
+      );
+      if (!claim) {
+        res.status(404).json({ error: "Claim not found" });
+        return;
+      }
+
+      const queued = await enqueueExistingClaimJob({
+        organizationId: req.organization!.organizationId,
+        userId: req.user!.id,
+        claimId,
+        type: "reprocess",
+        carrier,
+        callerKey: callerIdempotencyKey(req),
+      });
+      if (!queued) {
+        res.status(400).json({ error: "No source document found for this claim" });
+        return;
+      }
+      await db
+        .update(claims)
+        .set({
+          carrier,
+          status: "processing",
+          systemStatus: "processing",
+          aiStatus: "queued",
+        })
+        .where(
+          and(
+            eq(claims.id, claimId),
+            eq(claims.organizationId, req.organization!.organizationId),
+          ),
+        );
+      res.status(202).json({
+        job: {
+          id: queued.job.id,
+          claimId,
+          status: queued.job.status,
+          stage: queued.job.stage,
+        },
+        duplicate: !queued.created,
+      });
+    } catch (error) {
+      logger.error({ error }, "Claim reprocess enqueue failed");
+      res.status(500).json({ error: "Failed to queue claim reprocessing" });
+    }
+  },
+);
+
+export async function recoverStuckClaims(): Promise<void> {
+  // Compatibility export for older callers. Lease recovery is now atomic and
+  // happens inside claimNextJob() with FOR UPDATE SKIP LOCKED.
 }
 
 export default router;

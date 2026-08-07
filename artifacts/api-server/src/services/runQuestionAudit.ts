@@ -3,6 +3,7 @@ import { DA_QUESTIONS, FA_QUESTIONS, type Question, type QuestionResult, type An
 import { SYSTEM_PROMPT, USER_PROMPT_TEMPLATE } from "./prompts";
 import { getCarrierRuleset } from "./carrierRulesetService";
 import logger from "../lib/logger";
+import { env } from "../env";
 
 const VALID_ANSWERS: Answer[] = ["PASS", "PARTIAL", "FAIL", "NOT_APPLICABLE"];
 
@@ -198,7 +199,7 @@ async function callOpenAIForBatch(
   let response;
   try {
     response = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: env.OPENAI_CARRIER_AUDIT_MODEL,
       max_completion_tokens: maxTokens,
       messages: [
         { role: "system", content: systemPrompt },
@@ -296,7 +297,7 @@ async function runBatchedAudit(
 
   try {
     const summaryResponse = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: env.OPENAI_CARRIER_AUDIT_MODEL,
       max_completion_tokens: 1024,
       messages: [
         { role: "system", content: "You are an insurance audit assistant. Based on the audit results provided, generate a concise executive summary and determine if a denial letter is applicable. Return JSON only, no markdown." },
@@ -390,7 +391,7 @@ export async function runQuestionAudit(reportText: string, carrier?: string): Pr
   try {
     const maxTokens = totalQuestions > 20 ? 16384 : 8192;
     response = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: env.OPENAI_CARRIER_AUDIT_MODEL,
       max_completion_tokens: maxTokens,
       messages: [
         { role: "system", content: systemPrompt },
@@ -413,7 +414,7 @@ export async function runQuestionAudit(reportText: string, carrier?: string): Pr
     logger.error({ contentPreview: content.substring(0, 300) }, "Question audit: invalid JSON, retrying once");
     try {
       const retryResponse = await openai.chat.completions.create({
-        model: "gpt-4o",
+        model: env.OPENAI_CARRIER_AUDIT_MODEL,
         max_completion_tokens: totalQuestions > 20 ? 16384 : 8192,
         messages: [
           { role: "system", content: systemPrompt },

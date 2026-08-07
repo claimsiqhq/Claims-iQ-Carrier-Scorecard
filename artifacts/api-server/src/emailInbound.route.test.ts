@@ -43,6 +43,10 @@ test("inbound email route returns 200 immediately and schedules processing", asy
 
   const app = express();
   app.use(createEmailInboundRouter({
+    resolveOrganization: async () => ({
+      organizationId: "00000000-0000-4000-8000-000000000001",
+      userId: "test-user",
+    }),
     extractReport: async () => ({
       reportText: "Final report body text for standalone processing.",
     }),

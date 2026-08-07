@@ -313,24 +313,15 @@ export async function runCarrierScorecardAudit(input: {
 
     const content = response.choices[0]?.message?.content;
     if (!content) {
-      const fallback = buildCarrierScorecardFallback({
-        requestId: input.requestId,
-        model,
-        reason: "OpenAI response was empty.",
-        categories,
-      });
       logger.warn({
         requestId: input.requestId,
         carrier: input.carrier ?? "default",
         model,
         durationMs: Date.now() - startedAt,
         validation_ok: false,
-        score_total: fallback.overall.total_score,
-        percent: fallback.overall.percent,
-        grade: fallback.overall.grade,
         openai_request_id: response.id,
-      }, "Carrier scorecard audit returned fallback");
-      return fallback;
+      }, "Carrier scorecard audit returned no usable response");
+      throw new Error("Carrier scorecard provider returned an empty response");
     }
 
     const result = parseCarrierScorecardJson(content, {
@@ -338,6 +329,9 @@ export async function runCarrierScorecardAudit(input: {
       model,
       categories,
     });
+    if (!result.meta.validation_ok) {
+      throw new Error("Carrier scorecard provider response failed validation");
+    }
 
     logger.info({
       requestId: input.requestId,
@@ -353,13 +347,6 @@ export async function runCarrierScorecardAudit(input: {
 
     return result;
   } catch (err) {
-    const fallback = buildCarrierScorecardFallback({
-      requestId: input.requestId,
-      model,
-      reason: "OpenAI request failed during carrier scorecard audit.",
-      categories,
-    });
-
     logger.error({
       err,
       requestId: input.requestId,
@@ -367,11 +354,7 @@ export async function runCarrierScorecardAudit(input: {
       model,
       durationMs: Date.now() - startedAt,
       validation_ok: false,
-      score_total: fallback.overall.total_score,
-      percent: fallback.overall.percent,
-      grade: fallback.overall.grade,
     }, "Carrier scorecard audit request failed");
-
-    return fallback;
+    throw err;
   }
 }

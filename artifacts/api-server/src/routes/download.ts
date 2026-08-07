@@ -1,8 +1,9 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
 import { claims, audits, auditFindings } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { requireAuth } from "../middlewares/requireAuth";
+import { requireOrganizationPermission } from "../middlewares/organizationContext";
 import logger from "../lib/logger";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -20,7 +21,7 @@ function escCsv(val: string | null | undefined): string {
 
 const router: IRouter = Router();
 
-router.get("/claims/:id/download", requireAuth, async (req, res) => {
+router.get("/claims/:id/download", requireAuth, requireOrganizationPermission("claims:read"), async (req, res) => {
   try {
     const id = firstParam(req.params.id);
 
@@ -29,13 +30,31 @@ router.get("/claims/:id/download", requireAuth, async (req, res) => {
       return;
     }
 
-    const [claim] = await db.select().from(claims).where(eq(claims.id, id));
+    const [claim] = await db
+      .select()
+      .from(claims)
+      .where(
+        and(
+          eq(claims.id, id),
+          eq(claims.organizationId, req.organization!.organizationId),
+        ),
+      );
     if (!claim) {
       res.status(404).json({ error: "Claim not found" });
       return;
     }
 
-    const [audit] = await db.select().from(audits).where(eq(audits.claimId, id));
+    const [audit] = claim.currentAuditId
+      ? await db
+          .select()
+          .from(audits)
+          .where(
+            and(
+              eq(audits.id, claim.currentAuditId),
+              eq(audits.organizationId, req.organization!.organizationId),
+            ),
+          )
+      : [];
     if (!audit) {
       res.status(404).json({ error: "No audit report found for this claim" });
       return;
@@ -44,7 +63,15 @@ router.get("/claims/:id/download", requireAuth, async (req, res) => {
     const findings = await db
       .select()
       .from(auditFindings)
-      .where(eq(auditFindings.auditId, audit.id));
+      .where(
+        and(
+          eq(auditFindings.auditId, audit.id),
+          eq(
+            auditFindings.organizationId,
+            req.organization!.organizationId,
+          ),
+        ),
+      );
 
     const raw = audit.rawResponse as Record<string, unknown> | null;
     const overallAudit = raw?.overall_audit as Record<string, unknown> | undefined;

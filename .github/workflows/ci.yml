@@ -1,0 +1,55 @@
+name: Complete iQ quality gates
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+
+permissions:
+  contents: read
+
+concurrency:
+  group: complete-iq-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck workspace
+        run: pnpm typecheck
+
+      - name: Run automated tests
+        run: pnpm -r --if-present test
+
+      - name: Build production artifacts
+        run: pnpm build
+
+      - name: Verify generated API clients
+        run: |
+          pnpm --filter @workspace/api-spec codegen
+          git diff --exit-code -- lib/api-client-react/src lib/api-zod/src
+
+      - name: Audit production dependencies
+        run: pnpm audit --production --audit-level high

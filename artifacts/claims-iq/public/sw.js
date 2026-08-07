@@ -1,10 +1,11 @@
-const CACHE_NAME = "claims-iq-v1";
+const CACHE_NAME = "complete-iq-v2";
+const scopeUrl = new URL(self.registration.scope);
+const scoped = (path) => new URL(path, scopeUrl).toString();
 const STATIC_ASSETS = [
-  "/",
-  "/manifest.json",
-  "/favicon.svg",
-  "/icons/icon-192.png",
-  "/icons/icon-512.png",
+  scoped("./"),
+  scoped("manifest.json"),
+  scoped("favicon.svg"),
+  scoped("icons/icon.svg"),
 ];
 
 self.addEventListener("install", (event) => {
@@ -28,7 +29,15 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(request.url);
 
   if (request.method !== "GET") return;
-  if (url.pathname.startsWith("/api/")) return;
+  const apiPath = `${scopeUrl.pathname.replace(/\/$/, "")}/api/`;
+  if (url.origin !== self.location.origin || url.pathname.startsWith(apiPath)) return;
+
+  if (request.mode === "navigate") {
+    event.respondWith(
+      fetch(request).catch(() => caches.match(scoped("./")))
+    );
+    return;
+  }
 
   event.respondWith(
     caches.match(request).then((cached) => {

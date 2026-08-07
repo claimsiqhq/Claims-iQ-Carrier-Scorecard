@@ -1,37 +1,20 @@
 {
-  "name": "Claims iQ Audit",
-  "short_name": "Claims iQ",
-  "description": "AI-powered insurance claim auditing with carrier scorecards",
-  "start_url": "/",
+  "name": "Complete iQ Carrier Audit",
+  "short_name": "Complete iQ",
+  "description": "Evidence-led carrier audit and claim review workspace",
+  "start_url": ".",
+  "scope": ".",
   "display": "standalone",
   "orientation": "any",
-  "background_color": "#342A4F",
-  "theme_color": "#342A4F",
+  "background_color": "#f2efe8",
+  "theme_color": "#171321",
   "categories": ["business", "productivity"],
   "icons": [
     {
-      "src": "/icons/icon-192.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "/icons/icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "/icons/icon-maskable-192.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "maskable"
-    },
-    {
-      "src": "/icons/icon-maskable-512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "maskable"
+      "src": "icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
     }
   ]
 }

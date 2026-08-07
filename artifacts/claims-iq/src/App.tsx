@@ -1,32 +1,37 @@
-import { Switch, Route, Router as WouterRouter } from "wouter";
+import { useEffect } from "react";
+import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
-import { Sidebar } from "@/components/Sidebar";
+import { BrandMark } from "@/components/complete-iq/brand-mark";
+import { AppShell } from "@/components/layout/app-shell";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
-import LoginPage from "@/pages/login";
-import DashboardPage from "@/pages/dashboard";
-import ClaimDetailPage from "@/pages/claim-detail";
-import SettingsPage from "@/pages/settings";
-import CarriersPage from "@/pages/carriers";
-import CarrierEditorPage from "@/pages/carrier-editor";
-import { useLocation } from "wouter";
-import { useIsMobile } from "@/hooks/use-mobile";
-import { BRAND, FONTS } from "@/lib/brand";
+import { ApiError } from "@/lib/api";
+import LoginPage from "@/features/auth/login-page";
+import DashboardPage from "@/features/dashboard/dashboard-page";
+import ClaimsPage from "@/features/claims/claims-page";
+import ClaimWorkbench from "@/features/claims/claim-workbench";
+import InsightsPage from "@/features/insights/insights-page";
+import SettingsPage from "@/features/settings/settings-page";
+import CarriersPage from "@/features/carriers/carriers-page";
+import CarrierEditorPage from "@/features/carriers/carrier-editor-page";
+import NotFoundPage from "@/features/system/not-found-page";
 
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 30_000,
-      retry: 2,
+      retry: (failureCount, error) =>
+        !(error instanceof ApiError && error.status >= 400 && error.status < 500) &&
+        failureCount < 2,
       refetchOnWindowFocus: false,
     },
   },
 });
 
 function ClaimDetailWrapper({ params }: { params: { id: string } }) {
-  return <ClaimDetailPage claimId={params.id} />;
+  return <ClaimWorkbench claimId={params.id} />;
 }
 
 function AuthGate() {
@@ -34,10 +39,11 @@ function AuthGate() {
 
   if (loading) {
     return (
-      <div className="h-[100dvh] flex items-center justify-center" style={{ backgroundColor: BRAND.offWhite }}>
-        <div className="text-center">
-          <div className="w-8 h-8 border-2 border-t-transparent rounded-full animate-spin mx-auto mb-3" style={{ borderColor: BRAND.purple, borderTopColor: "transparent" }} />
-          <p className="text-sm" style={{ color: BRAND.purpleSecondary }}>Loading...</p>
+      <div className="flex h-[100dvh] items-center justify-center bg-[var(--ciq-canvas)]">
+        <div className="text-center" role="status" aria-live="polite">
+          <BrandMark className="mb-5" />
+          <div className="mx-auto mb-3 h-6 w-6 animate-spin rounded-full border-2 border-[var(--ciq-border-strong)] border-t-[var(--ciq-verified)]" />
+          <p className="text-sm text-[var(--ciq-ink-muted)]">Verifying protected session…</p>
         </div>
       </div>
     );
@@ -53,45 +59,45 @@ function AuthGate() {
 function AdminRoute({ component: Component }: { component: React.ComponentType }) {
   const { isAdmin } = useAuth();
   const [, setLocation] = useLocation();
-  if (!isAdmin) { setLocation("/"); return null; }
+  useEffect(() => {
+    if (!isAdmin) setLocation("/");
+  }, [isAdmin, setLocation]);
+  if (!isAdmin) return null;
   return <Component />;
 }
 
 function AppLayout() {
-  const [, setLocation] = useLocation();
-  const isMobile = useIsMobile();
-
   return (
-    <div
-      className="h-[100dvh] flex flex-col md:flex-row overflow-hidden"
-      style={{ backgroundColor: BRAND.offWhite, fontFamily: FONTS.body, color: BRAND.deepPurple }}
-    >
-      <Sidebar />
-      <div className={`flex-1 flex flex-col min-w-0 overflow-hidden ${isMobile ? "pt-14" : ""}`}>
+    <AppShell>
         <Switch>
           <Route path="/" component={DashboardPage} />
-          <Route path="/claims">{() => { setLocation("/"); return null; }}</Route>
+          <Route path="/claims" component={ClaimsPage} />
           <Route path="/claims/:id">{(params) => <ClaimDetailWrapper params={params} />}</Route>
-          <Route path="/upload">{() => { setLocation("/"); return null; }}</Route>
-          <Route path="/audit-results">{() => { setLocation("/"); return null; }}</Route>
+          <Route path="/insights" component={InsightsPage} />
+          <Route path="/upload">{() => <LegacyRedirect to="/claims?upload=1" />}</Route>
+          <Route path="/audit-results">{() => <LegacyRedirect to="/claims" />}</Route>
           <Route path="/settings">{() => <AdminRoute component={SettingsPage} />}</Route>
           <Route path="/carriers">{() => <AdminRoute component={CarriersPage} />}</Route>
           <Route path="/carriers/:key">{(params) => <AdminCarrierEditor carrierKey={params.key} />}</Route>
-          <Route>
-            <main className="flex-1 flex items-center justify-center" style={{ backgroundColor: BRAND.offWhite }}>
-              <p style={{ color: BRAND.purpleSecondary }}>Page not found</p>
-            </main>
-          </Route>
+          <Route component={NotFoundPage} />
         </Switch>
-      </div>
-    </div>
+    </AppShell>
   );
+}
+
+function LegacyRedirect({ to }: { to: string }) {
+  const [, setLocation] = useLocation();
+  useEffect(() => setLocation(to, { replace: true }), [setLocation, to]);
+  return null;
 }
 
 function AdminCarrierEditor({ carrierKey }: { carrierKey: string }) {
   const { isAdmin } = useAuth();
   const [, setLocation] = useLocation();
-  if (!isAdmin) { setLocation("/"); return null; }
+  useEffect(() => {
+    if (!isAdmin) setLocation("/");
+  }, [isAdmin, setLocation]);
+  if (!isAdmin) return null;
   return <CarrierEditorPage carrierKey={carrierKey} />;
 }
 

@@ -1,12 +1,13 @@
 import { Router, type IRouter } from "express";
 import { db, claims, audits, auditFindings } from "@workspace/db";
-import { eq, sql, desc } from "drizzle-orm";
+import { and, eq, sql, desc } from "drizzle-orm";
 import { requireAuth } from "../middlewares/requireAuth";
+import { requireOrganizationPermission } from "../middlewares/organizationContext";
 import logger from "../lib/logger";
 
 const router: IRouter = Router();
 
-router.get("/dashboard", requireAuth, async (_req, res) => {
+router.get("/dashboard", requireAuth, requireOrganizationPermission("claims:read"), async (req, res) => {
   try {
     const [statsRow] = await db
       .select({
@@ -14,20 +15,25 @@ router.get("/dashboard", requireAuth, async (_req, res) => {
         analyzedCount: sql<number>`count(*) filter (where ${claims.status} = 'analyzed')::int`,
         pendingCount: sql<number>`count(*) filter (where ${claims.status} = 'pending')::int`,
       })
-      .from(claims);
+      .from(claims)
+      .where(eq(claims.organizationId, req.organization!.organizationId));
 
     const [scoreRow] = await db
       .select({
         avgScore: sql<number>`round(avg(${audits.overallScore}::numeric))::int`,
       })
-      .from(audits);
+      .from(claims)
+      .innerJoin(audits, eq(claims.currentAuditId, audits.id))
+      .where(eq(claims.organizationId, req.organization!.organizationId));
 
     const riskRows = await db
       .select({
         riskLevel: audits.riskLevel,
         count: sql<number>`count(*)::int`,
       })
-      .from(audits)
+      .from(claims)
+      .innerJoin(audits, eq(claims.currentAuditId, audits.id))
+      .where(eq(claims.organizationId, req.organization!.organizationId))
       .groupBy(audits.riskLevel);
 
     const approvalRows = await db
@@ -35,7 +41,9 @@ router.get("/dashboard", requireAuth, async (_req, res) => {
         approvalStatus: audits.approvalStatus,
         count: sql<number>`count(*)::int`,
       })
-      .from(audits)
+      .from(claims)
+      .innerJoin(audits, eq(claims.currentAuditId, audits.id))
+      .where(eq(claims.organizationId, req.organization!.organizationId))
       .groupBy(audits.approvalStatus);
 
     const carrierRows = await db
@@ -45,7 +53,8 @@ router.get("/dashboard", requireAuth, async (_req, res) => {
         avgScore: sql<number>`round(avg(${audits.overallScore}::numeric))::int`,
       })
       .from(claims)
-      .leftJoin(audits, eq(claims.id, audits.claimId))
+      .leftJoin(audits, eq(claims.currentAuditId, audits.id))
+      .where(eq(claims.organizationId, req.organization!.organizationId))
       .groupBy(sql`coalesce(${claims.carrier}, 'Unknown')`);
 
     const findingRows = await db
@@ -54,6 +63,20 @@ router.get("/dashboard", requireAuth, async (_req, res) => {
         count: sql<number>`count(*)::int`,
       })
       .from(auditFindings)
+      .innerJoin(audits, eq(audits.id, auditFindings.auditId))
+      .innerJoin(
+        claims,
+        and(
+          eq(claims.currentAuditId, audits.id),
+          eq(claims.organizationId, req.organization!.organizationId),
+        ),
+      )
+      .where(
+        eq(
+          auditFindings.organizationId,
+          req.organization!.organizationId,
+        ),
+      )
       .groupBy(auditFindings.severity);
 
     const recentRows = await db
@@ -71,7 +94,8 @@ router.get("/dashboard", requireAuth, async (_req, res) => {
         approvalStatus: audits.approvalStatus,
       })
       .from(claims)
-      .leftJoin(audits, eq(claims.id, audits.claimId))
+      .leftJoin(audits, eq(claims.currentAuditId, audits.id))
+      .where(eq(claims.organizationId, req.organization!.organizationId))
       .orderBy(desc(claims.createdAt));
 
     const riskDistribution: Record<string, number> = {};

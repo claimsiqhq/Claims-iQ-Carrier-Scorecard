@@ -4,15 +4,13 @@ import { randomUUID } from "crypto";
 import logger from "../lib/logger";
 import { sendCarrierScorecardEmail, type CarrierScorecardAuditResult } from "../services/email";
 import { extractAndPersistFinalReport } from "../services/finalReportIngestion";
-
-async function runCarrierScorecardAudit(_input: { reportText: string; requestId: string }): Promise<CarrierScorecardAuditResult> {
-  return {
-    version: "legacy-stub",
-    overall: { total_score: 0, max_score: 100, percent: 0, grade: "F", summary: "Legacy carrier scorecard audit is no longer available. Use the DA/FA audit instead." },
-    categories: [],
-    issues: [{ severity: "info", title: "Deprecated", description: "This audit path has been replaced by the DA/FA scorecard system." }],
-  };
-}
+import { runCarrierScorecardAudit } from "../services/carrierScorecardAudit";
+import {
+  db,
+  organizationMemberships,
+  usersTable,
+} from "@workspace/db";
+import { and, desc, eq } from "drizzle-orm";
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -49,16 +47,42 @@ interface InboundRouteDeps {
   extractReport: (input: {
     source: "sendgrid_inbound";
     requestId: string;
+    organizationId: string;
+    uploaderUserId?: string;
     senderEmail?: string;
     file?: Express.Multer.File;
     reportText?: string;
   }) => Promise<{ reportText: string }>;
+  resolveOrganization: (senderEmail: string) => Promise<{
+    organizationId: string;
+    userId: string;
+  } | null>;
 }
 
 const defaultDeps: InboundRouteDeps = {
   runAudit: runCarrierScorecardAudit,
   sendAuditEmail: sendCarrierScorecardEmail,
   extractReport: extractAndPersistFinalReport,
+  resolveOrganization: async (senderEmail) => {
+    const [membership] = await db
+      .select({
+        organizationId: organizationMemberships.organizationId,
+        userId: usersTable.id,
+      })
+      .from(usersTable)
+      .innerJoin(
+        organizationMemberships,
+        eq(organizationMemberships.userId, usersTable.id),
+      )
+      .where(
+        and(
+          eq(usersTable.email, senderEmail),
+        ),
+      )
+      .orderBy(desc(organizationMemberships.isDefault))
+      .limit(1);
+    return membership ?? null;
+  },
 };
 
 export function createEmailInboundRouter(deps: InboundRouteDeps = defaultDeps): IRouter {
@@ -93,6 +117,14 @@ export function createEmailInboundRouter(deps: InboundRouteDeps = defaultDeps): 
           logger.error({ requestId, inbound_parse_processing: "failure" }, "Inbound parse missing sender");
           return;
         }
+        const tenant = await deps.resolveOrganization(sender);
+        if (!tenant) {
+          logger.error(
+            { requestId, sender: senderMasked, inbound_parse_processing: "failure" },
+            "Inbound sender has no organization membership",
+          );
+          return;
+        }
 
         const files = (req.files as Express.Multer.File[] | undefined) ?? [];
         const pdf = files.find((f) => {
@@ -107,6 +139,8 @@ export function createEmailInboundRouter(deps: InboundRouteDeps = defaultDeps): 
         const extracted = await deps.extractReport({
           source: "sendgrid_inbound",
           requestId,
+          organizationId: tenant.organizationId,
+          uploaderUserId: tenant.userId,
           senderEmail: sender,
           file: pdf,
           reportText: fallbackText,

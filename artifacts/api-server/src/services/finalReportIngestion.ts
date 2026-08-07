@@ -33,6 +33,7 @@ function releaseExtractionSlot(): void {
 export interface PersistedReportInput {
   source: SourceKind;
   requestId: string;
+  organizationId: string;
   uploaderUserId?: string;
   senderEmail?: string;
   file?: Express.Multer.File;
@@ -373,6 +374,7 @@ async function _extractPdfTextWithVisionPagesInner(params: {
 async function persistDocumentRecord(params: {
   source: SourceKind;
   requestId: string;
+  organizationId: string;
   uploaderUserId?: string;
   senderEmail?: string;
   fileName?: string;
@@ -385,6 +387,7 @@ async function persistDocumentRecord(params: {
   try {
     const { db, documents } = await import("@workspace/db");
     const [saved] = await db.insert(documents).values({
+      organizationId: params.organizationId,
       claimId: null,
       type: params.source === "sendgrid_inbound" ? "standalone_inbound_report" : "standalone_final_report",
       fileUrl: params.storagePath ?? null,
@@ -440,6 +443,7 @@ export async function extractAndPersistFinalReport(input: PersistedReportInput):
     const documentId = await persistDocumentRecord({
       source: input.source,
       requestId: input.requestId,
+      organizationId: input.organizationId,
       uploaderUserId: input.uploaderUserId,
       senderEmail: input.senderEmail,
       extractedText: reportTextBody,
@@ -463,7 +467,12 @@ export async function extractAndPersistFinalReport(input: PersistedReportInput):
     file_bytes: file.buffer.length,
   }, "Received uploaded file for standalone processing");
 
-  const storagePath = await uploadFile(file.buffer, fileName, contentType);
+  const storagePath = await uploadFile(
+    file.buffer,
+    fileName,
+    contentType,
+    input.organizationId,
+  );
   logger.info({
     requestId: input.requestId,
     source: input.source,
@@ -484,6 +493,7 @@ export async function extractAndPersistFinalReport(input: PersistedReportInput):
     const documentId = await persistDocumentRecord({
       source: input.source,
       requestId: input.requestId,
+      organizationId: input.organizationId,
       uploaderUserId: input.uploaderUserId,
       senderEmail: input.senderEmail,
       fileName,
@@ -510,6 +520,7 @@ export async function extractAndPersistFinalReport(input: PersistedReportInput):
   const documentId = await persistDocumentRecord({
     source: input.source,
     requestId: input.requestId,
+    organizationId: input.organizationId,
     uploaderUserId: input.uploaderUserId,
     senderEmail: input.senderEmail,
     fileName,

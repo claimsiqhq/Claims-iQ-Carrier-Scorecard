@@ -14,10 +14,16 @@ import { BRAND, FONTS } from "@/lib/brand"
 import { useLocation } from "wouter"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { useAuth } from "@/lib/auth-context"
+import { PrimaryNav } from "@/components/layout/app-shell"
 
 const STORAGE_KEY = "sidebar-collapsed"
 
 export function Sidebar() {
+  return <PrimaryNav />
+}
+
+/** @deprecated Kept temporarily for downstream imports while the AppShell migration settles. */
+export function LegacySidebar() {
   const [location, setLocation] = useLocation()
   const isMobile = useIsMobile()
   const [open, setOpen] = useState(false)

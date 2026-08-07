@@ -7,6 +7,25 @@ import { runPhotoAnalysis, type VisionAnalysisResult } from "./visionAnalysis";
 import type { QuestionResult } from "./questionBank";
 import { getCarrierRuleset } from "./carrierRulesetService";
 
+export class AuditOperationalError extends Error {
+  readonly code: string;
+  readonly outcome: "degraded" | "failed";
+  readonly metadata?: Record<string, unknown>;
+
+  constructor(input: {
+    message: string;
+    code: string;
+    outcome: "degraded" | "failed";
+    metadata?: Record<string, unknown>;
+  }) {
+    super(input.message);
+    this.name = "AuditOperationalError";
+    this.code = input.code;
+    this.outcome = input.outcome;
+    this.metadata = input.metadata;
+  }
+}
+
 export interface AuditResponse {
   claim_metadata: {
     claim_number: string;
@@ -168,7 +187,15 @@ export async function runFinalAudit(
         validation.ready = false;
       }
     } catch (err) {
-      logger.error({ err }, "Vision photo analysis failed — continuing without it");
+      logger.error({ err }, "Vision photo analysis failed");
+      throw new AuditOperationalError({
+        message: "Vision analysis failed; an incomplete audit will not be scored.",
+        code: "vision_analysis_failed",
+        outcome: "degraded",
+        metadata: {
+          cause: err instanceof Error ? err.message : "Unknown vision provider error",
+        },
+      });
     }
   }
 

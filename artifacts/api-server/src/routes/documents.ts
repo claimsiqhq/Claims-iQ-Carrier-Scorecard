@@ -1,173 +1,238 @@
 import { Router, type IRouter } from "express";
-import { randomUUID } from "crypto";
-import { db, pool } from "@workspace/db";
-import { claims, documents } from "@workspace/db";
-import { eq, and } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/node-postgres";
-import * as schema from "@workspace/db/schema";
-import { downloadFile } from "../lib/supabaseStorage";
-import { extractPdfTextWithVisionPages } from "../services/finalReportIngestion";
+import { and, eq } from "drizzle-orm";
+import {
+  claimActivity,
+  db,
+  documents,
+} from "@workspace/db";
+import {
+  buildJobIdempotencyKey,
+  enqueueProcessingJob,
+} from "../services/jobQueue";
+import {
+  deleteFile,
+  isOrganizationStoragePath,
+} from "../lib/supabaseStorage";
+import {
+  getAuthorizedClaim,
+  getAuthorizedDocument,
+} from "../lib/authorization";
 import { requireAuth } from "../middlewares/requireAuth";
+import { requireOrganizationPermission } from "../middlewares/organizationContext";
 import logger from "../lib/logger";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const MAX_PDF_SIZE = 100 * 1024 * 1024;
 const router: IRouter = Router();
 const firstParam = (value: string | string[] | undefined): string =>
   Array.isArray(value) ? (value[0] ?? "") : (value ?? "");
 
-router.post("/claims/:id/documents", requireAuth, async (req, res) => {
-  try {
-    const id = firstParam(req.params.id);
-    if (!UUID_RE.test(id)) {
-      res.status(400).json({ error: "Invalid claim ID format" });
-      return;
-    }
-
-    const [claim] = await db.select().from(claims).where(eq(claims.id, id));
-    if (!claim) {
-      res.status(404).json({ error: "Claim not found" });
-      return;
-    }
-
-    const { type, storagePath, fileName, contentType } = req.body;
-    if (!storagePath || !fileName) {
-      res.status(400).json({ error: "storagePath and fileName are required" });
-      return;
-    }
-
-    const client = await pool.connect();
+router.post(
+  "/claims/:id/documents",
+  requireAuth,
+  requireOrganizationPermission("claims:update"),
+  async (req, res) => {
     try {
-      await client.query("BEGIN");
-      const txDb = drizzle(client, { schema });
+      const claimId = firstParam(req.params.id);
+      if (!UUID_RE.test(claimId)) {
+        res.status(400).json({ error: "Invalid claim ID format" });
+        return;
+      }
+      const claim = await getAuthorizedClaim(
+        req.organization!.organizationId,
+        claimId,
+      );
+      if (!claim) {
+        res.status(404).json({ error: "Claim not found" });
+        return;
+      }
 
-      await txDb.delete(documents).where(eq(documents.claimId, id));
+      const { type, storagePath, fileName, contentType } = req.body;
+      if (
+        typeof storagePath !== "string"
+        || !storagePath
+        || typeof fileName !== "string"
+        || !fileName
+      ) {
+        res.status(400).json({ error: "storagePath and fileName are required" });
+        return;
+      }
+      if (
+        !isOrganizationStoragePath(
+          storagePath,
+          req.organization!.organizationId,
+        )
+      ) {
+        res.status(400).json({ error: "Invalid organization storage path" });
+        return;
+      }
 
-      const [doc] = await txDb.insert(documents).values({
-        claimId: id,
-        type: type || "claim_file",
-        fileUrl: storagePath,
-        metadata: { fileName, contentType: contentType || "application/octet-stream", storagePath },
-      }).returning();
-
-      await client.query("COMMIT");
-
-      res.status(201).json({
-        id: doc.id,
-        claimId: doc.claimId ?? "",
-        type: doc.type ?? "",
-        fileUrl: doc.fileUrl ?? undefined,
-        createdAt: doc.createdAt?.toISOString() ?? undefined,
+      const [document] = await db
+        .insert(documents)
+        .values({
+          organizationId: req.organization!.organizationId,
+          claimId,
+          uploadedByUserId: req.user!.id,
+          type: typeof type === "string" && type ? type : "claim_file",
+          fileUrl: storagePath,
+          metadata: {
+            fileName,
+            contentType:
+              typeof contentType === "string"
+                ? contentType
+                : "application/octet-stream",
+            storagePath,
+          },
+        })
+        .returning();
+      await db.insert(claimActivity).values({
+        organizationId: req.organization!.organizationId,
+        claimId,
+        actorUserId: req.user!.id,
+        activityType: "document_added",
+        metadata: { documentId: document.id, type: document.type },
       });
-    } catch (txErr) {
-      await client.query("ROLLBACK");
-      throw txErr;
-    } finally {
-      client.release();
+      res.status(201).json({
+        id: document.id,
+        claimId: document.claimId,
+        type: document.type,
+        createdAt: document.createdAt?.toISOString(),
+      });
+    } catch (error) {
+      logger.error({ error }, "Document creation failed");
+      res.status(500).json({ error: "Failed to create document" });
     }
-  } catch (err) {
-    logger.error({ err }, "Error creating document");
-    res.status(500).json({ error: "Failed to create document" });
-  }
-});
+  },
+);
 
-router.delete("/claims/:id/documents/:docId", requireAuth, async (req, res) => {
-  try {
-    const id = firstParam(req.params.id);
-    const docId = firstParam(req.params.docId);
-    if (!UUID_RE.test(id) || !UUID_RE.test(docId)) {
-      res.status(400).json({ error: "Invalid ID format" });
-      return;
-    }
+router.delete(
+  "/claims/:id/documents/:docId",
+  requireAuth,
+  requireOrganizationPermission("claims:update"),
+  async (req, res) => {
+    try {
+      const claimId = firstParam(req.params.id);
+      const documentId = firstParam(req.params.docId);
+      if (!UUID_RE.test(claimId) || !UUID_RE.test(documentId)) {
+        res.status(400).json({ error: "Invalid ID format" });
+        return;
+      }
+      const document = await getAuthorizedDocument(
+        req.organization!.organizationId,
+        documentId,
+        claimId,
+      );
+      if (!document) {
+        res.status(404).json({ error: "Document not found" });
+        return;
+      }
 
-    const [doc] = await db.select().from(documents).where(
-      and(eq(documents.id, docId), eq(documents.claimId, id))
-    );
-
-    if (!doc) {
-      res.status(404).json({ error: "Document not found" });
-      return;
-    }
-
-    await db.delete(documents).where(eq(documents.id, docId));
-    res.json({ success: true, message: "Document deleted" });
-  } catch (err) {
-    logger.error({ err }, "Error deleting document");
-    res.status(500).json({ error: "Failed to delete document" });
-  }
-});
-
-router.post("/claims/:id/documents/:docId/extract", requireAuth, async (req, res) => {
-  try {
-    const id = firstParam(req.params.id);
-    const docId = firstParam(req.params.docId);
-    if (!UUID_RE.test(id) || !UUID_RE.test(docId)) {
-      res.status(400).json({ error: "Invalid ID format" });
-      return;
-    }
-
-    const [doc] = await db.select().from(documents).where(
-      and(eq(documents.id, docId), eq(documents.claimId, id))
-    );
-
-    if (!doc) {
-      res.status(404).json({ error: "Document not found" });
-      return;
-    }
-
-    const meta = doc.metadata as Record<string, unknown> | null;
-    const storagePath = (meta?.storagePath as string) || doc.fileUrl || "";
-    const contentType = (meta?.contentType as string) || "";
-
-    let extractedText = "";
-
-    if (contentType === "application/pdf" && storagePath) {
       try {
-        const buffer = await downloadFile(storagePath);
-        if (buffer.length > MAX_PDF_SIZE) {
-          res.status(413).json({ error: `File too large for text extraction (${MAX_PDF_SIZE / 1024 / 1024}MB limit)` });
-          return;
-        }
-        const requestId = typeof req.headers["x-request-id"] === "string"
-          ? req.headers["x-request-id"]
-          : randomUUID();
-        const vision = await extractPdfTextWithVisionPages({
-          pdfBuffer: buffer,
-          fileName: typeof meta?.fileName === "string" ? meta.fileName : "document.pdf",
-          requestId,
+        await db.transaction(async (tx) => {
+          await tx
+            .delete(documents)
+            .where(
+              and(
+                eq(documents.id, documentId),
+                eq(
+                  documents.organizationId,
+                  req.organization!.organizationId,
+                ),
+              ),
+            );
+          await tx.insert(claimActivity).values({
+            organizationId: req.organization!.organizationId,
+            claimId,
+            actorUserId: req.user!.id,
+            activityType: "document_deleted",
+            metadata: { documentId },
+          });
         });
-        extractedText = vision.text;
-      } catch (pdfErr) {
-        logger.error({ err: pdfErr }, "Vision PDF extraction failed");
-        extractedText = "[PDF extraction failed]";
+      } catch (error) {
+        logger.warn(
+          { error, documentId },
+          "Document deletion blocked by retained audit evidence",
+        );
+        res.status(409).json({
+          error: "Document is retained because it is referenced by audit evidence",
+        });
+        return;
       }
-    } else if (contentType?.startsWith("text/") && storagePath) {
-      try {
-        const buffer = await downloadFile(storagePath);
-        if (buffer.length > MAX_PDF_SIZE) {
-          res.status(413).json({ error: "File too large for text extraction" });
-          return;
-        }
-        extractedText = buffer.toString("utf-8");
-      } catch (txtErr) {
-        logger.error({ err: txtErr }, "Text extraction failed");
-        extractedText = "[Text extraction failed]";
+
+      if (
+        document.fileUrl
+        && isOrganizationStoragePath(
+          document.fileUrl,
+          req.organization!.organizationId,
+        )
+      ) {
+        await deleteFile(document.fileUrl);
       }
-    } else {
-      extractedText = `[No text extraction available for ${contentType}]`;
+      res.json({ success: true, message: "Document deleted" });
+    } catch (error) {
+      logger.error({ error }, "Document deletion failed");
+      res.status(500).json({ error: "Failed to delete document" });
     }
+  },
+);
 
-    await db.update(documents).set({ extractedText }).where(eq(documents.id, docId));
-
-    res.json({
-      documentId: docId,
-      extractedLength: extractedText.length,
-      preview: extractedText.substring(0, 500),
-    });
-  } catch (err) {
-    logger.error({ err }, "Error extracting text");
-    res.status(500).json({ error: "Failed to extract text" });
-  }
-});
+router.post(
+  "/claims/:id/documents/:docId/extract",
+  requireAuth,
+  requireOrganizationPermission("claims:update"),
+  async (req, res) => {
+    try {
+      const claimId = firstParam(req.params.id);
+      const documentId = firstParam(req.params.docId);
+      if (!UUID_RE.test(claimId) || !UUID_RE.test(documentId)) {
+        res.status(400).json({ error: "Invalid ID format" });
+        return;
+      }
+      const document = await getAuthorizedDocument(
+        req.organization!.organizationId,
+        documentId,
+        claimId,
+      );
+      if (!document?.fileUrl) {
+        res.status(404).json({ error: "Document not found" });
+        return;
+      }
+      const callerKey =
+        typeof req.headers["x-idempotency-key"] === "string"
+          ? req.headers["x-idempotency-key"].trim()
+          : null;
+      const idempotencyKey = buildJobIdempotencyKey({
+        organizationId: req.organization!.organizationId,
+        type: "extract",
+        claimId,
+        documentId,
+        sourceHash: document.sourceSha256,
+        callerKey:
+          callerKey
+          || `extract:${document.updatedAt.toISOString()}`,
+      });
+      const queued = await enqueueProcessingJob({
+        organizationId: req.organization!.organizationId,
+        claimId,
+        documentId,
+        requestedByUserId: req.user!.id,
+        type: "extract",
+        idempotencyKey,
+      });
+      res.status(202).json({
+        job: {
+          id: queued.job.id,
+          claimId,
+          documentId,
+          status: queued.job.status,
+          stage: queued.job.stage,
+        },
+        duplicate: !queued.created,
+      });
+    } catch (error) {
+      logger.error({ error }, "Document extraction enqueue failed");
+      res.status(500).json({ error: "Failed to queue document extraction" });
+    }
+  },
+);
 
 export default router;

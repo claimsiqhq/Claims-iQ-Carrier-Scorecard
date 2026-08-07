@@ -2,7 +2,10 @@ import app from "./app";
 import { pool } from "@workspace/db";
 import logger from "./lib/logger";
 import { env } from "./env";
-import { recoverStuckClaims } from "./routes/ingest";
+import {
+  startDurableWorker,
+  stopDurableWorker,
+} from "./services/processingWorker";
 
 const rawPort = process.env["PORT"];
 
@@ -44,12 +47,9 @@ logger.info({ carrierAuditModel: env.OPENAI_CARRIER_AUDIT_MODEL }, "Carrier audi
 
 const server = app.listen(port, () => {
   logger.info({ port }, `Server listening on port ${port}`);
-
-  setTimeout(() => {
-    recoverStuckClaims().catch((err) => {
-      logger.error({ err }, "Startup recovery failed");
-    });
-  }, 5000);
+  if (process.env.DURABLE_WORKER_ENABLED !== "false") {
+    startDurableWorker();
+  }
 });
 
 function gracefulShutdown(signal: string) {
@@ -57,6 +57,8 @@ function gracefulShutdown(signal: string) {
   server.close(async () => {
     logger.info("HTTP server closed.");
     try {
+      await stopDurableWorker();
+      logger.info("Durable worker stopped.");
       await pool.end();
       logger.info("Database pool closed.");
     } catch (err) {

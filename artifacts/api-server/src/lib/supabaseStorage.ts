@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { randomUUID } from "crypto";
+import path from "node:path";
 import logger from "./logger";
 
 const BUCKET_NAME = "claim-documents";
@@ -47,11 +48,18 @@ export async function ensureBucket(): Promise<void> {
 export async function uploadFile(
   fileBuffer: Buffer,
   fileName: string,
-  contentType: string
+  contentType: string,
+  organizationId: string,
 ): Promise<string> {
   await ensureBucket();
+  if (!/^[0-9a-f-]{36}$/i.test(organizationId)) {
+    throw new Error("A valid organization ID is required for storage uploads");
+  }
   const fileId = randomUUID();
-  const storagePath = `uploads/${fileId}/${fileName}`;
+  const safeName = path
+    .basename(fileName || "document")
+    .replace(/[^\w.\-]/g, "_");
+  const storagePath = `organizations/${organizationId}/uploads/${fileId}/${safeName}`;
 
   const { error } = await supabase().storage
     .from(BUCKET_NAME)
@@ -65,6 +73,13 @@ export async function uploadFile(
   }
 
   return storagePath;
+}
+
+export function isOrganizationStoragePath(
+  storagePath: string,
+  organizationId: string,
+): boolean {
+  return storagePath.startsWith(`organizations/${organizationId}/`);
 }
 
 export async function downloadFile(storagePath: string): Promise<Buffer> {
