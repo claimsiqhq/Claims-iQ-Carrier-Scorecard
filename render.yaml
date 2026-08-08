@@ -1,0 +1,74 @@
+# Render Blueprint for Claims iQ Audit
+# Deploys two services from this pnpm monorepo:
+#   1. claims-iq-api  — Node web service (Express API, artifacts/api-server)
+#   2. claims-iq-web  — Static site (React frontend, artifacts/claims-iq)
+#
+# After the first deploy, update the /api rewrite destination below with the
+# actual URL Render assigns to claims-iq-api (or use a custom domain).
+
+services:
+  # ── Backend API ────────────────────────────────────────────────────────────
+  - type: web
+    name: claims-iq-api
+    runtime: node
+    plan: starter
+    region: oregon
+    buildCommand: corepack enable && corepack prepare pnpm@latest --activate && pnpm install --frozen-lockfile && pnpm --filter @workspace/api-server run build
+    startCommand: node artifacts/api-server/dist/index.cjs
+    healthCheckPath: /api/healthz
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "24"
+      # Required — server refuses to start without these
+      - key: SUPABASE_DATABASE_URL
+        sync: false # set in Render dashboard (secret)
+      - key: SUPABASE_SERVICE_ROLE
+        sync: false # set in Render dashboard (secret)
+      # Email (SendGrid)
+      - key: SENDGRID_API_KEY
+        sync: false # set in Render dashboard (secret)
+      - key: SENDGRID_FROM_EMAIL
+        value: john@claimsiq.ai
+      - key: SENDGRID_INBOUND_PARSE_TOKEN
+        sync: false # optional — only needed for inbound parse webhook
+      # OpenAI — on Render you must use your own OpenAI credentials
+      # (the Replit AI proxy key does not work outside Replit)
+      - key: AI_INTEGRATIONS_OPENAI_API_KEY
+        sync: false # set in Render dashboard (secret) — your own OpenAI API key
+      - key: AI_INTEGRATIONS_OPENAI_BASE_URL
+        value: https://api.openai.com/v1
+      - key: OPENAI_CARRIER_AUDIT_MODEL
+        value: gpt-4o
+      - key: OPENAI_VISION_MAX_PDF_PAGES
+        value: "250"
+      # CORS — comma-separated list of allowed frontend origins
+      - key: ALLOWED_ORIGINS
+        value: https://claims-iq-web.onrender.com
+      # Optional tuning
+      - key: LOG_LEVEL
+        value: info
+      - key: DURABLE_WORKER_ENABLED
+        value: "true"
+
+  # ── Frontend (static) ──────────────────────────────────────────────────────
+  - type: web
+    name: claims-iq-web
+    runtime: static
+    buildCommand: corepack enable && corepack prepare pnpm@latest --activate && pnpm install --frozen-lockfile && BASE_PATH=/ pnpm --filter @workspace/claims-iq run build
+    staticPublishPath: artifacts/claims-iq/dist/public
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
+      - key: BASE_PATH
+        value: /
+    routes:
+      # Proxy API calls to the backend service (update host after first deploy)
+      - type: rewrite
+        source: /api/*
+        destination: https://claims-iq-api.onrender.com/api/*
+      # SPA fallback — all other routes serve the React app
+      - type: rewrite
+        source: /*
+        destination: /index.html
