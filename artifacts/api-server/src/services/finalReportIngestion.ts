@@ -126,7 +126,7 @@ async function extractSinglePageTextWithVision(params: {
   requestId: string;
   systemPrompt?: string;
 }): Promise<string> {
-  const { openai } = await import("@workspace/integrations-openai-ai-server");
+  const { gemini } = await import("@workspace/integrations-openai-ai-server");
   const imageDataUrl = `data:image/png;base64,${params.page.pngBuffer.toString("base64")}`;
 
   logger.info({
@@ -136,8 +136,8 @@ async function extractSinglePageTextWithVision(params: {
     page_height: params.page.height,
   }, "Starting OpenAI Vision extraction for page");
 
-  const response = await openai.chat.completions.create({
-    model: env.OPENAI_CARRIER_AUDIT_MODEL,
+  const response = await gemini.chat.completions.create({
+    model: env.CARRIER_AUDIT_MODEL,
     temperature: 0,
     response_format: { type: "json_object" },
     messages: [
@@ -176,7 +176,7 @@ async function extractSinglePageTextWithVision(params: {
     requestId: params.requestId,
     page_number: params.page.pageNumber,
     openai_request_id: response.id,
-    model: env.OPENAI_CARRIER_AUDIT_MODEL,
+    model: env.CARRIER_AUDIT_MODEL,
   }, "Vision page extraction completed");
 
   return validated.data.text.trim();
@@ -245,7 +245,7 @@ async function _extractPdfTextWithVisionPagesInner(params: {
     requestId: params.requestId,
     file_name: params.fileName,
     pdf_bytes: params.pdfBuffer.length,
-    model: env.OPENAI_CARRIER_AUDIT_MODEL,
+    model: env.CARRIER_AUDIT_MODEL,
   }, "Starting page-by-page PDF vision extraction");
 
   const loadingTask = pdfjs.getDocument({
@@ -361,7 +361,7 @@ async function _extractPdfTextWithVisionPagesInner(params: {
     extractionDocument: {
       version: "final_report_extraction_v1",
       source: "openai_vision_page_by_page",
-      model: env.OPENAI_CARRIER_AUDIT_MODEL,
+      model: env.CARRIER_AUDIT_MODEL,
       file_name: params.fileName,
       page_count: extractedPages.length,
       pages: extractedPages,
@@ -529,14 +529,14 @@ export async function extractAndPersistFinalReport(input: PersistedReportInput):
     extractedText: vision.text,
     extractionMethod: "openai_vision_pages",
     extractionMeta: {
-      model: env.OPENAI_CARRIER_AUDIT_MODEL,
+      model: env.CARRIER_AUDIT_MODEL,
       extractionDocument: vision.extractionDocument,
     },
   });
 
   logger.info({
     requestId: input.requestId,
-    model: env.OPENAI_CARRIER_AUDIT_MODEL,
+    model: env.CARRIER_AUDIT_MODEL,
     extraction_method: "openai_vision_pages",
     storagePath,
     extracted_chars: vision.text.length,

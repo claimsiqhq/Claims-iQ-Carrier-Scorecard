@@ -1,18 +1,19 @@
 import OpenAI from "openai";
 
-if (!process.env.AI_INTEGRATIONS_OPENAI_BASE_URL) {
+if (!process.env.GEMINI_API_KEY) {
   throw new Error(
-    "AI_INTEGRATIONS_OPENAI_BASE_URL must be set. Did you forget to provision the OpenAI AI integration?",
+    "GEMINI_API_KEY must be set. Add your Google Gemini API key to the environment.",
   );
 }
 
-if (!process.env.AI_INTEGRATIONS_OPENAI_API_KEY) {
-  throw new Error(
-    "AI_INTEGRATIONS_OPENAI_API_KEY must be set. Did you forget to provision the OpenAI AI integration?",
-  );
-}
-
-export const openai = new OpenAI({
-  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+// Google Gemini via its OpenAI-compatible endpoint. All chat.completions
+// calls (including multimodal image inputs) work unchanged against Gemini.
+export const gemini = new OpenAI({
+  apiKey: process.env.GEMINI_API_KEY,
+  baseURL:
+    process.env.GEMINI_BASE_URL ??
+    "https://generativelanguage.googleapis.com/v1beta/openai/",
 });
+
+// Back-compat alias for existing imports.
+export const openai = gemini;

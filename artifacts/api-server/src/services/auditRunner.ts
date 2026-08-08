@@ -297,7 +297,7 @@ export async function runAndSaveAudit(
   let promptIdentifier = `carrier-audit:${carrierKey}:unresolved`;
   let promptHash: string | null = null;
   let promptSnapshot: Record<string, unknown> | null = null;
-  let modelIdentifier = env.OPENAI_CARRIER_AUDIT_MODEL;
+  let modelIdentifier = env.CARRIER_AUDIT_MODEL;
 
   let pdfBuffer: Buffer | undefined;
   let sourceDownloadError: unknown;

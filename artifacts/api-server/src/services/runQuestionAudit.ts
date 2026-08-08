@@ -1,4 +1,4 @@
-import { openai } from "@workspace/integrations-openai-ai-server";
+import { gemini } from "@workspace/integrations-openai-ai-server";
 import { type Question, type QuestionResult, type Answer } from "./questionBank";
 import {
   getCarrierRuleset,
@@ -249,7 +249,7 @@ async function callOpenAIForBatch(
   const maxTokens = Math.max(4096, questionCount * 350);
   let response;
   try {
-    response = await openai.chat.completions.create({
+    response = await gemini.chat.completions.create({
       model: modelIdentifier,
       max_completion_tokens: maxTokens,
       messages: [
@@ -330,7 +330,7 @@ async function runBatchedAudit(
   faQuestions: Question[],
   reportText: string,
   systemPromptOverride?: string,
-  modelIdentifier: string = env.OPENAI_CARRIER_AUDIT_MODEL,
+  modelIdentifier: string = env.CARRIER_AUDIT_MODEL,
 ): Promise<{
   daRaw: any[];
   faRaw: any[];
@@ -402,7 +402,7 @@ async function runBatchedAudit(
   let executiveSummary = "";
 
   try {
-    const summaryResponse = await openai.chat.completions.create({
+    const summaryResponse = await gemini.chat.completions.create({
       model: modelIdentifier,
       max_completion_tokens: 1024,
       messages: [
@@ -537,7 +537,7 @@ export async function runQuestionAudit(
   const providerRequestIds: string[] = [];
   try {
     const maxTokens = totalQuestions > 20 ? 16384 : 8192;
-    response = await openai.chat.completions.create({
+    response = await gemini.chat.completions.create({
       model: prompts.modelIdentifier,
       max_completion_tokens: maxTokens,
       messages: [
@@ -564,7 +564,7 @@ export async function runQuestionAudit(
       "Question audit: invalid JSON, retrying once",
     );
     try {
-      const retryResponse = await openai.chat.completions.create({
+      const retryResponse = await gemini.chat.completions.create({
         model: prompts.modelIdentifier,
         max_completion_tokens: totalQuestions > 20 ? 16384 : 8192,
         messages: [

@@ -195,11 +195,11 @@ async function analyzePhotoPage(
   requestId: string,
   systemPrompt?: string,
 ): Promise<PhotoPageAnalysis> {
-  const { openai } = await import("@workspace/integrations-openai-ai-server");
+  const { gemini } = await import("@workspace/integrations-openai-ai-server");
   const imageDataUrl = `data:image/png;base64,${pngBuffer.toString("base64")}`;
 
-  const response = await openai.chat.completions.create({
-    model: env.OPENAI_CARRIER_AUDIT_MODEL,
+  const response = await gemini.chat.completions.create({
+    model: env.CARRIER_AUDIT_MODEL,
     temperature: 0,
     response_format: { type: "json_object" },
     messages: [

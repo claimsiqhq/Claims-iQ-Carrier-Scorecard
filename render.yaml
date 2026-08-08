@@ -33,14 +33,11 @@ services:
         value: john@claimsiq.ai
       - key: SENDGRID_INBOUND_PARSE_TOKEN
         sync: false # optional — only needed for inbound parse webhook
-      # OpenAI — on Render you must use your own OpenAI credentials
-      # (the Replit AI proxy key does not work outside Replit)
-      - key: AI_INTEGRATIONS_OPENAI_API_KEY
-        sync: false # set in Render dashboard (secret) — your own OpenAI API key
-      - key: AI_INTEGRATIONS_OPENAI_BASE_URL
-        value: https://api.openai.com/v1
-      - key: OPENAI_CARRIER_AUDIT_MODEL
-        value: gpt-4o
+      # Google Gemini
+      - key: GEMINI_API_KEY
+        sync: false # set in Render dashboard (secret)
+      - key: GEMINI_AUDIT_MODEL
+        value: gemini-3.1-pro-preview
       - key: OPENAI_VISION_MAX_PDF_PAGES
         value: "250"
       # CORS — comma-separated list of allowed frontend origins

@@ -1,4 +1,4 @@
-import { openai } from "@workspace/integrations-openai-ai-server";
+import { gemini } from "@workspace/integrations-openai-ai-server";
 import logger from "../lib/logger";
 import { env } from "../env";
 
@@ -53,8 +53,8 @@ If a field cannot be determined from the text, use an empty string — never use
 export async function parseClaimFromText(extractedText: string): Promise<ParsedClaimData> {
   const truncated = extractedText.substring(0, 30000);
 
-  const response = await openai.chat.completions.create({
-    model: env.OPENAI_CARRIER_AUDIT_MODEL,
+  const response = await gemini.chat.completions.create({
+    model: env.CARRIER_AUDIT_MODEL,
     max_completion_tokens: 2048,
     messages: [
       { role: "system", content: PARSE_SYSTEM_PROMPT },

@@ -285,7 +285,7 @@ export async function runCarrierScorecardAudit(input: {
   carrier?: string;
 }): Promise<CarrierScorecardAuditResult> {
   const startedAt = Date.now();
-  const model = env.OPENAI_CARRIER_AUDIT_MODEL;
+  const model = env.CARRIER_AUDIT_MODEL;
 
   const ruleset = await getCarrierRuleset(
     input.carrier ?? "",
@@ -295,14 +295,14 @@ export async function runCarrierScorecardAudit(input: {
   const promptOverride = ruleset.carrier_scorecard_prompt_override;
 
   try {
-    const { openai } = await import("@workspace/integrations-openai-ai-server");
+    const { gemini } = await import("@workspace/integrations-openai-ai-server");
     const configuredPrompt =
       promptOverride ?? await getPrompt("carrier_scorecard_v1");
     const systemPrompt = [
       UNTRUSTED_SOURCE_GUARDRAIL,
       configuredPrompt,
     ].join("\n\n");
-    const response = await openai.chat.completions.create({
+    const response = await gemini.chat.completions.create({
       model,
       temperature: 0,
       response_format: { type: "json_object" },

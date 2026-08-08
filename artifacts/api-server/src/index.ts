@@ -43,7 +43,7 @@ for (const { key, feature } of optionalButWarnEnvVars) {
   }
 }
 
-logger.info({ carrierAuditModel: env.OPENAI_CARRIER_AUDIT_MODEL }, "Carrier audit model configured");
+logger.info({ carrierAuditModel: env.CARRIER_AUDIT_MODEL }, "Carrier audit model configured");
 
 const server = app.listen(port, () => {
   logger.info({ port }, `Server listening on port ${port}`);

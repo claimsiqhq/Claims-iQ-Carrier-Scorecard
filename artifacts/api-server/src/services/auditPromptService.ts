@@ -97,7 +97,7 @@ export async function getAuditPromptSnapshot(
   return {
     systemPrompt,
     userPromptTemplate,
-    modelIdentifier: env.OPENAI_CARRIER_AUDIT_MODEL,
+    modelIdentifier: env.CARRIER_AUDIT_MODEL,
     promptIdentifier: `carrier-audit:${carrierKey}:${QUESTION_AUDIT_PROMPT_VERSION}`,
     promptVersion: QUESTION_AUDIT_PROMPT_VERSION,
   };
