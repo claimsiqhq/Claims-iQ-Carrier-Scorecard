@@ -1,4 +1,4 @@
-Design a modern SaaS web application UI for an insurance claim auditing tool called "Claims iQ Audit".
+Design a modern SaaS web application UI for an insurance claim auditing tool called "Complete iQ Carrier Audit".
 
 The purpose of the app is to evaluate a finalized claim file (desk adjuster report package) and produce a carrier-grade scorecard, risk analysis, and approval recommendation.
 

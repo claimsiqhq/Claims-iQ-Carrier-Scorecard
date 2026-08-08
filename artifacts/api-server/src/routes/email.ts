@@ -140,7 +140,7 @@ router.post("/claims/:id/email/send", requireAuth, requireOrganizationPermission
     }
 
     const html = getAuditHtml(claim, audit);
-    const emailSubject = subject || `Claims iQ Audit — ${claim.claimNumber} — ${claim.insuredName}`;
+    const emailSubject = subject || `Complete iQ Carrier Audit — ${claim.claimNumber} — ${claim.insuredName}`;
 
     await sendEmail({ to: to.trim(), subject: emailSubject, html });
     await db.insert(claimActivity).values({

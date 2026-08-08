@@ -1,7 +1,7 @@
-# Claims iQ Audit
+# Complete iQ Carrier Audit
 
 ## Overview
-Claims iQ Audit is a full-stack SaaS application designed for insurance claim auditing. It provides a platform for ingesting claim documents, leveraging AI for comprehensive audit analysis against an Andover-style carrier scorecard, and generating detailed audit reports. The application aims to streamline the auditing process, improve accuracy, and facilitate communication by enabling email-based sharing of audit results.
+Complete iQ Carrier Audit is a full-stack SaaS application designed for insurance claim auditing. It provides a platform for ingesting claim documents, leveraging AI for comprehensive audit analysis against an Andover-style carrier scorecard, and generating detailed audit reports. The application aims to streamline the auditing process, improve accuracy, and facilitate communication by enabling email-based sharing of audit results.
 
 **Key Capabilities:**
 - Document ingestion and text extraction from PDFs.

@@ -92,7 +92,7 @@ buildResponseEmail(result)
 
 Return clean HTML:
 
-- Title: Claims iQ Audit Result
+- Title: Complete iQ Carrier Audit Result
 - Score
 - Risk Level
 - Status

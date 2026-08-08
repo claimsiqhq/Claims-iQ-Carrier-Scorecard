@@ -93,7 +93,7 @@ router.get("/claims/:id/download", requireAuth, requireOrganizationPermission("c
 
     const lines: string[] = [];
 
-    lines.push("CLAIMS iQ AUDIT REPORT");
+    lines.push("Complete iQ Carrier Audit Report");
     lines.push("");
     lines.push("CLAIM INFORMATION");
     lines.push(`Claim Number,${escCsv(claim.claimNumber)}`);

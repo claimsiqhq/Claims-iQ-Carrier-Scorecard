@@ -1,4 +1,4 @@
-You are an expert Full-Stack TypeScript Developer working on the Claims IQ Carrier Scorecard system. The application uses Node.js, Drizzle ORM, React, and OpenAI integrations to audit insurance claims.
+You are an expert Full-Stack TypeScript Developer working on the Complete iQ Carrier Audit system. The application uses Node.js, Drizzle ORM, React, and OpenAI integrations to audit insurance claims.
 
 We need to implement a new carrier ruleset for "Andover" and upgrade our core scoring engine to support Dual Scorecards (Desk Adjuster vs. Field Adjuster) and Dynamic Point Weighting. 
 

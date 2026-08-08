@@ -1,9 +1,9 @@
-You are updating the Claims iQ Carrier Audit system so it fully aligns with the carrier-specific DA and FA scorecard standards provided in the reference files and fixes the current implementation gaps.
+You are updating the Complete iQ Carrier Audit system so it fully aligns with the carrier-specific DA and FA scorecard standards provided in the reference files and fixes the current implementation gaps.
 
 Your task is to refactor the audit logic, scoring model, JSON schema, UI payload, and email payload so the output matches the intent of the reference materials.
 
 FILES TO ALIGN TO
-1) "Claims iQ Audit — CLM-00060305 — Matthew Yee.pdf"
+1) "Complete iQ Carrier Audit — CLM-00060305 — Matthew Yee.pdf"
 2) "Re Andover “Standards”.pdf"
 
 PRIMARY PROBLEM TO FIX

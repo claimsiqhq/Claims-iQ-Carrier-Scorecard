@@ -1,6 +1,6 @@
 kind = "web"
 previewPath = "/"
-title = "Claims iQ Audit"
+title = "Complete iQ Carrier Audit"
 version = "1.0.0"
 id = "artifacts/claims-iq"
 router = "path"

@@ -45,9 +45,9 @@ export function ClaimsAuditDashboard() {
     <div className="min-h-screen flex" style={{ backgroundColor: BRAND.offWhite, fontFamily: "'Source Sans 3', 'Source Sans Pro', sans-serif", color: BRAND.deepPurple }}>
       <aside className="w-64 flex flex-col shrink-0" style={{ backgroundColor: BRAND.deepPurple }}>
         <div className="h-16 flex items-center px-5 gap-3" style={{ borderBottom: `1px solid rgba(255,255,255,0.1)` }}>
-          <img src="/__mockup/images/claims-iq-logo.png" alt="Claims iQ" className="h-8 w-8" />
+          <img src="/__mockup/images/claims-iq-logo.png" alt="Complete iQ" className="h-8 w-8" />
           <span className="text-white text-lg tracking-tight" style={{ fontFamily: "'Work Sans', sans-serif", fontWeight: 700 }}>
-            Claims iQ
+            Complete iQ
           </span>
         </div>
 

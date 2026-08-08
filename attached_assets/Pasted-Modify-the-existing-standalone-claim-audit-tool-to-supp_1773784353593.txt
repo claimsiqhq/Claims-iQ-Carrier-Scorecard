@@ -300,7 +300,7 @@ Update the outbound email HTML generator so it includes the same carrier scoreca
 The email must include:
 
 A. HEADER
-- Claims iQ Carrier Audit Result
+- Complete iQ Carrier Audit Result
 
 B. TOP SUMMARY
 - Overall Score

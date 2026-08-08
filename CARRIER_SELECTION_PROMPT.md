@@ -2,7 +2,7 @@
 
 ## Context
 
-You are working on the **Claims iQ Carrier Scorecard** application. The stack is:
+You are working on the **Complete iQ Carrier Audit** application. The stack is:
 - **Backend**: Node.js + Express + TypeScript (`artifacts/api-server/src/`)
 - **Frontend**: React + Vite + TypeScript + shadcn/ui (`artifacts/claims-iq/src/`)
 - **Database**: Supabase (PostgreSQL) via Drizzle ORM (`lib/db/src/`)
