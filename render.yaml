@@ -50,7 +50,7 @@ services:
         sync: false
 
       - key: ALLOWED_ORIGINS
-        value: https://complete-iq-carrier-audit.onrender.com
+        value: https://complete-iq-carrier-audit-iq6g.onrender.com
       - key: LOG_LEVEL
         value: info
       - key: DURABLE_WORKER_ENABLED
@@ -126,7 +126,7 @@ services:
     routes:
       - type: rewrite
         source: /api/*
-        destination: https://complete-iq-carrier-audit-api.onrender.com/api/*
+        destination: https://complete-iq-carrier-audit-api-iq6g.onrender.com/api/*
       - type: rewrite
         source: /*
         destination: /index.html
