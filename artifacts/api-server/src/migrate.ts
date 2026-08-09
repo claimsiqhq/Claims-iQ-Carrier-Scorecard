@@ -5,9 +5,12 @@ import { pool } from "@workspace/db";
 import logger from "./lib/logger";
 
 const MIGRATION_LOCK = "complete_iq_schema_migrations";
+// pnpm runs filtered scripts from the package directory, while the migrations
+// live at the repository root. The production CJS bundle is emitted to dist/,
+// so resolve from the bundle directory instead of the working directory.
 const MIGRATION_DIRECTORY = path.resolve(
-  process.cwd(),
-  "lib/db/migrations",
+  __dirname,
+  "../../../lib/db/migrations",
 );
 const MIGRATION_FILE_PATTERN = /^\d{4}_.+\.sql$/;
 
