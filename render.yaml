@@ -56,9 +56,7 @@ services:
       - key: DURABLE_WORKER_ENABLED
         value: "false"
 
-  # Dedicated Postgres-backed queue consumer. Secrets are entered directly on
-  # this service because Render cannot resolve fromService references to
-  # Dashboard-managed (sync: false) variables during initial worker creation.
+  # Dedicated Postgres-backed queue consumer.
   - type: worker
     name: complete-iq-carrier-audit-worker
     runtime: node
@@ -75,19 +73,40 @@ services:
       - key: NODE_VERSION
         value: "24.6.0"
       - key: SUPABASE_DATABASE_URL
-        sync: false
+        fromService:
+          name: complete-iq-carrier-audit-api
+          type: web
+          envVarKey: SUPABASE_DATABASE_URL
       - key: SUPABASE_URL
-        sync: false
+        fromService:
+          name: complete-iq-carrier-audit-api
+          type: web
+          envVarKey: SUPABASE_URL
       - key: SUPABASE_SERVICE_ROLE
-        sync: false
+        fromService:
+          name: complete-iq-carrier-audit-api
+          type: web
+          envVarKey: SUPABASE_SERVICE_ROLE
       - key: GEMINI_API_KEY
-        sync: false
+        fromService:
+          name: complete-iq-carrier-audit-api
+          type: web
+          envVarKey: GEMINI_API_KEY
       - key: GEMINI_MODEL
-        sync: false
+        fromService:
+          name: complete-iq-carrier-audit-api
+          type: web
+          envVarKey: GEMINI_MODEL
       - key: GEMINI_BASE_URL
-        value: https://generativelanguage.googleapis.com/v1beta/openai/
+        fromService:
+          name: complete-iq-carrier-audit-api
+          type: web
+          envVarKey: GEMINI_BASE_URL
       - key: GEMINI_VISION_MAX_PDF_PAGES
-        value: "250"
+        fromService:
+          name: complete-iq-carrier-audit-api
+          type: web
+          envVarKey: GEMINI_VISION_MAX_PDF_PAGES
       - key: LOG_LEVEL
         value: info
 
