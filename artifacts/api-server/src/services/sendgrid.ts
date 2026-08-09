@@ -20,7 +20,10 @@ export async function sendEmail(options: {
 }): Promise<void> {
   ensureInit();
 
-  const fromAddr = options.from || process.env.SENDGRID_FROM_EMAIL || "john@claimsiq.ai";
+  const fromAddr = options.from || process.env.SENDGRID_FROM_EMAIL;
+  if (!fromAddr) {
+    throw new Error("SENDGRID_FROM_EMAIL is not set in environment variables");
+  }
 
   await sgMail.send({
     to: options.to,

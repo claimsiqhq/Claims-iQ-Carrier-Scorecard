@@ -3,20 +3,22 @@ import OpenAI, { toFile } from "openai";
 import { Buffer } from "node:buffer";
 
 export const openai = new OpenAI({
-  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+  apiKey: process.env.GEMINI_API_KEY,
+  baseURL:
+    process.env.GEMINI_BASE_URL ??
+    "https://generativelanguage.googleapis.com/v1beta/openai/",
 });
 
 /**
  * Generate an image and return as Buffer.
- * Uses gpt-image-1 model via Replit AI Integrations.
+ * Uses Gemini's image generation compatibility endpoint.
  */
 export async function generateImageBuffer(
   prompt: string,
   size: "1024x1024" | "512x512" | "256x256" = "1024x1024"
 ): Promise<Buffer> {
   const response = await openai.images.generate({
-    model: "gpt-image-1",
+    model: process.env.GEMINI_IMAGE_MODEL ?? "gemini-2.5-flash-image",
     prompt,
     size,
   });
@@ -26,7 +28,7 @@ export async function generateImageBuffer(
 
 /**
  * Edit/combine multiple images into a composite.
- * Uses gpt-image-1 model via Replit AI Integrations.
+ * Uses Gemini's image editing compatibility endpoint.
  */
 export async function editImages(
   imageFiles: string[],
@@ -42,7 +44,7 @@ export async function editImages(
   );
 
   const response = await openai.images.edit({
-    model: "gpt-image-1",
+    model: process.env.GEMINI_IMAGE_MODEL ?? "gemini-2.5-flash-image",
     image: images,
     prompt,
   });

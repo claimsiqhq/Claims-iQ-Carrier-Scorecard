@@ -6,12 +6,24 @@ import logger from "./logger";
 const BUCKET_NAME = "claim-documents";
 
 function getSupabaseUrl(): string {
+  const configuredUrl = process.env.SUPABASE_URL?.trim().replace(/\/$/, "");
+  if (configuredUrl) {
+    if (!/^https:\/\/[a-z0-9-]+\.supabase\.co$/i.test(configuredUrl)) {
+      throw new Error("SUPABASE_URL must be a valid https://*.supabase.co URL");
+    }
+    return configuredUrl;
+  }
+
   const dbUrl = process.env.SUPABASE_DATABASE_URL || "";
-  const match = dbUrl.match(/postgres\.([a-z0-9]+)[:/]/);
+  const match =
+    dbUrl.match(/postgres\.([a-z0-9]+)(?=[:/])/i)
+    ?? dbUrl.match(/db\.([a-z0-9]+)\.supabase\.co/i);
   if (match) {
     return `https://${match[1]}.supabase.co`;
   }
-  throw new Error("Cannot derive Supabase URL from SUPABASE_DATABASE_URL");
+  throw new Error(
+    "SUPABASE_URL must be set when it cannot be derived from SUPABASE_DATABASE_URL",
+  );
 }
 
 function getClient() {

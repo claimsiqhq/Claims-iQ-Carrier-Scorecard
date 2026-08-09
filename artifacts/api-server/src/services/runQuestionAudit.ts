@@ -1,5 +1,9 @@
-import { gemini } from "@workspace/integrations-openai-ai-server";
-import { type Question, type QuestionResult, type Answer } from "./questionBank";
+import { gemini } from "@workspace/integrations-openai-ai-server/client";
+import {
+  type Question,
+  type QuestionResult,
+  type Answer,
+} from "./questionBank";
 import {
   getCarrierRuleset,
   normalizeCarrierKey,
@@ -63,11 +67,11 @@ export function normalizeQuestionResults(
   const recognized = rawResults.filter(
     (result): result is Record<string, unknown> =>
       Boolean(
-        result
-        && typeof result === "object"
-        && "id" in result
-        && typeof result.id === "string"
-        && requestedIds.has(result.id),
+        result &&
+        typeof result === "object" &&
+        "id" in result &&
+        typeof result.id === "string" &&
+        requestedIds.has(result.id),
       ),
   );
   const responseIds = recognized.map((result) => result.id as string);
@@ -89,8 +93,8 @@ export function normalizeQuestionResults(
     }
 
     if (
-      typeof match.answer !== "string"
-      || !VALID_ANSWERS.includes(match.answer as Answer)
+      typeof match.answer !== "string" ||
+      !VALID_ANSWERS.includes(match.answer as Answer)
     ) {
       throw new QuestionAuditResponseError(
         `The provider returned an invalid answer for ${q.id}.`,
@@ -104,18 +108,18 @@ export function normalizeQuestionResults(
       }
     }
     if (
-      !Array.isArray(match.evidence_locations)
-      || match.evidence_locations.some((value) => typeof value !== "string")
+      !Array.isArray(match.evidence_locations) ||
+      match.evidence_locations.some((value) => typeof value !== "string")
     ) {
       throw new QuestionAuditResponseError(
         `The provider returned invalid evidence locations for ${q.id}.`,
       );
     }
     if (
-      typeof match.confidence !== "number"
-      || !Number.isFinite(match.confidence)
-      || match.confidence < 0
-      || match.confidence > 100
+      typeof match.confidence !== "number" ||
+      !Number.isFinite(match.confidence) ||
+      match.confidence < 0 ||
+      match.confidence > 100
     ) {
       throw new QuestionAuditResponseError(
         `The provider returned invalid confidence for ${q.id}.`,
@@ -143,10 +147,14 @@ function repairJson(raw: string): any | null {
     .replace(/```\s*/g, "")
     .trim();
 
-  try { return JSON.parse(s); } catch {}
+  try {
+    return JSON.parse(s);
+  } catch {}
 
   s = s.replace(/,\s*([}\]])/g, "$1");
-  try { return JSON.parse(s); } catch {}
+  try {
+    return JSON.parse(s);
+  } catch {}
 
   const lastBrace = s.lastIndexOf("}");
   const lastBracket = s.lastIndexOf("]");
@@ -158,13 +166,17 @@ function repairJson(raw: string): any | null {
     const closeBrackets = (truncated.match(/\]/g) || []).length;
     truncated += "]".repeat(Math.max(0, openBrackets - closeBrackets));
     truncated += "}".repeat(Math.max(0, openBraces - closeBraces));
-    try { return JSON.parse(truncated); } catch {}
+    try {
+      return JSON.parse(truncated);
+    } catch {}
   }
 
   return null;
 }
 
-function groupQuestionsByCategory(questions: Question[]): Map<string, Question[]> {
+function groupQuestionsByCategory(
+  questions: Question[],
+): Map<string, Question[]> {
   const groups = new Map<string, Question[]>();
   for (const q of questions) {
     const key = q.categoryKey;
@@ -197,14 +209,24 @@ CRITICAL RULES:
 - You MUST answer EVERY question listed below. Do not skip any.
 - Return JSON only. No markdown, no code fences.`;
 
-function buildBatchUserPrompt(questions: Question[], categoryLabel: string, reportText: string): string {
+function buildBatchUserPrompt(
+  questions: Question[],
+  categoryLabel: string,
+  reportText: string,
+): string {
   const qText = questions
-    .map((q) => [
-      `- ${q.id}: ${q.text}`,
-      q.applicability ? `  Applicability: ${q.applicability}` : "",
-      q.severity ? `  Severity if failed: ${q.severity}` : "",
-      q.sourceReference ? `  Approved source reference: ${q.sourceReference}` : "",
-    ].filter(Boolean).join("\n"))
+    .map((q) =>
+      [
+        `- ${q.id}: ${q.text}`,
+        q.applicability ? `  Applicability: ${q.applicability}` : "",
+        q.severity ? `  Severity if failed: ${q.severity}` : "",
+        q.sourceReference
+          ? `  Approved source reference: ${q.sourceReference}`
+          : "",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    )
     .join("\n");
   return `Evaluate the following finalized claim report for the "${categoryLabel}" category.
 
@@ -238,7 +260,7 @@ ${qText}
 ${reportText}`;
 }
 
-async function callOpenAIForBatch(
+async function callGeminiForBatch(
   modelIdentifier: string,
   systemPrompt: string,
   userPrompt: string,
@@ -249,19 +271,22 @@ async function callOpenAIForBatch(
   const maxTokens = Math.max(4096, questionCount * 350);
   let response;
   try {
-    response = await gemini.chat.completions.create({
-      model: modelIdentifier,
-      max_completion_tokens: maxTokens,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
-      ],
-    }, { signal: AbortSignal.timeout(120_000) });
+    response = await gemini.chat.completions.create(
+      {
+        model: modelIdentifier,
+        max_completion_tokens: maxTokens,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+      },
+      { signal: AbortSignal.timeout(120_000) },
+    );
   } catch (err) {
-    logger.error({ err, categoryKey, attempt }, "Batch OpenAI request failed");
+    logger.error({ err, categoryKey, attempt }, "Batch Gemini request failed");
     if (attempt < 2) {
       logger.info({ categoryKey }, "Retrying batch after failure");
-      return callOpenAIForBatch(
+      return callGeminiForBatch(
         modelIdentifier,
         systemPrompt,
         userPrompt,
@@ -279,7 +304,7 @@ async function callOpenAIForBatch(
   if (!content) {
     logger.error({ categoryKey, attempt }, "Empty AI response for batch");
     if (attempt < 2) {
-      return callOpenAIForBatch(
+      return callGeminiForBatch(
         modelIdentifier,
         systemPrompt,
         userPrompt,
@@ -301,7 +326,7 @@ async function callOpenAIForBatch(
     );
     if (attempt < 2) {
       logger.info({ categoryKey }, "Retrying batch after JSON failure");
-      return callOpenAIForBatch(
+      return callGeminiForBatch(
         modelIdentifier,
         systemPrompt,
         userPrompt,
@@ -315,13 +340,25 @@ async function callOpenAIForBatch(
     );
   }
 
-  const results = Array.isArray(parsed.results) ? parsed.results
-    : Array.isArray(parsed.da_results) ? parsed.da_results
-    : Array.isArray(parsed.fa_results) ? parsed.fa_results
-    : Array.isArray(parsed) ? parsed
-    : [];
+  const results = Array.isArray(parsed.results)
+    ? parsed.results
+    : Array.isArray(parsed.da_results)
+      ? parsed.da_results
+      : Array.isArray(parsed.fa_results)
+        ? parsed.fa_results
+        : Array.isArray(parsed)
+          ? parsed
+          : [];
 
-  logger.info({ categoryKey, answeredCount: results.length, expectedCount: questionCount, attempt }, "Batch audit results received");
+  logger.info(
+    {
+      categoryKey,
+      answeredCount: results.length,
+      expectedCount: questionCount,
+      attempt,
+    },
+    "Batch audit results received",
+  );
   return { results, responseId: response.id };
 }
 
@@ -330,7 +367,7 @@ async function runBatchedAudit(
   faQuestions: Question[],
   reportText: string,
   systemPromptOverride?: string,
-  modelIdentifier: string = env.CARRIER_AUDIT_MODEL,
+  modelIdentifier: string = env.GEMINI_MODEL,
 ): Promise<{
   daRaw: any[];
   faRaw: any[];
@@ -345,21 +382,39 @@ async function runBatchedAudit(
   const daCategoryGroups = groupQuestionsByCategory(daQuestions);
   const faCategoryGroups = groupQuestionsByCategory(faQuestions);
 
-  const batchJobs: { scorecard: "da" | "fa"; categoryKey: string; categoryName: string; questions: Question[] }[] = [];
+  const batchJobs: {
+    scorecard: "da" | "fa";
+    categoryKey: string;
+    categoryName: string;
+    questions: Question[];
+  }[] = [];
 
   for (const [catKey, questions] of daCategoryGroups) {
-    batchJobs.push({ scorecard: "da", categoryKey: catKey, categoryName: questions[0]?.categoryName ?? catKey, questions });
+    batchJobs.push({
+      scorecard: "da",
+      categoryKey: catKey,
+      categoryName: questions[0]?.categoryName ?? catKey,
+      questions,
+    });
   }
   for (const [catKey, questions] of faCategoryGroups) {
-    batchJobs.push({ scorecard: "fa", categoryKey: catKey, categoryName: questions[0]?.categoryName ?? catKey, questions });
+    batchJobs.push({
+      scorecard: "fa",
+      categoryKey: catKey,
+      categoryName: questions[0]?.categoryName ?? catKey,
+      questions,
+    });
   }
 
-  logger.info({
-    totalBatches: batchJobs.length,
-    daBatches: daCategoryGroups.size,
-    faBatches: faCategoryGroups.size,
-    totalQuestions: daQuestions.length + faQuestions.length,
-  }, "Starting batched audit calls");
+  logger.info(
+    {
+      totalBatches: batchJobs.length,
+      daBatches: daCategoryGroups.size,
+      faBatches: faCategoryGroups.size,
+      totalQuestions: daQuestions.length + faQuestions.length,
+    },
+    "Starting batched audit calls",
+  );
 
   const CONCURRENCY = 10;
   const allResults: {
@@ -371,8 +426,12 @@ async function runBatchedAudit(
   for (let i = 0; i < batchJobs.length; i += CONCURRENCY) {
     const batch = batchJobs.slice(i, i + CONCURRENCY);
     const promises = batch.map(async (job) => {
-      const userPrompt = buildBatchUserPrompt(job.questions, job.categoryName, reportText);
-      const response = await callOpenAIForBatch(
+      const userPrompt = buildBatchUserPrompt(
+        job.questions,
+        job.categoryName,
+        reportText,
+      );
+      const response = await callGeminiForBatch(
         modelIdentifier,
         sysPrompt,
         userPrompt,
@@ -402,12 +461,19 @@ async function runBatchedAudit(
   let executiveSummary = "";
 
   try {
-    const summaryResponse = await gemini.chat.completions.create({
-      model: modelIdentifier,
-      max_completion_tokens: 1024,
-      messages: [
-        { role: "system", content: "You are an insurance audit assistant. Based on the audit results provided, generate a concise executive summary and determine if a denial letter is applicable. Return JSON only, no markdown." },
-        { role: "user", content: `Based on the following audit question results for an insurance claim, provide:
+    const summaryResponse = await gemini.chat.completions.create(
+      {
+        model: modelIdentifier,
+        max_completion_tokens: 1024,
+        messages: [
+          {
+            role: "system",
+            content:
+              "You are an insurance audit assistant. Based on the audit results provided, generate a concise executive summary and determine if a denial letter is applicable. Return JSON only, no markdown.",
+          },
+          {
+            role: "user",
+            content: `Based on the following audit question results for an insurance claim, provide:
 1. Whether a denial letter is applicable (true/false)
 2. A concise 2-3 sentence executive summary stating overall readiness, key root issues, and what needs to happen next.
 
@@ -418,22 +484,47 @@ Return this exact JSON:
 }
 
 DA Results (${daRaw.length} answers):
-${JSON.stringify(daRaw.map(r => ({ id: r.id, answer: r.answer, root_issue: r.root_issue, issue: r.issue })), null, 0)}
+${JSON.stringify(
+  daRaw.map((r) => ({
+    id: r.id,
+    answer: r.answer,
+    root_issue: r.root_issue,
+    issue: r.issue,
+  })),
+  null,
+  0,
+)}
 
 FA Results (${faRaw.length} answers):
-${JSON.stringify(faRaw.map(r => ({ id: r.id, answer: r.answer, root_issue: r.root_issue, issue: r.issue })), null, 0)}` },
-      ],
-    }, { signal: AbortSignal.timeout(30_000) });
+${JSON.stringify(
+  faRaw.map((r) => ({
+    id: r.id,
+    answer: r.answer,
+    root_issue: r.root_issue,
+    issue: r.issue,
+  })),
+  null,
+  0,
+)}`,
+          },
+        ],
+      },
+      { signal: AbortSignal.timeout(30_000) },
+    );
 
     const summaryContent = summaryResponse.choices[0]?.message?.content;
     if (summaryResponse.id) providerRequestIds.push(summaryResponse.id);
     if (summaryContent) {
       const summaryParsed = repairJson(summaryContent);
       if (summaryParsed) {
-        denialApplicable = typeof summaryParsed.denial_letter_applicable === "boolean"
-          ? summaryParsed.denial_letter_applicable
-          : null;
-        executiveSummary = typeof summaryParsed.executive_summary === "string" ? summaryParsed.executive_summary : "";
+        denialApplicable =
+          typeof summaryParsed.denial_letter_applicable === "boolean"
+            ? summaryParsed.denial_letter_applicable
+            : null;
+        executiveSummary =
+          typeof summaryParsed.executive_summary === "string"
+            ? summaryParsed.executive_summary
+            : "";
       }
     }
   } catch (err) {
@@ -461,8 +552,8 @@ export async function runQuestionAudit(
   carrier: string,
   configuration?: QuestionAuditConfiguration,
 ): Promise<QuestionAuditOutput> {
-  const resolved = configuration
-    ?? await resolveQuestionAuditConfiguration(carrier);
+  const resolved =
+    configuration ?? (await resolveQuestionAuditConfiguration(carrier));
   const { ruleset, prompts, carrierKey } = resolved;
   const daQuestions = ruleset.da_questions;
   const faQuestions = ruleset.fa_questions;
@@ -470,14 +561,20 @@ export async function runQuestionAudit(
 
   const totalQuestions = daQuestions.length + faQuestions.length;
 
-  logger.info({
-    carrierKey,
-    daQuestionCount: daQuestions.length,
-    faQuestionCount: faQuestions.length,
-  }, "Running DA/FA question-level audit");
+  logger.info(
+    {
+      carrierKey,
+      daQuestionCount: daQuestions.length,
+      faQuestionCount: faQuestions.length,
+    },
+    "Running DA/FA question-level audit",
+  );
 
   if (totalQuestions > BATCH_THRESHOLD) {
-    logger.info({ totalQuestions, threshold: BATCH_THRESHOLD }, "Using batched audit mode");
+    logger.info(
+      { totalQuestions, threshold: BATCH_THRESHOLD },
+      "Using batched audit mode",
+    );
 
     const {
       daRaw,
@@ -497,14 +594,17 @@ export async function runQuestionAudit(
     const faResults = normalizeQuestionResults(faQuestions, faRaw);
 
     const allResults = [...daResults, ...faResults];
-    logger.info({
-      carrierKey,
-      denialApplicable,
-      pass: allResults.filter((r) => r.answer === "PASS").length,
-      partial: allResults.filter((r) => r.answer === "PARTIAL").length,
-      fail: allResults.filter((r) => r.answer === "FAIL").length,
-      na: allResults.filter((r) => r.answer === "NOT_APPLICABLE").length,
-    }, "DA/FA batched question audit complete");
+    logger.info(
+      {
+        carrierKey,
+        denialApplicable,
+        pass: allResults.filter((r) => r.answer === "PASS").length,
+        partial: allResults.filter((r) => r.answer === "PARTIAL").length,
+        fail: allResults.filter((r) => r.answer === "FAIL").length,
+        na: allResults.filter((r) => r.answer === "NOT_APPLICABLE").length,
+      },
+      "DA/FA batched question audit complete",
+    );
 
     return {
       denial_letter_applicable: denialApplicable,
@@ -517,14 +617,19 @@ export async function runQuestionAudit(
     };
   }
 
-  const formatQuestion = (question: Question) => [
-    `- ${question.id}: ${question.text}`,
-    question.applicability ? `  Applicability: ${question.applicability}` : "",
-    question.severity ? `  Severity if failed: ${question.severity}` : "",
-    question.sourceReference
-      ? `  Approved source reference: ${question.sourceReference}`
-      : "",
-  ].filter(Boolean).join("\n");
+  const formatQuestion = (question: Question) =>
+    [
+      `- ${question.id}: ${question.text}`,
+      question.applicability
+        ? `  Applicability: ${question.applicability}`
+        : "",
+      question.severity ? `  Severity if failed: ${question.severity}` : "",
+      question.sourceReference
+        ? `  Approved source reference: ${question.sourceReference}`
+        : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
   const daQuestionsText = daQuestions.map(formatQuestion).join("\n");
   const faQuestionsText = faQuestions.map(formatQuestion).join("\n");
 
@@ -537,16 +642,19 @@ export async function runQuestionAudit(
   const providerRequestIds: string[] = [];
   try {
     const maxTokens = totalQuestions > 20 ? 16384 : 8192;
-    response = await gemini.chat.completions.create({
-      model: prompts.modelIdentifier,
-      max_completion_tokens: maxTokens,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
-      ],
-    }, { signal: AbortSignal.timeout(120_000) });
+    response = await gemini.chat.completions.create(
+      {
+        model: prompts.modelIdentifier,
+        max_completion_tokens: maxTokens,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+      },
+      { signal: AbortSignal.timeout(120_000) },
+    );
   } catch (err) {
-    logger.error({ err }, "OpenAI request failed");
+    logger.error({ err }, "Gemini request failed");
     throw new Error("Audit question provider failed.", { cause: err });
   }
   if (response.id) providerRequestIds.push(response.id);
@@ -564,14 +672,17 @@ export async function runQuestionAudit(
       "Question audit: invalid JSON, retrying once",
     );
     try {
-      const retryResponse = await gemini.chat.completions.create({
-        model: prompts.modelIdentifier,
-        max_completion_tokens: totalQuestions > 20 ? 16384 : 8192,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
-      }, { signal: AbortSignal.timeout(120_000) });
+      const retryResponse = await gemini.chat.completions.create(
+        {
+          model: prompts.modelIdentifier,
+          max_completion_tokens: totalQuestions > 20 ? 16384 : 8192,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt },
+          ],
+        },
+        { signal: AbortSignal.timeout(120_000) },
+      );
       if (retryResponse.id) providerRequestIds.push(retryResponse.id);
       const retryContent = retryResponse.choices[0]?.message?.content;
       if (retryContent) parsed = repairJson(retryContent);
@@ -598,22 +709,26 @@ export async function runQuestionAudit(
   const daResults = normalizeQuestionResults(daQuestions, daRaw);
   const faResults = normalizeQuestionResults(faQuestions, faRaw);
 
-  const executiveSummary = typeof parsed.executive_summary === "string"
-    ? parsed.executive_summary
-    : "";
+  const executiveSummary =
+    typeof parsed.executive_summary === "string"
+      ? parsed.executive_summary
+      : "";
   if (!executiveSummary.trim()) {
     throw new Error("Audit question provider omitted the executive summary.");
   }
 
   const allResults = [...daResults, ...faResults];
-  logger.info({
-    carrierKey,
-    denialApplicable,
-    pass: allResults.filter((r) => r.answer === "PASS").length,
-    partial: allResults.filter((r) => r.answer === "PARTIAL").length,
-    fail: allResults.filter((r) => r.answer === "FAIL").length,
-    na: allResults.filter((r) => r.answer === "NOT_APPLICABLE").length,
-  }, "DA/FA question audit complete");
+  logger.info(
+    {
+      carrierKey,
+      denialApplicable,
+      pass: allResults.filter((r) => r.answer === "PASS").length,
+      partial: allResults.filter((r) => r.answer === "PARTIAL").length,
+      fail: allResults.filter((r) => r.answer === "FAIL").length,
+      na: allResults.filter((r) => r.answer === "NOT_APPLICABLE").length,
+    },
+    "DA/FA question audit complete",
+  );
 
   return {
     denial_letter_applicable: denialApplicable,

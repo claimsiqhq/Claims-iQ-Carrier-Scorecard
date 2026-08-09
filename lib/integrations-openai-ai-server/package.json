@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./client": "./src/client.ts",
     "./batch": "./src/batch/index.ts",
     "./image": "./src/image/index.ts",
     "./audio": "./src/audio/index.ts"

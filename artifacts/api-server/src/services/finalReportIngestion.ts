@@ -44,7 +44,7 @@ export interface PersistedReportResult {
   reportText: string;
   documentId?: string;
   storagePath?: string;
-  extractionMethod: "openai_vision_pages" | "plain_text";
+  extractionMethod: "gemini_vision_pages" | "plain_text";
 }
 
 function safeFileName(originalName: string): string {
@@ -52,10 +52,12 @@ function safeFileName(originalName: string): string {
   return base.replace(/[^\w.\-]/g, "_");
 }
 
-const pageExtractionSchema = z.object({
-  page_number: z.number().int().positive(),
-  text: z.string(),
-}).strict();
+const pageExtractionSchema = z
+  .object({
+    page_number: z.number().int().positive(),
+    text: z.string(),
+  })
+  .strict();
 
 const TARGET_RENDER_WIDTH = 1400;
 
@@ -115,10 +117,17 @@ const CONTENT_FILTER_RETRY_PROMPT = [
 function isContentFilterError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
   const e = err as any;
-  return (e.status === 400 && e.code === "content_filter") ||
-    (e.error?.code === "content_filter") ||
-    (e.error?.inner_error?.code === "ResponsibleAIPolicyViolation") ||
-    (e.message?.includes("content management policy"));
+  const code = String(e.code ?? e.error?.code ?? e.error?.status ?? "");
+  const message = String(e.message ?? e.error?.message ?? "");
+  return (
+    (e.status === 400 && e.code === "content_filter") ||
+    e.error?.code === "content_filter" ||
+    e.error?.inner_error?.code === "ResponsibleAIPolicyViolation" ||
+    /SAFETY|PROHIBITED_CONTENT/i.test(code) ||
+    /content management policy|blocked for safety|prohibited content/i.test(
+      message,
+    )
+  );
 }
 
 async function extractSinglePageTextWithVision(params: {
@@ -126,58 +135,74 @@ async function extractSinglePageTextWithVision(params: {
   requestId: string;
   systemPrompt?: string;
 }): Promise<string> {
-  const { gemini } = await import("@workspace/integrations-openai-ai-server");
+  const { gemini } =
+    await import("@workspace/integrations-openai-ai-server/client");
   const imageDataUrl = `data:image/png;base64,${params.page.pngBuffer.toString("base64")}`;
 
-  logger.info({
-    requestId: params.requestId,
-    page_number: params.page.pageNumber,
-    page_width: params.page.width,
-    page_height: params.page.height,
-  }, "Starting OpenAI Vision extraction for page");
+  logger.info(
+    {
+      requestId: params.requestId,
+      page_number: params.page.pageNumber,
+      page_width: params.page.width,
+      page_height: params.page.height,
+    },
+    "Starting Gemini Vision extraction for page",
+  );
 
-  const response = await gemini.chat.completions.create({
-    model: env.CARRIER_AUDIT_MODEL,
-    temperature: 0,
-    response_format: { type: "json_object" },
-    messages: [
-      {
-        role: "system",
-        content: params.systemPrompt || DEFAULT_SYSTEM_PROMPT,
-      },
-      {
-        role: "user",
-        content: [
-          { type: "text", text: `Extract page ${params.page.pageNumber}.` },
-          { type: "image_url", image_url: { url: imageDataUrl } },
-        ] as unknown as string,
-      },
-    ],
-  }, { signal: AbortSignal.timeout(120_000) });
+  const response = await gemini.chat.completions.create(
+    {
+      model: env.GEMINI_MODEL,
+      temperature: 0,
+      response_format: { type: "json_object" },
+      messages: [
+        {
+          role: "system",
+          content: params.systemPrompt || DEFAULT_SYSTEM_PROMPT,
+        },
+        {
+          role: "user",
+          content: [
+            { type: "text", text: `Extract page ${params.page.pageNumber}.` },
+            { type: "image_url", image_url: { url: imageDataUrl } },
+          ] as unknown as string,
+        },
+      ],
+    },
+    { signal: AbortSignal.timeout(120_000) },
+  );
 
   const content = response.choices[0]?.message?.content;
   if (!content) {
-    throw new Error(`Page ${params.page.pageNumber} extraction returned empty content.`);
+    throw new Error(
+      `Page ${params.page.pageNumber} extraction returned empty content.`,
+    );
   }
 
   let parsed: unknown;
   try {
     parsed = JSON.parse(content);
   } catch {
-    throw new Error(`Page ${params.page.pageNumber} extraction returned invalid JSON.`);
+    throw new Error(
+      `Page ${params.page.pageNumber} extraction returned invalid JSON.`,
+    );
   }
 
   const validated = pageExtractionSchema.safeParse(parsed);
   if (!validated.success) {
-    throw new Error(`Page ${params.page.pageNumber} extraction failed schema validation.`);
+    throw new Error(
+      `Page ${params.page.pageNumber} extraction failed schema validation.`,
+    );
   }
 
-  logger.info({
-    requestId: params.requestId,
-    page_number: params.page.pageNumber,
-    openai_request_id: response.id,
-    model: env.CARRIER_AUDIT_MODEL,
-  }, "Vision page extraction completed");
+  logger.info(
+    {
+      requestId: params.requestId,
+      page_number: params.page.pageNumber,
+      provider_request_id: response.id,
+      model: env.GEMINI_MODEL,
+    },
+    "Vision page extraction completed",
+  );
 
   return validated.data.text.trim();
 }
@@ -190,7 +215,7 @@ export async function extractPdfTextWithVisionPages(params: {
   text: string;
   extractionDocument: {
     version: "final_report_extraction_v1";
-    source: "openai_vision_page_by_page";
+    source: "gemini_vision_page_by_page";
     model: string;
     file_name: string;
     page_count: number;
@@ -205,9 +230,19 @@ export async function extractPdfTextWithVisionPages(params: {
     failedPages: Array<{ page_number: number; reason: string }>;
   };
 }> {
-  logger.info({ requestId: params.requestId, fileName: params.fileName, queueDepth: extractionQueue.length }, "Waiting for extraction slot");
+  logger.info(
+    {
+      requestId: params.requestId,
+      fileName: params.fileName,
+      queueDepth: extractionQueue.length,
+    },
+    "Waiting for extraction slot",
+  );
   await acquireExtractionSlot();
-  logger.info({ requestId: params.requestId, fileName: params.fileName }, "Extraction slot acquired");
+  logger.info(
+    { requestId: params.requestId, fileName: params.fileName },
+    "Extraction slot acquired",
+  );
   try {
     return await _extractPdfTextWithVisionPagesInner(params);
   } finally {
@@ -223,7 +258,7 @@ async function _extractPdfTextWithVisionPagesInner(params: {
   text: string;
   extractionDocument: {
     version: "final_report_extraction_v1";
-    source: "openai_vision_page_by_page";
+    source: "gemini_vision_page_by_page";
     model: string;
     file_name: string;
     page_count: number;
@@ -241,12 +276,15 @@ async function _extractPdfTextWithVisionPagesInner(params: {
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
   const { createCanvas } = await import("@napi-rs/canvas");
 
-  logger.info({
-    requestId: params.requestId,
-    file_name: params.fileName,
-    pdf_bytes: params.pdfBuffer.length,
-    model: env.CARRIER_AUDIT_MODEL,
-  }, "Starting page-by-page PDF vision extraction");
+  logger.info(
+    {
+      requestId: params.requestId,
+      file_name: params.fileName,
+      pdf_bytes: params.pdfBuffer.length,
+      model: env.GEMINI_MODEL,
+    },
+    "Starting page-by-page PDF vision extraction",
+  );
 
   const loadingTask = pdfjs.getDocument({
     data: new Uint8Array(params.pdfBuffer),
@@ -257,9 +295,11 @@ async function _extractPdfTextWithVisionPagesInner(params: {
   const totalPages = pdf.numPages;
   logger.info({ total_pages: totalPages }, "PDF loaded for page rendering");
 
-  if (totalPages > env.OPENAI_VISION_MAX_PDF_PAGES) {
+  if (totalPages > env.GEMINI_VISION_MAX_PDF_PAGES) {
     await loadingTask.destroy();
-    throw new Error(`PDF has ${totalPages} pages; configured limit is ${env.OPENAI_VISION_MAX_PDF_PAGES}.`);
+    throw new Error(
+      `PDF has ${totalPages} pages; configured limit is ${env.GEMINI_VISION_MAX_PDF_PAGES}.`,
+    );
   }
 
   const extractedPages: Array<{
@@ -279,14 +319,31 @@ async function _extractPdfTextWithVisionPagesInner(params: {
     try {
       page = await renderSinglePdfPage(pdf, pageNumber, createCanvas);
     } catch (renderErr) {
-      const reason = renderErr instanceof Error ? renderErr.message : "Render failed";
-      logger.warn({ requestId: params.requestId, page_number: pageNumber, error: reason }, "Page render failed, skipping");
+      const reason =
+        renderErr instanceof Error ? renderErr.message : "Render failed";
+      logger.warn(
+        { requestId: params.requestId, page_number: pageNumber, error: reason },
+        "Page render failed, skipping",
+      );
       failedPages.push({ page_number: pageNumber, reason });
-      return { page_number: pageNumber, width: 0, height: 0, extracted_text: `[Page ${pageNumber}: render error]`, char_count: 0 };
+      return {
+        page_number: pageNumber,
+        width: 0,
+        height: 0,
+        extracted_text: `[Page ${pageNumber}: render error]`,
+        char_count: 0,
+      };
     }
 
-    if (pageNumber === 1 || pageNumber === totalPages || pageNumber % 10 === 0) {
-      logger.info({ page_number: pageNumber, total_pages: totalPages }, "PDF page rendered to PNG");
+    if (
+      pageNumber === 1 ||
+      pageNumber === totalPages ||
+      pageNumber % 10 === 0
+    ) {
+      logger.info(
+        { page_number: pageNumber, total_pages: totalPages },
+        "PDF page rendered to PNG",
+      );
     }
 
     try {
@@ -294,37 +351,110 @@ async function _extractPdfTextWithVisionPagesInner(params: {
         page,
         requestId: params.requestId,
       });
-      if (pageNumber === 1 || pageNumber === totalPages || pageNumber % 10 === 0) {
-        logger.info({ requestId: params.requestId, page_number: pageNumber, total_pages: totalPages, extracted_chars: extractedText.length }, "Vision extraction completed for page");
+      if (
+        pageNumber === 1 ||
+        pageNumber === totalPages ||
+        pageNumber % 10 === 0
+      ) {
+        logger.info(
+          {
+            requestId: params.requestId,
+            page_number: pageNumber,
+            total_pages: totalPages,
+            extracted_chars: extractedText.length,
+          },
+          "Vision extraction completed for page",
+        );
       }
-      return { page_number: page.pageNumber, width: page.width, height: page.height, extracted_text: extractedText, char_count: extractedText.length };
+      return {
+        page_number: page.pageNumber,
+        width: page.width,
+        height: page.height,
+        extracted_text: extractedText,
+        char_count: extractedText.length,
+      };
     } catch (err) {
       if (isContentFilterError(err)) {
-        logger.warn({ requestId: params.requestId, page_number: page.pageNumber, total_pages: totalPages }, "Content filter triggered, retrying with insurance-specific prompt");
+        logger.warn(
+          {
+            requestId: params.requestId,
+            page_number: page.pageNumber,
+            total_pages: totalPages,
+          },
+          "Content filter triggered, retrying with insurance-specific prompt",
+        );
         try {
-          const extractedText = await extractSinglePageTextWithVision({ page, requestId: params.requestId, systemPrompt: CONTENT_FILTER_RETRY_PROMPT });
-          logger.info({ requestId: params.requestId, page_number: page.pageNumber }, "Content filter retry succeeded");
-          return { page_number: page.pageNumber, width: page.width, height: page.height, extracted_text: extractedText, char_count: extractedText.length };
+          const extractedText = await extractSinglePageTextWithVision({
+            page,
+            requestId: params.requestId,
+            systemPrompt: CONTENT_FILTER_RETRY_PROMPT,
+          });
+          logger.info(
+            { requestId: params.requestId, page_number: page.pageNumber },
+            "Content filter retry succeeded",
+          );
+          return {
+            page_number: page.pageNumber,
+            width: page.width,
+            height: page.height,
+            extracted_text: extractedText,
+            char_count: extractedText.length,
+          };
         } catch (retryErr) {
           const reason = isContentFilterError(retryErr)
-            ? "Azure content filter blocked this page (property damage photo)"
-            : (retryErr instanceof Error ? retryErr.message : "Unknown retry error");
-          logger.warn({ requestId: params.requestId, page_number: page.pageNumber, reason }, "Page extraction failed after retry, continuing with remaining pages");
+            ? "Gemini safety filtering blocked this page (property damage photo)"
+            : retryErr instanceof Error
+              ? retryErr.message
+              : "Unknown retry error";
+          logger.warn(
+            {
+              requestId: params.requestId,
+              page_number: page.pageNumber,
+              reason,
+            },
+            "Page extraction failed after retry, continuing with remaining pages",
+          );
           filteredPages.push({ page_number: page.pageNumber, reason });
-          return { page_number: page.pageNumber, width: page.width, height: page.height, extracted_text: `[Page ${page.pageNumber}: content filter — text could not be extracted]`, char_count: 0 };
+          return {
+            page_number: page.pageNumber,
+            width: page.width,
+            height: page.height,
+            extracted_text: `[Page ${page.pageNumber}: content filter — text could not be extracted]`,
+            char_count: 0,
+          };
         }
       } else {
         const reason = err instanceof Error ? err.message : "Unknown error";
-        logger.warn({ requestId: params.requestId, page_number: page.pageNumber, error: reason }, "Page extraction failed, continuing with remaining pages");
+        logger.warn(
+          {
+            requestId: params.requestId,
+            page_number: page.pageNumber,
+            error: reason,
+          },
+          "Page extraction failed, continuing with remaining pages",
+        );
         failedPages.push({ page_number: page.pageNumber, reason });
-        return { page_number: page.pageNumber, width: page.width, height: page.height, extracted_text: `[Page ${page.pageNumber}: extraction error — ${reason}]`, char_count: 0 };
+        return {
+          page_number: page.pageNumber,
+          width: page.width,
+          height: page.height,
+          extracted_text: `[Page ${page.pageNumber}: extraction error — ${reason}]`,
+          char_count: 0,
+        };
       }
     }
   }
 
-  for (let batchStart = 1; batchStart <= totalPages; batchStart += CONCURRENCY) {
+  for (
+    let batchStart = 1;
+    batchStart <= totalPages;
+    batchStart += CONCURRENCY
+  ) {
     const batchEnd = Math.min(batchStart + CONCURRENCY - 1, totalPages);
-    const batchPages = Array.from({ length: batchEnd - batchStart + 1 }, (_, i) => batchStart + i);
+    const batchPages = Array.from(
+      { length: batchEnd - batchStart + 1 },
+      (_, i) => batchStart + i,
+    );
     const results = await Promise.all(batchPages.map(processOnePage));
     extractedPages.push(...results);
   }
@@ -332,13 +462,16 @@ async function _extractPdfTextWithVisionPagesInner(params: {
   await loadingTask.destroy();
 
   if (filteredPages.length > 0 || failedPages.length > 0) {
-    logger.warn({
-      requestId: params.requestId,
-      filteredPages,
-      failedPages,
-      totalPages,
-      successfulPages: totalPages - filteredPages.length - failedPages.length,
-    }, "Some pages could not be extracted");
+    logger.warn(
+      {
+        requestId: params.requestId,
+        filteredPages,
+        failedPages,
+        totalPages,
+        successfulPages: totalPages - filteredPages.length - failedPages.length,
+      },
+      "Some pages could not be extracted",
+    );
   }
 
   const successfulText = extractedPages
@@ -348,7 +481,9 @@ async function _extractPdfTextWithVisionPagesInner(params: {
     .trim();
 
   if (!successfulText) {
-    throw new Error(`Vision extraction returned no usable text. ${filteredPages.length} pages blocked by content filter, ${failedPages.length} pages failed.`);
+    throw new Error(
+      `Vision extraction returned no usable text. ${filteredPages.length} pages blocked by content filter, ${failedPages.length} pages failed.`,
+    );
   }
 
   const text = extractedPages
@@ -360,8 +495,8 @@ async function _extractPdfTextWithVisionPagesInner(params: {
     text,
     extractionDocument: {
       version: "final_report_extraction_v1",
-      source: "openai_vision_page_by_page",
-      model: env.CARRIER_AUDIT_MODEL,
+      source: "gemini_vision_page_by_page",
+      model: env.GEMINI_MODEL,
       file_name: params.fileName,
       page_count: extractedPages.length,
       pages: extractedPages,
@@ -381,48 +516,63 @@ async function persistDocumentRecord(params: {
   contentType?: string;
   storagePath?: string;
   extractedText: string;
-  extractionMethod: "openai_vision_pages" | "plain_text";
+  extractionMethod: "gemini_vision_pages" | "plain_text";
   extractionMeta?: Record<string, unknown>;
 }): Promise<string | undefined> {
   try {
     const { db, documents } = await import("@workspace/db");
-    const [saved] = await db.insert(documents).values({
-      organizationId: params.organizationId,
-      claimId: null,
-      type: params.source === "sendgrid_inbound" ? "standalone_inbound_report" : "standalone_final_report",
-      fileUrl: params.storagePath ?? null,
-      extractedText: params.extractedText,
-      metadata: {
-        source: params.source,
-        requestId: params.requestId,
-        uploaderUserId: params.uploaderUserId ?? null,
-        senderEmail: params.senderEmail ?? null,
-        fileName: params.fileName ?? null,
-        contentType: params.contentType ?? null,
-        storagePath: params.storagePath ?? null,
-        extractionMethod: params.extractionMethod,
-        extractionMeta: params.extractionMeta ?? {},
-      },
-    }).returning({ id: documents.id });
+    const [saved] = await db
+      .insert(documents)
+      .values({
+        organizationId: params.organizationId,
+        claimId: null,
+        type:
+          params.source === "sendgrid_inbound"
+            ? "standalone_inbound_report"
+            : "standalone_final_report",
+        fileUrl: params.storagePath ?? null,
+        extractedText: params.extractedText,
+        metadata: {
+          source: params.source,
+          requestId: params.requestId,
+          uploaderUserId: params.uploaderUserId ?? null,
+          senderEmail: params.senderEmail ?? null,
+          fileName: params.fileName ?? null,
+          contentType: params.contentType ?? null,
+          storagePath: params.storagePath ?? null,
+          extractionMethod: params.extractionMethod,
+          extractionMeta: params.extractionMeta ?? {},
+        },
+      })
+      .returning({ id: documents.id });
 
-    logger.info({
-      requestId: params.requestId,
-      documentId: saved?.id,
-      source: params.source,
-      extraction_method: params.extractionMethod,
-      has_storage_path: Boolean(params.storagePath),
-      extracted_chars: params.extractedText.length,
-    }, "Standalone extraction record persisted");
+    logger.info(
+      {
+        requestId: params.requestId,
+        documentId: saved?.id,
+        source: params.source,
+        extraction_method: params.extractionMethod,
+        has_storage_path: Boolean(params.storagePath),
+        extracted_chars: params.extractedText.length,
+      },
+      "Standalone extraction record persisted",
+    );
 
     return saved?.id;
   } catch (err) {
-    logger.error({ err, requestId: params.requestId }, "Failed to persist standalone extraction record");
+    logger.error(
+      { err, requestId: params.requestId },
+      "Failed to persist standalone extraction record",
+    );
     return undefined;
   }
 }
 
-export async function extractAndPersistFinalReport(input: PersistedReportInput): Promise<PersistedReportResult> {
-  const reportTextBody = typeof input.reportText === "string" ? input.reportText.trim() : "";
+export async function extractAndPersistFinalReport(
+  input: PersistedReportInput,
+): Promise<PersistedReportResult> {
+  const reportTextBody =
+    typeof input.reportText === "string" ? input.reportText.trim() : "";
   const file = input.file;
 
   if (!file && !reportTextBody) {
@@ -433,12 +583,15 @@ export async function extractAndPersistFinalReport(input: PersistedReportInput):
   }
 
   if (!file) {
-    logger.info({
-      requestId: input.requestId,
-      source: input.source,
-      extraction_method: "plain_text",
-      text_chars: reportTextBody.length,
-    }, "Using pasted/plain text input");
+    logger.info(
+      {
+        requestId: input.requestId,
+        source: input.source,
+        extraction_method: "plain_text",
+        text_chars: reportTextBody.length,
+      },
+      "Using pasted/plain text input",
+    );
 
     const documentId = await persistDocumentRecord({
       source: input.source,
@@ -459,13 +612,16 @@ export async function extractAndPersistFinalReport(input: PersistedReportInput):
 
   const fileName = safeFileName(file.originalname || "final_report.pdf");
   const contentType = file.mimetype || "application/pdf";
-  logger.info({
-    requestId: input.requestId,
-    source: input.source,
-    file_name: fileName,
-    content_type: contentType,
-    file_bytes: file.buffer.length,
-  }, "Received uploaded file for standalone processing");
+  logger.info(
+    {
+      requestId: input.requestId,
+      source: input.source,
+      file_name: fileName,
+      content_type: contentType,
+      file_bytes: file.buffer.length,
+    },
+    "Received uploaded file for standalone processing",
+  );
 
   const storagePath = await uploadFile(
     file.buffer,
@@ -473,21 +629,29 @@ export async function extractAndPersistFinalReport(input: PersistedReportInput):
     contentType,
     input.organizationId,
   );
-  logger.info({
-    requestId: input.requestId,
-    source: input.source,
-    file_name: fileName,
-    storagePath,
-  }, "Uploaded source file to Supabase storage");
-
-  const isPdf = contentType.toLowerCase() === "application/pdf" || fileName.toLowerCase().endsWith(".pdf");
-  if (!isPdf) {
-    logger.info({
+  logger.info(
+    {
       requestId: input.requestId,
       source: input.source,
       file_name: fileName,
-      extraction_method: "plain_text",
-    }, "Non-PDF upload detected; using UTF-8 text extraction");
+      storagePath,
+    },
+    "Uploaded source file to Supabase storage",
+  );
+
+  const isPdf =
+    contentType.toLowerCase() === "application/pdf" ||
+    fileName.toLowerCase().endsWith(".pdf");
+  if (!isPdf) {
+    logger.info(
+      {
+        requestId: input.requestId,
+        source: input.source,
+        file_name: fileName,
+        extraction_method: "plain_text",
+      },
+      "Non-PDF upload detected; using UTF-8 text extraction",
+    );
 
     const text = file.buffer.toString("utf-8").trim();
     const documentId = await persistDocumentRecord({
@@ -527,26 +691,29 @@ export async function extractAndPersistFinalReport(input: PersistedReportInput):
     contentType,
     storagePath,
     extractedText: vision.text,
-    extractionMethod: "openai_vision_pages",
+    extractionMethod: "gemini_vision_pages",
     extractionMeta: {
-      model: env.CARRIER_AUDIT_MODEL,
+      model: env.GEMINI_MODEL,
       extractionDocument: vision.extractionDocument,
     },
   });
 
-  logger.info({
-    requestId: input.requestId,
-    model: env.CARRIER_AUDIT_MODEL,
-    extraction_method: "openai_vision_pages",
-    storagePath,
-    extracted_chars: vision.text.length,
-    page_count: vision.extractionDocument.page_count,
-  }, "Final report extracted with OpenAI vision and persisted");
+  logger.info(
+    {
+      requestId: input.requestId,
+      model: env.GEMINI_MODEL,
+      extraction_method: "gemini_vision_pages",
+      storagePath,
+      extracted_chars: vision.text.length,
+      page_count: vision.extractionDocument.page_count,
+    },
+    "Final report extracted with Gemini vision and persisted",
+  );
 
   return {
     reportText: vision.text,
     storagePath,
-    extractionMethod: "openai_vision_pages",
+    extractionMethod: "gemini_vision_pages",
     documentId,
   };
 }

@@ -4,7 +4,11 @@ import { z } from "zod";
 
 export interface ToolReading {
   page_number: number;
-  tool_type: "moisture_meter" | "thermal_imager" | "laser_measure" | "tape_measure";
+  tool_type:
+    | "moisture_meter"
+    | "thermal_imager"
+    | "laser_measure"
+    | "tape_measure";
   tool_model: string;
   reading_value: string;
   reading_unit: string;
@@ -126,36 +130,55 @@ Extract all visible data as instructed. This is a professional insurance documen
 const photoPageSchema = z.object({
   page_number: z.number(),
   is_photo_page: z.boolean(),
-  tool_readings: z.array(z.object({
-    tool_type: z.enum(["moisture_meter", "thermal_imager", "laser_measure", "tape_measure"]),
-    tool_model: z.string(),
-    reading_value: z.string(),
-    reading_unit: z.string(),
-    material_or_location: z.string(),
-    confidence: z.number(),
-  })).default([]),
-  photo_labels: z.array(z.object({
-    label_path: z.string(),
-    caption: z.string(),
-    section_type: z.enum(["exterior", "interior", "roof", "other"]),
-    order_index: z.number(),
-  })).default([]),
-  damage_verifications: z.array(z.object({
-    caption_claim: z.string(),
-    damage_visible: z.boolean(),
-    damage_type: z.string(),
-    discrepancy: z.string(),
-    confidence: z.number(),
-  })).default([]),
+  tool_readings: z
+    .array(
+      z.object({
+        tool_type: z.enum([
+          "moisture_meter",
+          "thermal_imager",
+          "laser_measure",
+          "tape_measure",
+        ]),
+        tool_model: z.string(),
+        reading_value: z.string(),
+        reading_unit: z.string(),
+        material_or_location: z.string(),
+        confidence: z.number(),
+      }),
+    )
+    .default([]),
+  photo_labels: z
+    .array(
+      z.object({
+        label_path: z.string(),
+        caption: z.string(),
+        section_type: z.enum(["exterior", "interior", "roof", "other"]),
+        order_index: z.number(),
+      }),
+    )
+    .default([]),
+  damage_verifications: z
+    .array(
+      z.object({
+        caption_claim: z.string(),
+        damage_visible: z.boolean(),
+        damage_type: z.string(),
+        discrepancy: z.string(),
+        confidence: z.number(),
+      }),
+    )
+    .default([]),
 });
 
 function isContentFilterError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
   const e = err as any;
-  return (e.status === 400 && e.code === "content_filter") ||
-    (e.error?.code === "content_filter") ||
-    (e.error?.inner_error?.code === "ResponsibleAIPolicyViolation") ||
-    (e.message?.includes("content management policy"));
+  return (
+    (e.status === 400 && e.code === "content_filter") ||
+    e.error?.code === "content_filter" ||
+    e.error?.inner_error?.code === "ResponsibleAIPolicyViolation" ||
+    e.message?.includes("content management policy")
+  );
 }
 
 export function identifyPhotoPages(extractedText: string): number[] {
@@ -179,7 +202,10 @@ export function identifyPhotoPages(extractedText: string): number[] {
       /exterior.*elevation|interior.*level|roof.*view/i.test(page.text) ||
       /moisture.*meter|tramex|flir|thermal/i.test(page.text) ||
       /img_|dsc_|photo_|pic_/i.test(page.text) ||
-      (lower.includes("photo") && (lower.includes("label") || lower.includes("caption") || lower.includes("image")));
+      (lower.includes("photo") &&
+        (lower.includes("label") ||
+          lower.includes("caption") ||
+          lower.includes("image")));
 
     if (isPhoto) {
       photoPageNumbers.push(page.pageNumber);
@@ -195,27 +221,34 @@ async function analyzePhotoPage(
   requestId: string,
   systemPrompt?: string,
 ): Promise<PhotoPageAnalysis> {
-  const { gemini } = await import("@workspace/integrations-openai-ai-server");
+  const { gemini } =
+    await import("@workspace/integrations-openai-ai-server/client");
   const imageDataUrl = `data:image/png;base64,${pngBuffer.toString("base64")}`;
 
-  const response = await gemini.chat.completions.create({
-    model: env.CARRIER_AUDIT_MODEL,
-    temperature: 0,
-    response_format: { type: "json_object" },
-    messages: [
-      {
-        role: "system",
-        content: systemPrompt || PHOTO_ANALYSIS_SYSTEM_PROMPT,
-      },
-      {
-        role: "user",
-        content: [
-          { type: "text", text: `Analyze photo page ${pageNumber}. Extract all tool readings, labels, and verify damage claims.` },
-          { type: "image_url", image_url: { url: imageDataUrl } },
-        ] as unknown as string,
-      },
-    ],
-  }, { signal: AbortSignal.timeout(120_000) });
+  const response = await gemini.chat.completions.create(
+    {
+      model: env.GEMINI_MODEL,
+      temperature: 0,
+      response_format: { type: "json_object" },
+      messages: [
+        {
+          role: "system",
+          content: systemPrompt || PHOTO_ANALYSIS_SYSTEM_PROMPT,
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: `Analyze photo page ${pageNumber}. Extract all tool readings, labels, and verify damage claims.`,
+            },
+            { type: "image_url", image_url: { url: imageDataUrl } },
+          ] as unknown as string,
+        },
+      ],
+    },
+    { signal: AbortSignal.timeout(120_000) },
+  );
 
   const content = response.choices[0]?.message?.content;
   if (!content) {
@@ -224,15 +257,24 @@ async function analyzePhotoPage(
 
   let parsed: unknown;
   try {
-    const cleaned = content.replace(/```(?:json)?\s*/g, "").replace(/```\s*/g, "").trim();
+    const cleaned = content
+      .replace(/```(?:json)?\s*/g, "")
+      .replace(/```\s*/g, "")
+      .trim();
     parsed = JSON.parse(cleaned);
   } catch {
     throw new Error(`Photo analysis page ${pageNumber}: invalid JSON`);
   }
 
-  const validated = photoPageSchema.safeParse({ ...parsed as object, page_number: pageNumber });
+  const validated = photoPageSchema.safeParse({
+    ...(parsed as object),
+    page_number: pageNumber,
+  });
   if (!validated.success) {
-    logger.warn({ requestId, pageNumber, errors: validated.error.issues }, "Photo analysis schema validation partial failure, using defaults");
+    logger.warn(
+      { requestId, pageNumber, errors: validated.error.issues },
+      "Photo analysis schema validation partial failure, using defaults",
+    );
     return {
       page_number: pageNumber,
       is_photo_page: false,
@@ -260,7 +302,10 @@ async function analyzePhotoPage(
   };
 }
 
-function validatePhotoSequence(labels: PhotoLabel[]): { valid: boolean; issues: string[] } {
+function validatePhotoSequence(labels: PhotoLabel[]): {
+  valid: boolean;
+  issues: string[];
+} {
   const issues: string[] = [];
   if (labels.length === 0) return { valid: true, issues };
 
@@ -277,7 +322,9 @@ function validatePhotoSequence(labels: PhotoLabel[]): { valid: boolean; issues: 
   }
 
   if (lastExteriorIdx > firstInteriorIdx && firstInteriorIdx !== Infinity) {
-    issues.push("Interior photos appear before all exterior photos are complete. Carrier expects exterior elevations to precede interior documentation.");
+    issues.push(
+      "Interior photos appear before all exterior photos are complete. Carrier expects exterior elevations to precede interior documentation.",
+    );
   }
 
   let lastRoofIdx = -1;
@@ -289,8 +336,13 @@ function validatePhotoSequence(labels: PhotoLabel[]): { valid: boolean; issues: 
     }
   }
 
-  if (lastRoofIdx > firstNonRoofInteriorIdx && firstNonRoofInteriorIdx !== Infinity) {
-    issues.push("Roof photos should precede interior photos per carrier operational order.");
+  if (
+    lastRoofIdx > firstNonRoofInteriorIdx &&
+    firstNonRoofInteriorIdx !== Infinity
+  ) {
+    issues.push(
+      "Roof photos should precede interior photos per carrier operational order.",
+    );
   }
 
   return { valid: issues.length === 0, issues };
@@ -332,7 +384,10 @@ export async function runPhotoAnalysis(params: {
   const photoPages = identifyPhotoPages(params.extractedText);
 
   if (photoPages.length === 0) {
-    logger.info({ requestId: params.requestId }, "No photo pages identified for vision analysis");
+    logger.info(
+      { requestId: params.requestId },
+      "No photo pages identified for vision analysis",
+    );
     return {
       analyzed_pages: [],
       total_photo_pages: 0,
@@ -351,11 +406,14 @@ export async function runPhotoAnalysis(params: {
     };
   }
 
-  logger.info({
-    requestId: params.requestId,
-    photoPageCount: photoPages.length,
-    photoPages,
-  }, "Starting multimodal photo analysis");
+  logger.info(
+    {
+      requestId: params.requestId,
+      photoPageCount: photoPages.length,
+      photoPages,
+    },
+    "Starting multimodal photo analysis",
+  );
 
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
   const { createCanvas } = await import("@napi-rs/canvas");
@@ -381,12 +439,23 @@ export async function runPhotoAnalysis(params: {
     try {
       pngBuffer = await renderSinglePdfPage(pdf, pageNumber, createCanvas);
     } catch (renderErr) {
-      logger.warn({ requestId: params.requestId, pageNumber, error: renderErr instanceof Error ? renderErr.message : "Unknown" }, "Photo page render failed, skipping");
+      logger.warn(
+        {
+          requestId: params.requestId,
+          pageNumber,
+          error: renderErr instanceof Error ? renderErr.message : "Unknown",
+        },
+        "Photo page render failed, skipping",
+      );
       continue;
     }
 
     try {
-      const analysis = await analyzePhotoPage(pngBuffer, pageNumber, params.requestId);
+      const analysis = await analyzePhotoPage(
+        pngBuffer,
+        pageNumber,
+        params.requestId,
+      );
       analyzedPages.push(pageNumber);
 
       if (analysis.is_photo_page) {
@@ -395,19 +464,30 @@ export async function runPhotoAnalysis(params: {
         allDamageVerifications.push(...analysis.damage_verifications);
       }
 
-      logger.info({
-        requestId: params.requestId,
-        pageNumber,
-        isPhoto: analysis.is_photo_page,
-        toolReadings: analysis.tool_readings.length,
-        labels: analysis.photo_labels.length,
-        verifications: analysis.damage_verifications.length,
-      }, "Photo page analyzed");
+      logger.info(
+        {
+          requestId: params.requestId,
+          pageNumber,
+          isPhoto: analysis.is_photo_page,
+          toolReadings: analysis.tool_readings.length,
+          labels: analysis.photo_labels.length,
+          verifications: analysis.damage_verifications.length,
+        },
+        "Photo page analyzed",
+      );
     } catch (err) {
       if (isContentFilterError(err)) {
-        logger.warn({ requestId: params.requestId, pageNumber }, "Photo analysis content filter, retrying");
+        logger.warn(
+          { requestId: params.requestId, pageNumber },
+          "Photo analysis content filter, retrying",
+        );
         try {
-          const analysis = await analyzePhotoPage(pngBuffer, pageNumber, params.requestId, CONTENT_FILTER_RETRY_PROMPT);
+          const analysis = await analyzePhotoPage(
+            pngBuffer,
+            pageNumber,
+            params.requestId,
+            CONTENT_FILTER_RETRY_PROMPT,
+          );
           analyzedPages.push(pageNumber);
           if (analysis.is_photo_page) {
             allToolReadings.push(...analysis.tool_readings);
@@ -415,11 +495,21 @@ export async function runPhotoAnalysis(params: {
             allDamageVerifications.push(...analysis.damage_verifications);
           }
         } catch (retryErr) {
-          logger.warn({ requestId: params.requestId, pageNumber }, "Photo analysis failed after retry");
+          logger.warn(
+            { requestId: params.requestId, pageNumber },
+            "Photo analysis failed after retry",
+          );
           analyzedPages.push(pageNumber);
         }
       } else {
-        logger.warn({ requestId: params.requestId, pageNumber, error: err instanceof Error ? err.message : "Unknown" }, "Photo analysis failed");
+        logger.warn(
+          {
+            requestId: params.requestId,
+            pageNumber,
+            error: err instanceof Error ? err.message : "Unknown",
+          },
+          "Photo analysis failed",
+        );
         analyzedPages.push(pageNumber);
       }
     }
@@ -438,22 +528,34 @@ export async function runPhotoAnalysis(params: {
     photo_sequence_valid: sequence.valid,
     sequence_issues: sequence.issues,
     diagnostics_summary: {
-      moisture_readings_found: allToolReadings.filter((r) => r.tool_type === "moisture_meter").length,
-      thermal_readings_found: allToolReadings.filter((r) => r.tool_type === "thermal_imager").length,
-      laser_readings_found: allToolReadings.filter((r) => r.tool_type === "laser_measure" || r.tool_type === "tape_measure").length,
+      moisture_readings_found: allToolReadings.filter(
+        (r) => r.tool_type === "moisture_meter",
+      ).length,
+      thermal_readings_found: allToolReadings.filter(
+        (r) => r.tool_type === "thermal_imager",
+      ).length,
+      laser_readings_found: allToolReadings.filter(
+        (r) =>
+          r.tool_type === "laser_measure" || r.tool_type === "tape_measure",
+      ).length,
       captions_verified: allDamageVerifications.length,
-      captions_with_discrepancy: allDamageVerifications.filter((d) => !d.damage_visible).length,
+      captions_with_discrepancy: allDamageVerifications.filter(
+        (d) => !d.damage_visible,
+      ).length,
     },
   };
 
-  logger.info({
-    requestId: params.requestId,
-    analyzedPages: analyzedPages.length,
-    toolReadings: allToolReadings.length,
-    labels: allPhotoLabels.length,
-    verifications: allDamageVerifications.length,
-    sequenceValid: sequence.valid,
-  }, "Multimodal photo analysis complete");
+  logger.info(
+    {
+      requestId: params.requestId,
+      analyzedPages: analyzedPages.length,
+      toolReadings: allToolReadings.length,
+      labels: allPhotoLabels.length,
+      verifications: allDamageVerifications.length,
+      sequenceValid: sequence.valid,
+    },
+    "Multimodal photo analysis complete",
+  );
 
   return result;
 }

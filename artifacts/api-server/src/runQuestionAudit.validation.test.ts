@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { Question } from "./services/questionBank";
 
-process.env.AI_INTEGRATIONS_OPENAI_BASE_URL ??= "http://127.0.0.1:9";
-process.env.AI_INTEGRATIONS_OPENAI_API_KEY ??= "test-key";
+process.env.GEMINI_API_KEY ??= "test-key";
+process.env.GEMINI_BASE_URL ??= "http://127.0.0.1:9";
 
 const {
   normalizeQuestionResults,

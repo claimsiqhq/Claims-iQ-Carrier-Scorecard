@@ -10,7 +10,6 @@ const __dirname = path.dirname(__filename);
 // which helps cold start times without risking some
 // packages that are not bundle compatible
 const allowlist = [
-  "@google/generative-ai",
   "axios",
   "connect-pg-simple",
   "cors",
@@ -41,7 +40,7 @@ async function buildAll() {
   const distDir = path.resolve(__dirname, "dist");
   await rm(distDir, { recursive: true, force: true });
 
-  console.log("building server...");
+  console.log("building API, worker, and migration entrypoints...");
   const pkgPath = path.resolve(__dirname, "package.json");
   const pkg = JSON.parse(await readFile(pkgPath, "utf-8"));
   const allDeps = [
@@ -51,19 +50,28 @@ async function buildAll() {
   const externals = allDeps.filter(
     (dep) =>
       !allowlist.includes(dep) &&
-      !(pkg.dependencies?.[dep]?.startsWith("workspace:")),
+      !pkg.dependencies?.[dep]?.startsWith("workspace:"),
   );
 
   await esbuild({
-    entryPoints: [path.resolve(__dirname, "src/index.ts")],
+    entryPoints: {
+      index: path.resolve(__dirname, "src/index.ts"),
+      worker: path.resolve(__dirname, "src/worker.ts"),
+      migrate: path.resolve(__dirname, "src/migrate.ts"),
+    },
     platform: "node",
     bundle: true,
     format: "cjs",
-    outfile: path.resolve(distDir, "index.cjs"),
+    outdir: distDir,
+    entryNames: "[name]",
+    outExtension: { ".js": ".cjs" },
     define: {
       "process.env.NODE_ENV": '"production"',
     },
-    minify: true,
+    // Keep server output readable so Render startup errors point to actionable
+    // code instead of printing a multi-megabyte minified source line.
+    minify: false,
+    sourcemap: true,
     external: externals,
     logLevel: "info",
   });

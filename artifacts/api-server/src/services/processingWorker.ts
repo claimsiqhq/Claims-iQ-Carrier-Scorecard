@@ -48,7 +48,6 @@ function waitForWork(): Promise<void> {
       wakeIdle = null;
       resolve();
     }, IDLE_POLL_MS);
-    timer.unref();
     wakeIdle = () => {
       clearTimeout(timer);
       wakeIdle = null;
@@ -304,7 +303,7 @@ async function processClaimedJob(job: ClaimedJob): Promise<void> {
 }
 
 async function runLoop(workerId: string): Promise<void> {
-  logger.info({ workerId }, "Embedded durable processing worker started");
+  logger.info({ workerId }, "Durable processing worker started");
   while (!stopping) {
     let job: ClaimedJob | null = null;
     try {
@@ -368,7 +367,7 @@ async function runLoop(workerId: string): Promise<void> {
       }
     }
   }
-  logger.info({ workerId }, "Embedded durable processing worker stopped");
+  logger.info({ workerId }, "Durable processing worker stopped");
 }
 
 export function startDurableWorker(): void {

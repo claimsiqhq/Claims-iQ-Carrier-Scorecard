@@ -6,6 +6,9 @@
   "scripts": {
     "dev": "NODE_ENV=development tsx ./src/index.ts",
     "build": "tsx ./build.ts",
+    "start": "node --enable-source-maps ./dist/index.cjs",
+    "start:worker": "node --enable-source-maps ./dist/worker.cjs",
+    "migrate": "node --enable-source-maps ./dist/migrate.cjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "SUPABASE_DATABASE_URL=${SUPABASE_DATABASE_URL:-postgresql://postgres:postgres@127.0.0.1:5432/complete_iq_test} tsx --test src/**/*.test.ts"
   },

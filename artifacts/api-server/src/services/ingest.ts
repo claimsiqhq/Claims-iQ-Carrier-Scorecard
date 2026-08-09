@@ -1,4 +1,4 @@
-import { gemini } from "@workspace/integrations-openai-ai-server";
+import { gemini } from "@workspace/integrations-openai-ai-server/client";
 import logger from "../lib/logger";
 import { env } from "../env";
 
@@ -50,22 +50,32 @@ STRICT JSON ONLY — no markdown, no commentary, no code fences. Return exactly 
 
 If a field cannot be determined from the text, use an empty string — never use null or omit fields.`;
 
-export async function parseClaimFromText(extractedText: string): Promise<ParsedClaimData> {
+export async function parseClaimFromText(
+  extractedText: string,
+): Promise<ParsedClaimData> {
   const truncated = extractedText.substring(0, 30000);
 
-  const response = await gemini.chat.completions.create({
-    model: env.CARRIER_AUDIT_MODEL,
-    max_completion_tokens: 2048,
-    messages: [
-      { role: "system", content: PARSE_SYSTEM_PROMPT },
-      { role: "user", content: `Extract structured claim metadata from this document text:\n\n${truncated}` },
-    ],
-  }, { signal: AbortSignal.timeout(60_000) });
+  const response = await gemini.chat.completions.create(
+    {
+      model: env.GEMINI_MODEL,
+      max_completion_tokens: 2048,
+      messages: [
+        { role: "system", content: PARSE_SYSTEM_PROMPT },
+        {
+          role: "user",
+          content: `Extract structured claim metadata from this document text:\n\n${truncated}`,
+        },
+      ],
+    },
+    { signal: AbortSignal.timeout(60_000) },
+  );
 
   const content = response.choices[0]?.message?.content;
   if (!content) {
-    logger.error("Empty OpenAI response for claim parsing");
-    throw new ClaimParsingError("Claim metadata provider returned an empty response");
+    logger.error("Empty Gemini response for claim parsing");
+    throw new ClaimParsingError(
+      "Claim metadata provider returned an empty response",
+    );
   }
 
   const cleaned = content
@@ -92,8 +102,10 @@ export async function parseClaimFromText(extractedText: string): Promise<ParsedC
   } catch (e) {
     logger.error(
       { responseCharacters: content?.length ?? 0 },
-      "Failed to parse OpenAI claim extraction response",
+      "Failed to parse Gemini claim extraction response",
     );
-    throw new ClaimParsingError("Claim metadata provider returned invalid JSON");
+    throw new ClaimParsingError(
+      "Claim metadata provider returned invalid JSON",
+    );
   }
 }

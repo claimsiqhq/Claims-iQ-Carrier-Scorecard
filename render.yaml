@@ -1,71 +1,132 @@
-# Render Blueprint for Claims iQ Audit
-# Deploys two services from this pnpm monorepo:
-#   1. claims-iq-api  — Node web service (Express API, artifacts/api-server)
-#   2. claims-iq-web  — Static site (React frontend, artifacts/claims-iq)
-#
-# After the first deploy, update the /api rewrite destination below with the
-# actual URL Render assigns to claims-iq-api (or use a custom domain).
+# Render Blueprint for Complete iQ Carrier Audit.
+# The API and durable worker are paid Starter services so processing does not
+# spin down mid-audit. Supabase remains the managed database and object store.
 
 services:
-  # ── Backend API ────────────────────────────────────────────────────────────
+  # Public Express API.
   - type: web
-    name: claims-iq-api
+    name: complete-iq-carrier-audit-api
     runtime: node
     plan: starter
     region: oregon
-    buildCommand: corepack enable && corepack prepare pnpm@latest --activate && pnpm install --frozen-lockfile && pnpm --filter @workspace/api-server run build
-    startCommand: node artifacts/api-server/dist/index.cjs
+    branch: master
+    autoDeployTrigger: checksPass
+    maxShutdownDelaySeconds: 60
+    buildCommand: corepack enable && corepack prepare pnpm@11.11.0 --activate && pnpm install --frozen-lockfile && pnpm --filter @workspace/api-server run build
+    preDeployCommand: pnpm --filter @workspace/api-server run migrate
+    startCommand: pnpm --filter @workspace/api-server run start
     healthCheckPath: /api/healthz
     envVars:
       - key: NODE_ENV
         value: production
       - key: NODE_VERSION
-        value: "24"
-      # Required — server refuses to start without these
+        value: "24.6.0"
+
+      # Supabase. Enter these values during initial Blueprint setup.
       - key: SUPABASE_DATABASE_URL
-        sync: false # set in Render dashboard (secret)
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
       - key: SUPABASE_SERVICE_ROLE
-        sync: false # set in Render dashboard (secret)
-      # Email (SendGrid)
-      - key: SENDGRID_API_KEY
-        sync: false # set in Render dashboard (secret)
-      - key: SENDGRID_FROM_EMAIL
-        value: john@claimsiq.ai
-      - key: SENDGRID_INBOUND_PARSE_TOKEN
-        sync: false # optional — only needed for inbound parse webhook
-      # Google Gemini
+        sync: false
+
+      # Google Gemini. GEMINI_MODEL is intentionally Dashboard-managed so the
+      # model can change without changing or resyncing this Blueprint.
       - key: GEMINI_API_KEY
-        sync: false # set in Render dashboard (secret)
-      - key: GEMINI_AUDIT_MODEL
-        value: gemini-3.1-pro-preview
-      - key: OPENAI_VISION_MAX_PDF_PAGES
+        sync: false
+      - key: GEMINI_MODEL
+        sync: false
+      - key: GEMINI_BASE_URL
+        value: https://generativelanguage.googleapis.com/v1beta/openai/
+      - key: GEMINI_VISION_MAX_PDF_PAGES
         value: "250"
-      # CORS — comma-separated list of allowed frontend origins
+
+      # Optional SendGrid integration.
+      - key: SENDGRID_API_KEY
+        sync: false
+      - key: SENDGRID_FROM_EMAIL
+        sync: false
+      - key: SENDGRID_INBOUND_PARSE_TOKEN
+        sync: false
+
       - key: ALLOWED_ORIGINS
-        value: https://claims-iq-web.onrender.com
-      # Optional tuning
+        value: https://complete-iq-carrier-audit.onrender.com
       - key: LOG_LEVEL
         value: info
       - key: DURABLE_WORKER_ENABLED
-        value: "true"
+        value: "false"
 
-  # ── Frontend (static) ──────────────────────────────────────────────────────
+  # Dedicated Postgres-backed queue consumer.
+  - type: worker
+    name: complete-iq-carrier-audit-worker
+    runtime: node
+    plan: starter
+    region: oregon
+    branch: master
+    autoDeployTrigger: checksPass
+    maxShutdownDelaySeconds: 300
+    buildCommand: corepack enable && corepack prepare pnpm@11.11.0 --activate && pnpm install --frozen-lockfile && pnpm --filter @workspace/api-server run build
+    startCommand: pnpm --filter @workspace/api-server run start:worker
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "24.6.0"
+      - key: SUPABASE_DATABASE_URL
+        fromService:
+          name: complete-iq-carrier-audit-api
+          type: web
+          envVarKey: SUPABASE_DATABASE_URL
+      - key: SUPABASE_URL
+        fromService:
+          name: complete-iq-carrier-audit-api
+          type: web
+          envVarKey: SUPABASE_URL
+      - key: SUPABASE_SERVICE_ROLE
+        fromService:
+          name: complete-iq-carrier-audit-api
+          type: web
+          envVarKey: SUPABASE_SERVICE_ROLE
+      - key: GEMINI_API_KEY
+        fromService:
+          name: complete-iq-carrier-audit-api
+          type: web
+          envVarKey: GEMINI_API_KEY
+      - key: GEMINI_MODEL
+        fromService:
+          name: complete-iq-carrier-audit-api
+          type: web
+          envVarKey: GEMINI_MODEL
+      - key: GEMINI_BASE_URL
+        fromService:
+          name: complete-iq-carrier-audit-api
+          type: web
+          envVarKey: GEMINI_BASE_URL
+      - key: GEMINI_VISION_MAX_PDF_PAGES
+        fromService:
+          name: complete-iq-carrier-audit-api
+          type: web
+          envVarKey: GEMINI_VISION_MAX_PDF_PAGES
+      - key: LOG_LEVEL
+        value: info
+
+  # React/Vite frontend served from Render's CDN.
   - type: web
-    name: claims-iq-web
+    name: complete-iq-carrier-audit
     runtime: static
-    buildCommand: corepack enable && corepack prepare pnpm@latest --activate && pnpm install --frozen-lockfile && BASE_PATH=/ pnpm --filter @workspace/claims-iq run build
+    branch: master
+    autoDeployTrigger: checksPass
+    buildCommand: corepack enable && corepack prepare pnpm@11.11.0 --activate && pnpm install --frozen-lockfile && BASE_PATH=/ pnpm --filter @workspace/claims-iq run build
     staticPublishPath: artifacts/claims-iq/dist/public
     envVars:
       - key: NODE_VERSION
-        value: "24"
+        value: "24.6.0"
       - key: BASE_PATH
         value: /
     routes:
-      # Proxy API calls to the backend service (update host after first deploy)
       - type: rewrite
         source: /api/*
-        destination: https://claims-iq-api.onrender.com/api/*
-      # SPA fallback — all other routes serve the React app
+        destination: https://complete-iq-carrier-audit-api.onrender.com/api/*
       - type: rewrite
         source: /*
         destination: /index.html

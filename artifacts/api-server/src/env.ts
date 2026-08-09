@@ -21,9 +21,10 @@ function readCommaSeparatedEnv(key: string): string[] {
 }
 
 export const env = {
-  CARRIER_AUDIT_MODEL: readOptionalEnv("GEMINI_AUDIT_MODEL") ?? "gemini-3.1-pro-preview",
+  GEMINI_MODEL: readOptionalEnv("GEMINI_MODEL") ?? "gemini-3.6-flash",
   SENDGRID_INBOUND_PARSE_TOKEN: readOptionalEnv("SENDGRID_INBOUND_PARSE_TOKEN"),
-  OPENAI_VISION_MAX_PDF_PAGES: readOptionalPositiveInt("OPENAI_VISION_MAX_PDF_PAGES") ?? 250,
+  GEMINI_VISION_MAX_PDF_PAGES:
+    readOptionalPositiveInt("GEMINI_VISION_MAX_PDF_PAGES") ?? 250,
   ALLOWED_ORIGINS: readCommaSeparatedEnv("ALLOWED_ORIGINS"),
 };
 

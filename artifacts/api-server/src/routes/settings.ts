@@ -70,8 +70,8 @@ router.get(
         })),
         integrations: {
           ai: {
-            configured: Boolean(process.env.AI_INTEGRATIONS_OPENAI_API_KEY),
-            modelIdentifier: env.CARRIER_AUDIT_MODEL,
+            configured: Boolean(process.env.GEMINI_API_KEY),
+            modelIdentifier: env.GEMINI_MODEL,
           },
           storage: {
             configured: Boolean(
@@ -303,7 +303,7 @@ router.get(
     res.json({
       system_prompt: systemRow?.value ?? DEFAULT_SYSTEM,
       user_prompt_template: userRow?.value ?? DEFAULT_USER,
-      model_identifier: env.CARRIER_AUDIT_MODEL,
+      model_identifier: env.GEMINI_MODEL,
       updated_at:
         [systemRow?.updatedAt, userRow?.updatedAt]
           .filter((value): value is Date => value instanceof Date)
@@ -372,7 +372,7 @@ router.put(
         eventType: "prompt_settings.updated",
         targetType: "prompt_settings",
         metadata: {
-          modelIdentifier: env.CARRIER_AUDIT_MODEL,
+          modelIdentifier: env.GEMINI_MODEL,
           systemPromptLength: system_prompt.trim().length,
           userPromptLength: user_prompt_template.trim().length,
         },
