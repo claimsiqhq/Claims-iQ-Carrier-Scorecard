@@ -21,6 +21,7 @@ const files = [
   "0004_organization_settings.sql",
   "0005_membership_owner_guard.sql",
   "0006_carrier_ruleset_versions.sql",
+  "0007_secure_account_administration.sql",
   "testing/validate_phase2.sql",
 ];
 

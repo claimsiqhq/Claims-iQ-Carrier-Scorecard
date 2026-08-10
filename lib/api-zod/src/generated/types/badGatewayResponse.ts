@@ -18,18 +18,9 @@ to `true` when that field is present.
 
  * OpenAPI spec version: 1.0.0
  */
-import type { OrganizationInvitation } from "./organizationInvitation";
-import type { OrganizationMember } from "./organizationMember";
-import type { OrganizationSettings } from "./organizationSettings";
-import type { SettingsAuditEvent } from "./settingsAuditEvent";
-import type { SettingsOverviewIntegrations } from "./settingsOverviewIntegrations";
-import type { SettingsOverviewSecurity } from "./settingsOverviewSecurity";
+import type { Error } from "./error";
 
-export interface SettingsOverview {
-  members: OrganizationMember[];
-  invitations: OrganizationInvitation[];
-  integrations: SettingsOverviewIntegrations;
-  security: SettingsOverviewSecurity;
-  organizationSettings: OrganizationSettings;
-  auditHistory: SettingsAuditEvent[];
-}
+/**
+ * A required upstream delivery provider rejected or failed the request.
+ */
+export type BadGatewayResponse = Error;

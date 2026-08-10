@@ -197,6 +197,165 @@ paths:
         "500":
           $ref: "#/components/responses/InternalServerError"
 
+  /auth/password/forgot:
+    post:
+      operationId: requestPasswordReset
+      tags: [Authentication]
+      summary: Request a password reset link
+      description: Always returns the same accepted response to prevent account enumeration.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ForgotPasswordRequest"
+      responses:
+        "202":
+          description: Recovery request accepted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /auth/password/reset/inspect:
+    post:
+      operationId: inspectPasswordReset
+      tags: [Authentication]
+      summary: Validate a password reset token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AccountTokenRequest"
+      responses:
+        "200":
+          description: Token is currently valid.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [valid]
+                properties:
+                  valid:
+                    type: boolean
+                    enum: [true]
+                additionalProperties: false
+        "410":
+          $ref: "#/components/responses/Gone"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /auth/password/reset:
+    post:
+      operationId: resetPassword
+      tags: [Authentication]
+      summary: Consume a password reset token
+      description: Replaces the password and revokes every active session for the account.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResetPasswordRequest"
+      responses:
+        "200":
+          description: Password reset and sessions revoked.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Success"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "410":
+          $ref: "#/components/responses/Gone"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /auth/password/change:
+    post:
+      operationId: changePassword
+      tags: [Authentication]
+      summary: Change the signed-in user's password
+      description: Verifies the current password and revokes every active session.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChangePasswordRequest"
+      responses:
+        "200":
+          description: Password changed and sessions revoked.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Success"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /auth/invitations/inspect:
+    post:
+      operationId: inspectInvitation
+      tags: [Authentication]
+      summary: Validate and describe an organization invitation
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AccountTokenRequest"
+      responses:
+        "200":
+          description: Active invitation details.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InvitationPreview"
+        "410":
+          $ref: "#/components/responses/Gone"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /auth/invitations/accept:
+    post:
+      operationId: acceptInvitation
+      tags: [Authentication]
+      summary: Accept an organization invitation
+      description: Creates a new account when needed or verifies the password of an existing account.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AcceptInvitationRequest"
+      responses:
+        "200":
+          description: Invitation accepted and membership activated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AcceptInvitationResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "410":
+          $ref: "#/components/responses/Gone"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
   /dashboard:
     get:
       operationId: getDashboard
@@ -1618,6 +1777,125 @@ paths:
         "500":
           $ref: "#/components/responses/InternalServerError"
 
+  /settings/invitations:
+    post:
+      operationId: inviteOrganizationMember
+      tags: [Settings, Administration]
+      summary: Send an organization invitation
+      description: Requires `settings:manage`; privileged role invitations require an owner.
+      parameters:
+        - $ref: "#/components/parameters/OrganizationId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateInvitationRequest"
+      responses:
+        "201":
+          description: Invitation created and delivery accepted by the email provider.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrganizationInvitation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /settings/invitations/{invitationId}:
+    delete:
+      operationId: revokeOrganizationInvitation
+      tags: [Settings, Administration]
+      summary: Revoke a pending organization invitation
+      parameters:
+        - $ref: "#/components/parameters/OrganizationId"
+        - name: invitationId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Invitation revoked.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /settings/invitations/{invitationId}/resend:
+    post:
+      operationId: resendOrganizationInvitation
+      tags: [Settings, Administration]
+      summary: Rotate and resend a pending invitation
+      parameters:
+        - $ref: "#/components/parameters/OrganizationId"
+        - name: invitationId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Invitation rotated and resent.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrganizationInvitationDelivery"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+
+  /settings/members/{membershipId}/password-reset:
+    post:
+      operationId: sendOrganizationMemberPasswordReset
+      tags: [Settings, Administration]
+      summary: Send a member a password reset link
+      parameters:
+        - $ref: "#/components/parameters/OrganizationId"
+        - name: membershipId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "202":
+          description: Password reset delivery accepted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PasswordResetDelivery"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
   /settings/prompts:
     get:
       operationId: getPromptSettings
@@ -2008,6 +2286,12 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
+    Gone:
+      description: The single-use token is invalid, expired, revoked, or already consumed.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
     PayloadTooLarge:
       description: Uploaded content exceeds the route limit.
       content:
@@ -2032,6 +2316,18 @@ components:
             $ref: "#/components/schemas/Error"
     InternalServerError:
       description: The server could not complete the request.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    BadGateway:
+      description: A required upstream delivery provider rejected or failed the request.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    ServiceUnavailable:
+      description: A required integration is not configured or temporarily unavailable.
       content:
         application/json:
           schema:
@@ -2119,6 +2415,126 @@ components:
           type: string
           minLength: 1
           format: password
+      additionalProperties: false
+
+    MessageResponse:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+      additionalProperties: false
+
+    ForgotPasswordRequest:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+      additionalProperties: false
+
+    AccountTokenRequest:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+          minLength: 40
+          maxLength: 60
+      additionalProperties: false
+
+    ResetPasswordRequest:
+      type: object
+      required: [token, password]
+      properties:
+        token:
+          type: string
+          minLength: 40
+          maxLength: 60
+        password:
+          type: string
+          format: password
+          minLength: 12
+          maxLength: 72
+      additionalProperties: false
+
+    ChangePasswordRequest:
+      type: object
+      required: [currentPassword, newPassword]
+      properties:
+        currentPassword:
+          type: string
+          format: password
+          minLength: 1
+        newPassword:
+          type: string
+          format: password
+          minLength: 12
+          maxLength: 72
+      additionalProperties: false
+
+    InvitationPreview:
+      type: object
+      required: [email, role, organizationName, expiresAt, accountExists]
+      properties:
+        email:
+          type: string
+          format: email
+        role:
+          $ref: "#/components/schemas/OrganizationRole"
+        organizationName:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+        accountExists:
+          type: boolean
+      additionalProperties: false
+
+    AcceptInvitationRequest:
+      type: object
+      required: [token, password]
+      properties:
+        token:
+          type: string
+          minLength: 40
+          maxLength: 60
+        password:
+          type: string
+          format: password
+          minLength: 1
+          maxLength: 72
+        firstName:
+          type: string
+          maxLength: 80
+        lastName:
+          type: string
+          maxLength: 80
+      additionalProperties: false
+
+    AcceptInvitationResponse:
+      type: object
+      required: [success, user]
+      properties:
+        success:
+          type: boolean
+        user:
+          type: object
+          required: [id, email, firstName, lastName]
+          properties:
+            id:
+              type: string
+            email:
+              type: string
+              format: email
+            firstName:
+              type: string
+              nullable: true
+            lastName:
+              type: string
+              nullable: true
+          additionalProperties: false
       additionalProperties: false
 
     AuthUser:
@@ -4084,6 +4500,77 @@ components:
           $ref: "#/components/schemas/OrganizationRole"
       additionalProperties: false
 
+    CreateInvitationRequest:
+      type: object
+      required: [email, role]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        role:
+          $ref: "#/components/schemas/OrganizationRole"
+      additionalProperties: false
+
+    OrganizationInvitation:
+      type: object
+      required: [id, email, role, status, expiresAt, lastSentAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        role:
+          $ref: "#/components/schemas/OrganizationRole"
+        status:
+          type: string
+          enum: [pending, expired]
+        expiresAt:
+          type: string
+          format: date-time
+        lastSentAt:
+          type: string
+          format: date-time
+          nullable: true
+        sendCount:
+          type: integer
+          minimum: 1
+        createdAt:
+          type: string
+          format: date-time
+      additionalProperties: false
+
+    OrganizationInvitationDelivery:
+      type: object
+      required: [id, status, expiresAt, lastSentAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [pending]
+        expiresAt:
+          type: string
+          format: date-time
+        lastSentAt:
+          type: string
+          format: date-time
+      additionalProperties: false
+
+    PasswordResetDelivery:
+      type: object
+      required: [message, expiresAt]
+      properties:
+        message:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+      additionalProperties: false
+
     OrganizationSettingsInput:
       type: object
       required:
@@ -4159,6 +4646,7 @@ components:
       type: object
       required:
         - members
+        - invitations
         - integrations
         - security
         - organizationSettings
@@ -4168,6 +4656,10 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/OrganizationMember"
+        invitations:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrganizationInvitation"
         integrations:
           type: object
           required: [ai, storage, email]

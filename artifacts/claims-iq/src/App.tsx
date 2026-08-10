@@ -9,6 +9,9 @@ import { AppShell } from "@/components/layout/app-shell";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
 import { ApiError } from "@/lib/api";
 const LoginPage = lazy(() => import("@/features/auth/login-page"));
+const ForgotPasswordPage = lazy(() => import("@/features/auth/forgot-password-page"));
+const ResetPasswordPage = lazy(() => import("@/features/auth/reset-password-page"));
+const AcceptInvitationPage = lazy(() => import("@/features/auth/accept-invitation-page"));
 const DashboardPage = lazy(() => import("@/features/dashboard/dashboard-page"));
 const ClaimsPage = lazy(() => import("@/features/claims/claims-page"));
 const ClaimWorkbench = lazy(() => import("@/features/claims/claim-workbench"));
@@ -56,6 +59,19 @@ function AuthGate() {
   }
 
   return <AppLayout />;
+}
+
+function AppRoutes() {
+  return (
+    <Switch>
+      <Route path="/forgot-password" component={ForgotPasswordPage} />
+      <Route path="/reset-password" component={ResetPasswordPage} />
+      <Route path="/accept-invitation" component={AcceptInvitationPage} />
+      <Route>
+        <AuthGate />
+      </Route>
+    </Switch>
+  );
 }
 
 function AdminRoute({ component: Component }: { component: React.ComponentType }) {
@@ -123,7 +139,7 @@ function App() {
           <TooltipProvider>
             <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
               <Suspense fallback={<AppLoading />}>
-                <AuthGate />
+                <AppRoutes />
               </Suspense>
             </WouterRouter>
             <Toaster />

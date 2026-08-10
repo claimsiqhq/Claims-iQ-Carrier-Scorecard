@@ -17,6 +17,8 @@ export async function sendEmail(options: {
   from?: string;
   subject: string;
   html: string;
+  text?: string;
+  disableTracking?: boolean;
 }): Promise<void> {
   ensureInit();
 
@@ -30,5 +32,13 @@ export async function sendEmail(options: {
     from: fromAddr,
     subject: options.subject,
     html: options.html,
+    text: options.text,
+    trackingSettings: options.disableTracking
+      ? {
+          clickTracking: { enable: false, enableText: false },
+          openTracking: { enable: false },
+          subscriptionTracking: { enable: false },
+        }
+      : undefined,
   });
 }

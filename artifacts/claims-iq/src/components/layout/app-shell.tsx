@@ -7,6 +7,7 @@ import {
   ChevronRight,
   Files,
   LayoutDashboard,
+  KeyRound,
   LogOut,
   Menu,
   PanelLeftClose,
@@ -47,6 +48,7 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet"
 import { useAuth } from "@/lib/auth-context"
+import { ChangePasswordDialog } from "@/features/account/change-password-dialog"
 import { cn } from "@/lib/utils"
 
 const NAV_COLLAPSED_KEY = "complete-iq-primary-nav-collapsed"
@@ -206,6 +208,7 @@ export function UtilityBar() {
   const [location, setLocation] = useLocation()
   const { user, organization, isAdmin, logout } = useAuth()
   const [commandOpen, setCommandOpen] = useState(false)
+  const [passwordOpen, setPasswordOpen] = useState(false)
   const initials = `${user?.firstName?.[0] ?? ""}${user?.lastName?.[0] ?? ""}` || "U"
   const visibleItems = navItems.filter(
     (item) =>
@@ -295,6 +298,11 @@ export function UtilityBar() {
                   Tenant settings
                 </DropdownMenuItem>
               )}
+              <DropdownMenuItem onSelect={() => setPasswordOpen(true)}>
+                <KeyRound aria-hidden="true" />
+                Change password
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
               <DropdownMenuItem onSelect={() => void logout()}>
                 <LogOut aria-hidden="true" />
                 Sign out
@@ -341,6 +349,7 @@ export function UtilityBar() {
           </CommandGroup>
         </CommandList>
       </CommandDialog>
+      <ChangePasswordDialog open={passwordOpen} onOpenChange={setPasswordOpen} />
     </>
   )
 }

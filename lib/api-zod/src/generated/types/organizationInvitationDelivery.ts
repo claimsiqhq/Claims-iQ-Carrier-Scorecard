@@ -18,18 +18,11 @@ to `true` when that field is present.
 
  * OpenAPI spec version: 1.0.0
  */
-import type { OrganizationInvitation } from "./organizationInvitation";
-import type { OrganizationMember } from "./organizationMember";
-import type { OrganizationSettings } from "./organizationSettings";
-import type { SettingsAuditEvent } from "./settingsAuditEvent";
-import type { SettingsOverviewIntegrations } from "./settingsOverviewIntegrations";
-import type { SettingsOverviewSecurity } from "./settingsOverviewSecurity";
+import type { OrganizationInvitationDeliveryStatus } from "./organizationInvitationDeliveryStatus";
 
-export interface SettingsOverview {
-  members: OrganizationMember[];
-  invitations: OrganizationInvitation[];
-  integrations: SettingsOverviewIntegrations;
-  security: SettingsOverviewSecurity;
-  organizationSettings: OrganizationSettings;
-  auditHistory: SettingsAuditEvent[];
+export interface OrganizationInvitationDelivery {
+  id: string;
+  status: OrganizationInvitationDeliveryStatus;
+  expiresAt: string;
+  lastSentAt: string;
 }

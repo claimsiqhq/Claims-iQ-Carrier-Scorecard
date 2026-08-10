@@ -1,5 +1,7 @@
 import { Router, type IRouter } from "express";
 import healthRouter from "./health";
+import accountAuthRouter from "./accountAuth";
+import accountAdminRouter from "./accountAdmin";
 import authRouter from "./auth";
 import claimsRouter from "./claims";
 import auditRouter from "./audit";
@@ -17,7 +19,9 @@ import workflowRouter from "./workflow";
 const router: IRouter = Router();
 
 router.use(healthRouter);
+router.use(accountAuthRouter);
 router.use(authRouter);
+router.use(accountAdminRouter);
 router.use(dashboardRouter);
 router.use(claimsRouter);
 router.use(auditRouter);

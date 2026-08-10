@@ -477,6 +477,16 @@ export interface SettingsOverview {
     email: string
     joinedAt: string
   }>
+  invitations: Array<{
+    id: string
+    email: string
+    role: string
+    status: "pending" | "expired"
+    expiresAt: string
+    lastSentAt: string | null
+    sendCount: number
+    createdAt: string
+  }>
   integrations: {
     ai: { configured: boolean; modelIdentifier: string }
     storage: { configured: boolean }
@@ -531,4 +541,12 @@ export interface AuthOrganization {
 export interface AuthSession {
   user: AuthUser | null
   organization: AuthOrganization | null
+}
+
+export interface InvitationPreview {
+  email: string
+  role: string
+  organizationName: string
+  expiresAt: string
+  accountExists: boolean
 }

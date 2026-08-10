@@ -21,6 +21,7 @@ import type {
   SavedView,
   SettingsOverview,
   OrganizationSettingsInput,
+  InvitationPreview,
 } from "@/lib/types"
 
 export const API_BASE_URL = (import.meta.env.VITE_API_URL || "/api").replace(/\/$/, "")
@@ -119,6 +120,43 @@ export const api = {
       body: JSON.stringify({ email, password }),
     }),
   logout: () => apiRequest<void>("/auth/logout", { method: "POST" }),
+  forgotPassword: (email: string) =>
+    apiRequest<{ message: string }>("/auth/password/forgot", {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    }),
+  inspectPasswordReset: (token: string) =>
+    apiRequest<{ valid: true }>("/auth/password/reset/inspect", {
+      method: "POST",
+      body: JSON.stringify({ token }),
+    }),
+  resetPassword: (token: string, password: string) =>
+    apiRequest<{ success: true }>("/auth/password/reset", {
+      method: "POST",
+      body: JSON.stringify({ token, password }),
+    }),
+  changePassword: (currentPassword: string, newPassword: string) =>
+    apiRequest<{ success: true }>("/auth/password/change", {
+      method: "POST",
+      body: JSON.stringify({ currentPassword, newPassword }),
+    }),
+  inspectInvitation: (token: string) =>
+    apiRequest<InvitationPreview>("/auth/invitations/inspect", {
+      method: "POST",
+      body: JSON.stringify({ token }),
+    }),
+  acceptInvitation: (
+    token: string,
+    input: {
+      password: string
+      firstName?: string
+      lastName?: string
+    },
+  ) =>
+    apiRequest<{ success: true }>("/auth/invitations/accept", {
+      method: "POST",
+      body: JSON.stringify({ token, ...input }),
+    }),
 
   getDashboard: () => apiRequest<DashboardData>("/dashboard"),
   getInsights: () => apiRequest<InsightsData>("/insights"),
@@ -304,6 +342,29 @@ export const api = {
         method: "PATCH",
         body: JSON.stringify({ role }),
       },
+    ),
+  inviteMember: (email: string, role: string) =>
+    apiRequest<SettingsOverview["invitations"][number]>("/settings/invitations", {
+      method: "POST",
+      body: JSON.stringify({ email, role }),
+    }),
+  resendInvitation: (invitationId: string) =>
+    apiRequest<{
+      id: string
+      status: "pending"
+      expiresAt: string
+      lastSentAt: string
+    }>(`/settings/invitations/${encodeURIComponent(invitationId)}/resend`, {
+      method: "POST",
+    }),
+  revokeInvitation: (invitationId: string) =>
+    apiRequest<void>(`/settings/invitations/${encodeURIComponent(invitationId)}`, {
+      method: "DELETE",
+    }),
+  sendMemberPasswordReset: (membershipId: string) =>
+    apiRequest<{ message: string; expiresAt: string }>(
+      `/settings/members/${encodeURIComponent(membershipId)}/password-reset`,
+      { method: "POST" },
     ),
   savePrompts: (prompts: PromptSettings) =>
     apiRequest<{ success: boolean }>("/settings/prompts", {

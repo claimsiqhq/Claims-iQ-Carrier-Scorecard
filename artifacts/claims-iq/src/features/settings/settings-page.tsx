@@ -34,6 +34,7 @@ import type {
   SettingsOverview,
 } from "@/lib/types"
 import { cn } from "@/lib/utils"
+import { UsersRolesPanel } from "./users-roles-panel"
 
 type SettingsSection =
   | "prompts"
@@ -56,7 +57,7 @@ const sections = [
 
 export default function SettingsPage() {
   const queryClient = useQueryClient()
-  const { organization } = useAuth()
+  const { organization, user } = useAuth()
   const initializedRef = useRef(false)
   const [section, setSection] = useState<SettingsSection>("prompts")
   const [draft, setDraft] = useState<PromptSettings | null>(null)
@@ -343,6 +344,18 @@ export default function SettingsPage() {
                 onRoleChange={updateMemberRole}
                 roleSavingId={roleSavingId}
                 currentRole={organization?.role || "viewer"}
+                currentUserId={user?.id || ""}
+                onRefresh={async () => {
+                  await queryClient.invalidateQueries({ queryKey: queryKeys.settingsOverview })
+                }}
+                onMessage={(nextMessage) => {
+                  setError(null)
+                  setMessage(nextMessage)
+                }}
+                onError={(nextError) => {
+                  setMessage(null)
+                  setError(nextError)
+                }}
               />
             )}
           </section>
@@ -464,6 +477,10 @@ function SettingsSectionPanel({
   onRoleChange,
   roleSavingId,
   currentRole,
+  currentUserId,
+  onRefresh,
+  onMessage,
+  onError,
 }: {
   section: Exclude<SettingsSection, "prompts">
   overview: SettingsOverview
@@ -472,79 +489,23 @@ function SettingsSectionPanel({
   onRoleChange: (membershipId: string, role: string) => Promise<void>
   roleSavingId: string | null
   currentRole: string
+  currentUserId: string
+  onRefresh: () => Promise<void>
+  onMessage: (message: string) => void
+  onError: (message: string) => void
 }) {
   if (section === "users") {
-    const roles = ["owner", "admin", "auditor", "reviewer", "member", "viewer"]
     return (
-      <section className="ciq-panel ciq-panel--flush">
-        <div className="ciq-panel__header">
-          <div>
-            <h2>Users & roles</h2>
-            <p>Organization membership and least-privilege workflow access</p>
-          </div>
-          <StatusPill value="verified" label={`${overview.members.length} active members`} />
-        </div>
-        <div className="overflow-x-auto">
-          <table className="ciq-table min-w-[640px]">
-            <caption>Organization users and assigned roles</caption>
-            <thead>
-              <tr>
-                <th scope="col">Member</th>
-                <th scope="col">Email</th>
-                <th scope="col">Joined</th>
-                <th scope="col">Role</th>
-              </tr>
-            </thead>
-            <tbody>
-              {overview.members.map((member) => {
-                const privilegedTarget = member.role === "owner"
-                return (
-                  <tr key={member.membershipId}>
-                    <td className="font-semibold">
-                      {[member.firstName, member.lastName].filter(Boolean).join(" ") || "Unnamed user"}
-                    </td>
-                    <td>{member.email}</td>
-                    <td className="ciq-mono text-xs">
-                      {new Date(member.joinedAt).toLocaleDateString()}
-                    </td>
-                    <td>
-                      <select
-                        className="ciq-control min-w-36"
-                        aria-label={`Role for ${member.email}`}
-                        value={member.role}
-                        disabled={
-                          roleSavingId === member.membershipId
-                          || (currentRole !== "owner" && privilegedTarget)
-                        }
-                        onChange={(event) =>
-                          void onRoleChange(member.membershipId, event.target.value)
-                        }
-                      >
-                        {roles.map((role) => (
-                          <option
-                            key={role}
-                            value={role}
-                            disabled={
-                              currentRole !== "owner"
-                              && (role === "owner" || role === "admin")
-                            }
-                          >
-                            {humanizeSetting(role)}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-        <p className="border-t border-[var(--ciq-border)] p-4 text-xs text-[var(--ciq-ink-muted)]">
-          New-user invitation remains intentionally disabled until a verified email and acceptance
-          workflow is configured. The final owner cannot be demoted.
-        </p>
-      </section>
+      <UsersRolesPanel
+        overview={overview}
+        currentRole={currentRole}
+        currentUserId={currentUserId}
+        roleSavingId={roleSavingId}
+        onRoleChange={onRoleChange}
+        onRefresh={onRefresh}
+        onMessage={onMessage}
+        onError={onError}
+      />
     )
   }
 

@@ -82,17 +82,43 @@ export interface LoginRequest {
   password: string;
 }
 
-export interface AuthUser {
-  id: string;
-  /** @nullable */
-  email: string | null;
-  /** @nullable */
-  firstName: string | null;
-  /** @nullable */
-  lastName: string | null;
-  /** @nullable */
-  profileImageUrl: string | null;
-  role: string;
+export interface MessageResponse {
+  message: string;
+}
+
+export interface ForgotPasswordRequest {
+  email: string;
+}
+
+export interface AccountTokenRequest {
+  /**
+   * @minLength 40
+   * @maxLength 60
+   */
+  token: string;
+}
+
+export interface ResetPasswordRequest {
+  /**
+   * @minLength 40
+   * @maxLength 60
+   */
+  token: string;
+  /**
+   * @minLength 12
+   * @maxLength 72
+   */
+  password: string;
+}
+
+export interface ChangePasswordRequest {
+  /** @minLength 1 */
+  currentPassword: string;
+  /**
+   * @minLength 12
+   * @maxLength 72
+   */
+  newPassword: string;
 }
 
 export type OrganizationRole =
@@ -106,6 +132,58 @@ export const OrganizationRole = {
   member: "member",
   viewer: "viewer",
 } as const;
+
+export interface InvitationPreview {
+  email: string;
+  role: OrganizationRole;
+  organizationName: string;
+  expiresAt: string;
+  accountExists: boolean;
+}
+
+export interface AcceptInvitationRequest {
+  /**
+   * @minLength 40
+   * @maxLength 60
+   */
+  token: string;
+  /**
+   * @minLength 1
+   * @maxLength 72
+   */
+  password: string;
+  /** @maxLength 80 */
+  firstName?: string;
+  /** @maxLength 80 */
+  lastName?: string;
+}
+
+export type AcceptInvitationResponseUser = {
+  id: string;
+  email: string;
+  /** @nullable */
+  firstName: string | null;
+  /** @nullable */
+  lastName: string | null;
+};
+
+export interface AcceptInvitationResponse {
+  success: boolean;
+  user: AcceptInvitationResponseUser;
+}
+
+export interface AuthUser {
+  id: string;
+  /** @nullable */
+  email: string | null;
+  /** @nullable */
+  firstName: string | null;
+  /** @nullable */
+  lastName: string | null;
+  /** @nullable */
+  profileImageUrl: string | null;
+  role: string;
+}
 
 export type OrganizationPermission =
   (typeof OrganizationPermission)[keyof typeof OrganizationPermission];
@@ -1223,6 +1301,52 @@ export interface OrganizationMemberRole {
   role: OrganizationRole;
 }
 
+export interface CreateInvitationRequest {
+  /** @maxLength 254 */
+  email: string;
+  role: OrganizationRole;
+}
+
+export type OrganizationInvitationStatus =
+  (typeof OrganizationInvitationStatus)[keyof typeof OrganizationInvitationStatus];
+
+export const OrganizationInvitationStatus = {
+  pending: "pending",
+  expired: "expired",
+} as const;
+
+export interface OrganizationInvitation {
+  id: string;
+  email: string;
+  role: OrganizationRole;
+  status: OrganizationInvitationStatus;
+  expiresAt: string;
+  /** @nullable */
+  lastSentAt: string | null;
+  /** @minimum 1 */
+  sendCount?: number;
+  createdAt?: string;
+}
+
+export type OrganizationInvitationDeliveryStatus =
+  (typeof OrganizationInvitationDeliveryStatus)[keyof typeof OrganizationInvitationDeliveryStatus];
+
+export const OrganizationInvitationDeliveryStatus = {
+  pending: "pending",
+} as const;
+
+export interface OrganizationInvitationDelivery {
+  id: string;
+  status: OrganizationInvitationDeliveryStatus;
+  expiresAt: string;
+  lastSentAt: string;
+}
+
+export interface PasswordResetDelivery {
+  message: string;
+  expiresAt: string;
+}
+
 export type OrganizationSettingsInputPurgeMode =
   (typeof OrganizationSettingsInputPurgeMode)[keyof typeof OrganizationSettingsInputPurgeMode];
 
@@ -1303,6 +1427,7 @@ export type SettingsOverviewSecurity = {
 
 export interface SettingsOverview {
   members: OrganizationMember[];
+  invitations: OrganizationInvitation[];
   integrations: SettingsOverviewIntegrations;
   security: SettingsOverviewSecurity;
   organizationSettings: OrganizationSettings;
@@ -1382,6 +1507,11 @@ export type NotFoundResponse = Error;
 export type ConflictResponse = Error;
 
 /**
+ * The single-use token is invalid, expired, revoked, or already consumed.
+ */
+export type GoneResponse = Error;
+
+/**
  * Uploaded content exceeds the route limit.
  */
 export type PayloadTooLargeResponse = Error;
@@ -1395,6 +1525,16 @@ export type TooManyRequestsResponse = Error;
  * The server could not complete the request.
  */
 export type InternalServerErrorResponse = Error;
+
+/**
+ * A required upstream delivery provider rejected or failed the request.
+ */
+export type BadGatewayResponse = Error;
+
+/**
+ * A required integration is not configured or temporarily unavailable.
+ */
+export type ServiceUnavailableResponse = Error;
 
 /**
  * Organization membership to use for this request. Omit to use the
@@ -1429,6 +1569,10 @@ export type JobsLimitParameter = number;
  * Zero-based record offset.
  */
 export type OffsetParameter = number;
+
+export type InspectPasswordReset200 = {
+  valid: boolean;
+};
 
 export type ListClaimsParams = {
   /**

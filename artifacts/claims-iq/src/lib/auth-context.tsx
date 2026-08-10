@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   api,
   apiErrorMessage,
@@ -29,6 +30,7 @@ export function useAuth() {
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const queryClient = useQueryClient();
   const [user, setUser] = useState<AuthUser | null>(null);
   const [organization, setOrganization] = useState<AuthOrganization | null>(null);
   const [loading, setLoading] = useState(true);
@@ -48,6 +50,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const handleSessionExpired = () => {
+      queryClient.clear();
       setUser(null);
       setOrganization(null);
     };
@@ -55,11 +58,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => {
       window.removeEventListener(SESSION_EXPIRED_EVENT, handleSessionExpired);
     };
-  }, []);
+  }, [queryClient]);
 
   const login = useCallback(async (email: string, password: string): Promise<string | null> => {
     try {
       const data = await api.login(email, password);
+      queryClient.clear();
       setUser(data.user);
       const session = await api.getSession();
       setOrganization(session.organization ?? null);
@@ -68,14 +72,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch (error) {
       return apiErrorMessage(error, "Network error. Please try again.");
     }
-  }, []);
+  }, [queryClient]);
 
   const logout = useCallback(async () => {
     await api.logout().catch(() => {});
+    queryClient.clear();
     setUser(null);
     setOrganization(null);
     window.sessionStorage.removeItem(SESSION_EXPIRED_EVENT);
-  }, []);
+  }, [queryClient]);
 
   const isAdmin =
     user?.role === "admin" ||

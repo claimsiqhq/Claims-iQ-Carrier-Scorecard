@@ -50,7 +50,13 @@ services:
         sync: false
 
       - key: ALLOWED_ORIGINS
-        value: https://complete-iq-carrier-audit-iq6g.onrender.com
+        value: https://scorecard.neurovista.ai,https://complete-iq-carrier-audit-iq6g.onrender.com
+      - key: APP_PUBLIC_URL
+        value: https://scorecard.neurovista.ai
+      - key: PASSWORD_RESET_TTL_MINUTES
+        value: "60"
+      - key: INVITATION_TTL_HOURS
+        value: "48"
       - key: LOG_LEVEL
         value: info
       - key: DURABLE_WORKER_ENABLED

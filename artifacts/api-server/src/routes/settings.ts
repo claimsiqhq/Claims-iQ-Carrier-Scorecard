@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import {
   db,
   organizationAuditEvents,
+  organizationInvitations,
   organizationMemberships,
   organizationSettings,
   promptSettings,
@@ -24,7 +25,7 @@ router.get(
   async (req, res) => {
     const organizationId = req.organization!.organizationId;
     try {
-      const [members, settingsRows, events] = await Promise.all([
+      const [members, invitations, settingsRows, events] = await Promise.all([
         db
           .select({
             membershipId: organizationMemberships.id,
@@ -39,6 +40,25 @@ router.get(
           .innerJoin(usersTable, eq(usersTable.id, organizationMemberships.userId))
           .where(eq(organizationMemberships.organizationId, organizationId))
           .orderBy(organizationMemberships.joinedAt),
+        db
+          .select({
+            id: organizationInvitations.id,
+            email: organizationInvitations.email,
+            role: organizationInvitations.role,
+            expiresAt: organizationInvitations.expiresAt,
+            lastSentAt: organizationInvitations.lastSentAt,
+            sendCount: organizationInvitations.sendCount,
+            createdAt: organizationInvitations.createdAt,
+          })
+          .from(organizationInvitations)
+          .where(
+            and(
+              eq(organizationInvitations.organizationId, organizationId),
+              sql`${organizationInvitations.acceptedAt} is null`,
+              sql`${organizationInvitations.revokedAt} is null`,
+            ),
+          )
+          .orderBy(desc(organizationInvitations.createdAt)),
         db
           .select()
           .from(organizationSettings)
@@ -68,6 +88,13 @@ router.get(
           ...member,
           joinedAt: member.joinedAt.toISOString(),
         })),
+        invitations: invitations.map((invitation) => ({
+          ...invitation,
+          expiresAt: invitation.expiresAt.toISOString(),
+          lastSentAt: invitation.lastSentAt?.toISOString() ?? null,
+          createdAt: invitation.createdAt.toISOString(),
+          status: invitation.expiresAt > new Date() ? "pending" : "expired",
+        })),
         integrations: {
           ai: {
             configured: Boolean(process.env.GEMINI_API_KEY),
@@ -79,7 +106,10 @@ router.get(
             ),
           },
           email: {
-            configured: Boolean(process.env.SENDGRID_API_KEY),
+            configured: Boolean(
+              process.env.SENDGRID_API_KEY
+              && process.env.SENDGRID_FROM_EMAIL,
+            ),
           },
         },
         security: {

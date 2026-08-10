@@ -30,8 +30,12 @@ import type {
 } from "@tanstack/react-query";
 
 import type {
+  AcceptInvitationRequest,
+  AcceptInvitationResponse,
+  AccountTokenRequest,
   Assignment,
   AuthSession,
+  BadGatewayResponse,
   BadRequestResponse,
   CarrierDeactivationResponse,
   CarrierOption,
@@ -41,6 +45,7 @@ import type {
   CarrierVersionHistory,
   CarrierVersionMutationResponse,
   CarrierVersionResponse,
+  ChangePasswordRequest,
   Claim,
   ClaimActivityPage,
   ClaimAssigneesResponse,
@@ -49,6 +54,7 @@ import type {
   ConflictResponse,
   CreateClaimRequest,
   CreateDocumentRequest,
+  CreateInvitationRequest,
   CreateSavedViewRequest,
   CreatedDocument,
   Dashboard,
@@ -56,12 +62,16 @@ import type {
   EnqueueJobResponse,
   FindingReview,
   ForbiddenResponse,
+  ForgotPasswordRequest,
   GetClaimsQueueParams,
+  GoneResponse,
   HealthStatus,
   IngestRequest,
   IngestResponse,
   Insights,
+  InspectPasswordReset200,
   InternalServerErrorResponse,
+  InvitationPreview,
   LegacySignedUrl,
   ListClaimActivityParams,
   ListClaimProcessingJobsParams,
@@ -69,10 +79,14 @@ import type {
   ListSavedViewsParams,
   LoginRequest,
   LoginResponse,
+  MessageResponse,
   NotFoundResponse,
+  OrganizationInvitation,
+  OrganizationInvitationDelivery,
   OrganizationMemberRole,
   OrganizationSettings,
   OrganizationSettingsInput,
+  PasswordResetDelivery,
   PayloadTooLargeResponse,
   ProcessingJobDetail,
   ProcessingJobEnvelope,
@@ -81,11 +95,13 @@ import type {
   PromptSettings,
   ReprocessClaimRequest,
   RequestMetrics,
+  ResetPasswordRequest,
   ResetPromptSettingsResponse,
   ReviewStatus,
   SavedView,
   SavedViewPage,
   SendEmailRequest,
+  ServiceUnavailableResponse,
   SettingsOverview,
   SignedUrl,
   Success,
@@ -562,6 +578,555 @@ export const useLogout = <
   TContext
 > => {
   return useMutation(getLogoutMutationOptions(options));
+};
+
+/**
+ * Always returns the same accepted response to prevent account enumeration.
+ * @summary Request a password reset link
+ */
+export const getRequestPasswordResetUrl = () => {
+  return `/api/auth/password/forgot`;
+};
+
+export const requestPasswordReset = async (
+  forgotPasswordRequest: ForgotPasswordRequest,
+  options?: RequestInit,
+): Promise<MessageResponse> => {
+  return customFetch<MessageResponse>(getRequestPasswordResetUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(forgotPasswordRequest),
+  });
+};
+
+export const getRequestPasswordResetMutationOptions = <
+  TError = ErrorType<TooManyRequestsResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof requestPasswordReset>>,
+    TError,
+    { data: BodyType<ForgotPasswordRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof requestPasswordReset>>,
+  TError,
+  { data: BodyType<ForgotPasswordRequest> },
+  TContext
+> => {
+  const mutationKey = ["requestPasswordReset"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof requestPasswordReset>>,
+    { data: BodyType<ForgotPasswordRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return requestPasswordReset(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RequestPasswordResetMutationResult = NonNullable<
+  Awaited<ReturnType<typeof requestPasswordReset>>
+>;
+export type RequestPasswordResetMutationBody = BodyType<ForgotPasswordRequest>;
+export type RequestPasswordResetMutationError =
+  ErrorType<TooManyRequestsResponse>;
+
+/**
+ * @summary Request a password reset link
+ */
+export const useRequestPasswordReset = <
+  TError = ErrorType<TooManyRequestsResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof requestPasswordReset>>,
+    TError,
+    { data: BodyType<ForgotPasswordRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof requestPasswordReset>>,
+  TError,
+  { data: BodyType<ForgotPasswordRequest> },
+  TContext
+> => {
+  return useMutation(getRequestPasswordResetMutationOptions(options));
+};
+
+/**
+ * @summary Validate a password reset token
+ */
+export const getInspectPasswordResetUrl = () => {
+  return `/api/auth/password/reset/inspect`;
+};
+
+export const inspectPasswordReset = async (
+  accountTokenRequest: AccountTokenRequest,
+  options?: RequestInit,
+): Promise<InspectPasswordReset200> => {
+  return customFetch<InspectPasswordReset200>(getInspectPasswordResetUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(accountTokenRequest),
+  });
+};
+
+export const getInspectPasswordResetMutationOptions = <
+  TError = ErrorType<GoneResponse | TooManyRequestsResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof inspectPasswordReset>>,
+    TError,
+    { data: BodyType<AccountTokenRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof inspectPasswordReset>>,
+  TError,
+  { data: BodyType<AccountTokenRequest> },
+  TContext
+> => {
+  const mutationKey = ["inspectPasswordReset"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof inspectPasswordReset>>,
+    { data: BodyType<AccountTokenRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return inspectPasswordReset(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type InspectPasswordResetMutationResult = NonNullable<
+  Awaited<ReturnType<typeof inspectPasswordReset>>
+>;
+export type InspectPasswordResetMutationBody = BodyType<AccountTokenRequest>;
+export type InspectPasswordResetMutationError = ErrorType<
+  GoneResponse | TooManyRequestsResponse
+>;
+
+/**
+ * @summary Validate a password reset token
+ */
+export const useInspectPasswordReset = <
+  TError = ErrorType<GoneResponse | TooManyRequestsResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof inspectPasswordReset>>,
+    TError,
+    { data: BodyType<AccountTokenRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof inspectPasswordReset>>,
+  TError,
+  { data: BodyType<AccountTokenRequest> },
+  TContext
+> => {
+  return useMutation(getInspectPasswordResetMutationOptions(options));
+};
+
+/**
+ * Replaces the password and revokes every active session for the account.
+ * @summary Consume a password reset token
+ */
+export const getResetPasswordUrl = () => {
+  return `/api/auth/password/reset`;
+};
+
+export const resetPassword = async (
+  resetPasswordRequest: ResetPasswordRequest,
+  options?: RequestInit,
+): Promise<Success> => {
+  return customFetch<Success>(getResetPasswordUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(resetPasswordRequest),
+  });
+};
+
+export const getResetPasswordMutationOptions = <
+  TError = ErrorType<
+    BadRequestResponse | GoneResponse | TooManyRequestsResponse
+  >,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof resetPassword>>,
+    TError,
+    { data: BodyType<ResetPasswordRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof resetPassword>>,
+  TError,
+  { data: BodyType<ResetPasswordRequest> },
+  TContext
+> => {
+  const mutationKey = ["resetPassword"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof resetPassword>>,
+    { data: BodyType<ResetPasswordRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return resetPassword(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ResetPasswordMutationResult = NonNullable<
+  Awaited<ReturnType<typeof resetPassword>>
+>;
+export type ResetPasswordMutationBody = BodyType<ResetPasswordRequest>;
+export type ResetPasswordMutationError = ErrorType<
+  BadRequestResponse | GoneResponse | TooManyRequestsResponse
+>;
+
+/**
+ * @summary Consume a password reset token
+ */
+export const useResetPassword = <
+  TError = ErrorType<
+    BadRequestResponse | GoneResponse | TooManyRequestsResponse
+  >,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof resetPassword>>,
+    TError,
+    { data: BodyType<ResetPasswordRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof resetPassword>>,
+  TError,
+  { data: BodyType<ResetPasswordRequest> },
+  TContext
+> => {
+  return useMutation(getResetPasswordMutationOptions(options));
+};
+
+/**
+ * Verifies the current password and revokes every active session.
+ * @summary Change the signed-in user's password
+ */
+export const getChangePasswordUrl = () => {
+  return `/api/auth/password/change`;
+};
+
+export const changePassword = async (
+  changePasswordRequest: ChangePasswordRequest,
+  options?: RequestInit,
+): Promise<Success> => {
+  return customFetch<Success>(getChangePasswordUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(changePasswordRequest),
+  });
+};
+
+export const getChangePasswordMutationOptions = <
+  TError = ErrorType<
+    BadRequestResponse | UnauthorizedResponse | TooManyRequestsResponse
+  >,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof changePassword>>,
+    TError,
+    { data: BodyType<ChangePasswordRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof changePassword>>,
+  TError,
+  { data: BodyType<ChangePasswordRequest> },
+  TContext
+> => {
+  const mutationKey = ["changePassword"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof changePassword>>,
+    { data: BodyType<ChangePasswordRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return changePassword(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ChangePasswordMutationResult = NonNullable<
+  Awaited<ReturnType<typeof changePassword>>
+>;
+export type ChangePasswordMutationBody = BodyType<ChangePasswordRequest>;
+export type ChangePasswordMutationError = ErrorType<
+  BadRequestResponse | UnauthorizedResponse | TooManyRequestsResponse
+>;
+
+/**
+ * @summary Change the signed-in user's password
+ */
+export const useChangePassword = <
+  TError = ErrorType<
+    BadRequestResponse | UnauthorizedResponse | TooManyRequestsResponse
+  >,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof changePassword>>,
+    TError,
+    { data: BodyType<ChangePasswordRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof changePassword>>,
+  TError,
+  { data: BodyType<ChangePasswordRequest> },
+  TContext
+> => {
+  return useMutation(getChangePasswordMutationOptions(options));
+};
+
+/**
+ * @summary Validate and describe an organization invitation
+ */
+export const getInspectInvitationUrl = () => {
+  return `/api/auth/invitations/inspect`;
+};
+
+export const inspectInvitation = async (
+  accountTokenRequest: AccountTokenRequest,
+  options?: RequestInit,
+): Promise<InvitationPreview> => {
+  return customFetch<InvitationPreview>(getInspectInvitationUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(accountTokenRequest),
+  });
+};
+
+export const getInspectInvitationMutationOptions = <
+  TError = ErrorType<GoneResponse | TooManyRequestsResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof inspectInvitation>>,
+    TError,
+    { data: BodyType<AccountTokenRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof inspectInvitation>>,
+  TError,
+  { data: BodyType<AccountTokenRequest> },
+  TContext
+> => {
+  const mutationKey = ["inspectInvitation"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof inspectInvitation>>,
+    { data: BodyType<AccountTokenRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return inspectInvitation(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type InspectInvitationMutationResult = NonNullable<
+  Awaited<ReturnType<typeof inspectInvitation>>
+>;
+export type InspectInvitationMutationBody = BodyType<AccountTokenRequest>;
+export type InspectInvitationMutationError = ErrorType<
+  GoneResponse | TooManyRequestsResponse
+>;
+
+/**
+ * @summary Validate and describe an organization invitation
+ */
+export const useInspectInvitation = <
+  TError = ErrorType<GoneResponse | TooManyRequestsResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof inspectInvitation>>,
+    TError,
+    { data: BodyType<AccountTokenRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof inspectInvitation>>,
+  TError,
+  { data: BodyType<AccountTokenRequest> },
+  TContext
+> => {
+  return useMutation(getInspectInvitationMutationOptions(options));
+};
+
+/**
+ * Creates a new account when needed or verifies the password of an existing account.
+ * @summary Accept an organization invitation
+ */
+export const getAcceptInvitationUrl = () => {
+  return `/api/auth/invitations/accept`;
+};
+
+export const acceptInvitation = async (
+  acceptInvitationRequest: AcceptInvitationRequest,
+  options?: RequestInit,
+): Promise<AcceptInvitationResponse> => {
+  return customFetch<AcceptInvitationResponse>(getAcceptInvitationUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(acceptInvitationRequest),
+  });
+};
+
+export const getAcceptInvitationMutationOptions = <
+  TError = ErrorType<
+    | BadRequestResponse
+    | ConflictResponse
+    | GoneResponse
+    | TooManyRequestsResponse
+  >,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof acceptInvitation>>,
+    TError,
+    { data: BodyType<AcceptInvitationRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof acceptInvitation>>,
+  TError,
+  { data: BodyType<AcceptInvitationRequest> },
+  TContext
+> => {
+  const mutationKey = ["acceptInvitation"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof acceptInvitation>>,
+    { data: BodyType<AcceptInvitationRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return acceptInvitation(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type AcceptInvitationMutationResult = NonNullable<
+  Awaited<ReturnType<typeof acceptInvitation>>
+>;
+export type AcceptInvitationMutationBody = BodyType<AcceptInvitationRequest>;
+export type AcceptInvitationMutationError = ErrorType<
+  BadRequestResponse | ConflictResponse | GoneResponse | TooManyRequestsResponse
+>;
+
+/**
+ * @summary Accept an organization invitation
+ */
+export const useAcceptInvitation = <
+  TError = ErrorType<
+    | BadRequestResponse
+    | ConflictResponse
+    | GoneResponse
+    | TooManyRequestsResponse
+  >,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof acceptInvitation>>,
+    TError,
+    { data: BodyType<AcceptInvitationRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof acceptInvitation>>,
+  TError,
+  { data: BodyType<AcceptInvitationRequest> },
+  TContext
+> => {
+  return useMutation(getAcceptInvitationMutationOptions(options));
 };
 
 /**
@@ -5417,6 +5982,419 @@ export const useUpdateOrganizationMemberRole = <
   TContext
 > => {
   return useMutation(getUpdateOrganizationMemberRoleMutationOptions(options));
+};
+
+/**
+ * Requires `settings:manage`; privileged role invitations require an owner.
+ * @summary Send an organization invitation
+ */
+export const getInviteOrganizationMemberUrl = () => {
+  return `/api/settings/invitations`;
+};
+
+export const inviteOrganizationMember = async (
+  createInvitationRequest: CreateInvitationRequest,
+  options?: RequestInit,
+): Promise<OrganizationInvitation> => {
+  return customFetch<OrganizationInvitation>(getInviteOrganizationMemberUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(createInvitationRequest),
+  });
+};
+
+export const getInviteOrganizationMemberMutationOptions = <
+  TError = ErrorType<
+    | BadRequestResponse
+    | UnauthorizedResponse
+    | ForbiddenResponse
+    | ConflictResponse
+    | BadGatewayResponse
+    | ServiceUnavailableResponse
+  >,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof inviteOrganizationMember>>,
+    TError,
+    { data: BodyType<CreateInvitationRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof inviteOrganizationMember>>,
+  TError,
+  { data: BodyType<CreateInvitationRequest> },
+  TContext
+> => {
+  const mutationKey = ["inviteOrganizationMember"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof inviteOrganizationMember>>,
+    { data: BodyType<CreateInvitationRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return inviteOrganizationMember(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type InviteOrganizationMemberMutationResult = NonNullable<
+  Awaited<ReturnType<typeof inviteOrganizationMember>>
+>;
+export type InviteOrganizationMemberMutationBody =
+  BodyType<CreateInvitationRequest>;
+export type InviteOrganizationMemberMutationError = ErrorType<
+  | BadRequestResponse
+  | UnauthorizedResponse
+  | ForbiddenResponse
+  | ConflictResponse
+  | BadGatewayResponse
+  | ServiceUnavailableResponse
+>;
+
+/**
+ * @summary Send an organization invitation
+ */
+export const useInviteOrganizationMember = <
+  TError = ErrorType<
+    | BadRequestResponse
+    | UnauthorizedResponse
+    | ForbiddenResponse
+    | ConflictResponse
+    | BadGatewayResponse
+    | ServiceUnavailableResponse
+  >,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof inviteOrganizationMember>>,
+    TError,
+    { data: BodyType<CreateInvitationRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof inviteOrganizationMember>>,
+  TError,
+  { data: BodyType<CreateInvitationRequest> },
+  TContext
+> => {
+  return useMutation(getInviteOrganizationMemberMutationOptions(options));
+};
+
+/**
+ * @summary Revoke a pending organization invitation
+ */
+export const getRevokeOrganizationInvitationUrl = (invitationId: string) => {
+  return `/api/settings/invitations/${invitationId}`;
+};
+
+export const revokeOrganizationInvitation = async (
+  invitationId: string,
+  options?: RequestInit,
+): Promise<void> => {
+  return customFetch<void>(getRevokeOrganizationInvitationUrl(invitationId), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getRevokeOrganizationInvitationMutationOptions = <
+  TError = ErrorType<
+    UnauthorizedResponse | ForbiddenResponse | NotFoundResponse
+  >,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof revokeOrganizationInvitation>>,
+    TError,
+    { invitationId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof revokeOrganizationInvitation>>,
+  TError,
+  { invitationId: string },
+  TContext
+> => {
+  const mutationKey = ["revokeOrganizationInvitation"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof revokeOrganizationInvitation>>,
+    { invitationId: string }
+  > = (props) => {
+    const { invitationId } = props ?? {};
+
+    return revokeOrganizationInvitation(invitationId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RevokeOrganizationInvitationMutationResult = NonNullable<
+  Awaited<ReturnType<typeof revokeOrganizationInvitation>>
+>;
+
+export type RevokeOrganizationInvitationMutationError = ErrorType<
+  UnauthorizedResponse | ForbiddenResponse | NotFoundResponse
+>;
+
+/**
+ * @summary Revoke a pending organization invitation
+ */
+export const useRevokeOrganizationInvitation = <
+  TError = ErrorType<
+    UnauthorizedResponse | ForbiddenResponse | NotFoundResponse
+  >,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof revokeOrganizationInvitation>>,
+    TError,
+    { invitationId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof revokeOrganizationInvitation>>,
+  TError,
+  { invitationId: string },
+  TContext
+> => {
+  return useMutation(getRevokeOrganizationInvitationMutationOptions(options));
+};
+
+/**
+ * @summary Rotate and resend a pending invitation
+ */
+export const getResendOrganizationInvitationUrl = (invitationId: string) => {
+  return `/api/settings/invitations/${invitationId}/resend`;
+};
+
+export const resendOrganizationInvitation = async (
+  invitationId: string,
+  options?: RequestInit,
+): Promise<OrganizationInvitationDelivery> => {
+  return customFetch<OrganizationInvitationDelivery>(
+    getResendOrganizationInvitationUrl(invitationId),
+    {
+      ...options,
+      method: "POST",
+    },
+  );
+};
+
+export const getResendOrganizationInvitationMutationOptions = <
+  TError = ErrorType<
+    | UnauthorizedResponse
+    | ForbiddenResponse
+    | NotFoundResponse
+    | ConflictResponse
+    | BadGatewayResponse
+  >,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof resendOrganizationInvitation>>,
+    TError,
+    { invitationId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof resendOrganizationInvitation>>,
+  TError,
+  { invitationId: string },
+  TContext
+> => {
+  const mutationKey = ["resendOrganizationInvitation"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof resendOrganizationInvitation>>,
+    { invitationId: string }
+  > = (props) => {
+    const { invitationId } = props ?? {};
+
+    return resendOrganizationInvitation(invitationId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ResendOrganizationInvitationMutationResult = NonNullable<
+  Awaited<ReturnType<typeof resendOrganizationInvitation>>
+>;
+
+export type ResendOrganizationInvitationMutationError = ErrorType<
+  | UnauthorizedResponse
+  | ForbiddenResponse
+  | NotFoundResponse
+  | ConflictResponse
+  | BadGatewayResponse
+>;
+
+/**
+ * @summary Rotate and resend a pending invitation
+ */
+export const useResendOrganizationInvitation = <
+  TError = ErrorType<
+    | UnauthorizedResponse
+    | ForbiddenResponse
+    | NotFoundResponse
+    | ConflictResponse
+    | BadGatewayResponse
+  >,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof resendOrganizationInvitation>>,
+    TError,
+    { invitationId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof resendOrganizationInvitation>>,
+  TError,
+  { invitationId: string },
+  TContext
+> => {
+  return useMutation(getResendOrganizationInvitationMutationOptions(options));
+};
+
+/**
+ * @summary Send a member a password reset link
+ */
+export const getSendOrganizationMemberPasswordResetUrl = (
+  membershipId: string,
+) => {
+  return `/api/settings/members/${membershipId}/password-reset`;
+};
+
+export const sendOrganizationMemberPasswordReset = async (
+  membershipId: string,
+  options?: RequestInit,
+): Promise<PasswordResetDelivery> => {
+  return customFetch<PasswordResetDelivery>(
+    getSendOrganizationMemberPasswordResetUrl(membershipId),
+    {
+      ...options,
+      method: "POST",
+    },
+  );
+};
+
+export const getSendOrganizationMemberPasswordResetMutationOptions = <
+  TError = ErrorType<
+    | UnauthorizedResponse
+    | ForbiddenResponse
+    | NotFoundResponse
+    | BadGatewayResponse
+    | ServiceUnavailableResponse
+  >,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof sendOrganizationMemberPasswordReset>>,
+    TError,
+    { membershipId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof sendOrganizationMemberPasswordReset>>,
+  TError,
+  { membershipId: string },
+  TContext
+> => {
+  const mutationKey = ["sendOrganizationMemberPasswordReset"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof sendOrganizationMemberPasswordReset>>,
+    { membershipId: string }
+  > = (props) => {
+    const { membershipId } = props ?? {};
+
+    return sendOrganizationMemberPasswordReset(membershipId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SendOrganizationMemberPasswordResetMutationResult = NonNullable<
+  Awaited<ReturnType<typeof sendOrganizationMemberPasswordReset>>
+>;
+
+export type SendOrganizationMemberPasswordResetMutationError = ErrorType<
+  | UnauthorizedResponse
+  | ForbiddenResponse
+  | NotFoundResponse
+  | BadGatewayResponse
+  | ServiceUnavailableResponse
+>;
+
+/**
+ * @summary Send a member a password reset link
+ */
+export const useSendOrganizationMemberPasswordReset = <
+  TError = ErrorType<
+    | UnauthorizedResponse
+    | ForbiddenResponse
+    | NotFoundResponse
+    | BadGatewayResponse
+    | ServiceUnavailableResponse
+  >,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof sendOrganizationMemberPasswordReset>>,
+    TError,
+    { membershipId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof sendOrganizationMemberPasswordReset>>,
+  TError,
+  { membershipId: string },
+  TContext
+> => {
+  return useMutation(
+    getSendOrganizationMemberPasswordResetMutationOptions(options),
+  );
 };
 
 /**

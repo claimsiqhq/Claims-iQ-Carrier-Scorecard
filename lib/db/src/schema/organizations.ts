@@ -84,6 +84,80 @@ export const organizationMemberships = pgTable(
   ],
 );
 
+export const organizationInvitations = pgTable(
+  "organization_invitations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    email: text("email").notNull(),
+    role: organizationRoleEnum("role").notNull().default("viewer"),
+    tokenHash: varchar("token_hash", { length: 64 }).notNull(),
+    invitedByUserId: varchar("invited_by_user_id").references(
+      () => usersTable.id,
+      { onDelete: "set null" },
+    ),
+    acceptedByUserId: varchar("accepted_by_user_id").references(
+      () => usersTable.id,
+      { onDelete: "set null" },
+    ),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    lastSentAt: timestamp("last_sent_at", { withTimezone: true }),
+    sendCount: integer("send_count").notNull().default(1),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    unique("uq_organization_invitations_token_hash").on(table.tokenHash),
+    uniqueIndex("uq_organization_invitations_pending_email")
+      .on(table.organizationId, table.email)
+      .where(sql`${table.acceptedAt} is null and ${table.revokedAt} is null`),
+    index("idx_organization_invitations_org_created").on(
+      table.organizationId,
+      table.createdAt,
+    ),
+  ],
+);
+
+export const passwordResetTokens = pgTable(
+  "password_reset_tokens",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: varchar("user_id")
+      .notNull()
+      .references(() => usersTable.id, { onDelete: "cascade" }),
+    tokenHash: varchar("token_hash", { length: 64 }).notNull(),
+    requestedByUserId: varchar("requested_by_user_id").references(
+      () => usersTable.id,
+      { onDelete: "set null" },
+    ),
+    requestedForOrganizationId: uuid("requested_for_organization_id").references(
+      () => organizations.id,
+      { onDelete: "set null" },
+    ),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique("uq_password_reset_tokens_token_hash").on(table.tokenHash),
+    uniqueIndex("uq_password_reset_tokens_active_user")
+      .on(table.userId)
+      .where(sql`${table.usedAt} is null and ${table.revokedAt} is null`),
+    index("idx_password_reset_tokens_user_created").on(
+      table.userId,
+      table.createdAt,
+    ),
+  ],
+);
+
 export const savedViews = pgTable(
   "saved_views",
   {
@@ -173,6 +247,8 @@ export const organizationSettings = pgTable("organization_settings", {
 export type Organization = typeof organizations.$inferSelect;
 export type OrganizationMembership = typeof organizationMemberships.$inferSelect;
 export type OrganizationRole = OrganizationMembership["role"];
+export type OrganizationInvitation = typeof organizationInvitations.$inferSelect;
+export type PasswordResetToken = typeof passwordResetTokens.$inferSelect;
 export type SavedView = typeof savedViews.$inferSelect;
 export type OrganizationAuditEvent = typeof organizationAuditEvents.$inferSelect;
 export type OrganizationSettings = typeof organizationSettings.$inferSelect;

@@ -20,6 +20,18 @@ export async function organizationContextMiddleware(
   res: Response,
   next: NextFunction,
 ) {
+  const organizationOptionalAuthPaths = [
+    "/api/auth/invitations/",
+    "/api/auth/password/forgot",
+    "/api/auth/password/reset",
+  ];
+  if (
+    organizationOptionalAuthPaths.some((path) => req.path.startsWith(path))
+  ) {
+    next();
+    return;
+  }
+
   if (!req.isAuthenticated()) {
     next();
     return;

@@ -29,6 +29,7 @@ export async function createSession(data: SessionData): Promise<string> {
     sid: storedSessionId(sessionToken),
     sess: data as unknown as Record<string, unknown>,
     expire: new Date(Date.now() + SESSION_TTL),
+    userId: data.user.id,
   });
   return sessionToken;
 }
@@ -82,6 +83,12 @@ export async function deleteSession(sessionToken: string): Promise<void> {
         sessionToken,
       ]),
     );
+}
+
+export async function revokeUserSessions(userId: string): Promise<void> {
+  await db
+    .delete(sessionsTable)
+    .where(eq(sessionsTable.userId, userId));
 }
 
 export async function clearSession(

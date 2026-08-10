@@ -83,7 +83,9 @@ BEGIN
         'carrier_ruleset_versions',
         'organizations',
         'organization_audit_events',
+        'organization_invitations',
         'organization_settings',
+        'password_reset_tokens',
         'prompt_settings',
         'processing_jobs'
       )
@@ -95,8 +97,19 @@ BEGIN
   IF has_table_privilege('anon', 'public.claims', 'SELECT')
      OR has_table_privilege('authenticated', 'public.claims', 'SELECT')
      OR has_table_privilege('anon', 'public.prompt_settings', 'SELECT')
-     OR has_table_privilege('authenticated', 'public.prompt_settings', 'SELECT') THEN
+     OR has_table_privilege('authenticated', 'public.prompt_settings', 'SELECT')
+     OR has_table_privilege('anon', 'public.organization_invitations', 'SELECT')
+     OR has_table_privilege('authenticated', 'public.organization_invitations', 'SELECT')
+     OR has_table_privilege('anon', 'public.password_reset_tokens', 'SELECT')
+     OR has_table_privilege('authenticated', 'public.password_reset_tokens', 'SELECT') THEN
     RAISE EXCEPTION 'Data API privileges were not revoked';
+  END IF;
+
+  IF to_regclass('public.uq_users_email_normalized') IS NULL
+     OR to_regclass('public.idx_sessions_user_id') IS NULL
+     OR to_regclass('public.uq_organization_invitations_pending_email') IS NULL
+     OR to_regclass('public.uq_password_reset_tokens_active_user') IS NULL THEN
+    RAISE EXCEPTION 'secure account administration indexes are missing';
   END IF;
 
   IF EXISTS (

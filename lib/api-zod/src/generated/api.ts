@@ -162,6 +162,132 @@ export const LogoutResponse = zod.object({
 });
 
 /**
+ * Always returns the same accepted response to prevent account enumeration.
+ * @summary Request a password reset link
+ */
+export const RequestPasswordResetBody = zod.object({
+  email: zod.string().email(),
+});
+
+/**
+ * @summary Validate a password reset token
+ */
+export const inspectPasswordResetBodyTokenMin = 40;
+export const inspectPasswordResetBodyTokenMax = 60;
+
+export const InspectPasswordResetBody = zod.object({
+  token: zod
+    .string()
+    .min(inspectPasswordResetBodyTokenMin)
+    .max(inspectPasswordResetBodyTokenMax),
+});
+
+export const InspectPasswordResetResponse = zod.object({
+  valid: zod.literal(true),
+});
+
+/**
+ * Replaces the password and revokes every active session for the account.
+ * @summary Consume a password reset token
+ */
+export const resetPasswordBodyTokenMin = 40;
+export const resetPasswordBodyTokenMax = 60;
+
+export const resetPasswordBodyPasswordMin = 12;
+export const resetPasswordBodyPasswordMax = 72;
+
+export const ResetPasswordBody = zod.object({
+  token: zod
+    .string()
+    .min(resetPasswordBodyTokenMin)
+    .max(resetPasswordBodyTokenMax),
+  password: zod
+    .string()
+    .min(resetPasswordBodyPasswordMin)
+    .max(resetPasswordBodyPasswordMax),
+});
+
+export const ResetPasswordResponse = zod.object({
+  success: zod.boolean(),
+  message: zod.string().optional(),
+});
+
+/**
+ * Verifies the current password and revokes every active session.
+ * @summary Change the signed-in user's password
+ */
+
+export const changePasswordBodyNewPasswordMin = 12;
+export const changePasswordBodyNewPasswordMax = 72;
+
+export const ChangePasswordBody = zod.object({
+  currentPassword: zod.string().min(1),
+  newPassword: zod
+    .string()
+    .min(changePasswordBodyNewPasswordMin)
+    .max(changePasswordBodyNewPasswordMax),
+});
+
+export const ChangePasswordResponse = zod.object({
+  success: zod.boolean(),
+  message: zod.string().optional(),
+});
+
+/**
+ * @summary Validate and describe an organization invitation
+ */
+export const inspectInvitationBodyTokenMin = 40;
+export const inspectInvitationBodyTokenMax = 60;
+
+export const InspectInvitationBody = zod.object({
+  token: zod
+    .string()
+    .min(inspectInvitationBodyTokenMin)
+    .max(inspectInvitationBodyTokenMax),
+});
+
+export const InspectInvitationResponse = zod.object({
+  email: zod.string().email(),
+  role: zod.enum(["owner", "admin", "auditor", "reviewer", "member", "viewer"]),
+  organizationName: zod.string(),
+  expiresAt: zod.string().datetime({}),
+  accountExists: zod.boolean(),
+});
+
+/**
+ * Creates a new account when needed or verifies the password of an existing account.
+ * @summary Accept an organization invitation
+ */
+export const acceptInvitationBodyTokenMin = 40;
+export const acceptInvitationBodyTokenMax = 60;
+
+export const acceptInvitationBodyPasswordMax = 72;
+
+export const acceptInvitationBodyFirstNameMax = 80;
+
+export const acceptInvitationBodyLastNameMax = 80;
+
+export const AcceptInvitationBody = zod.object({
+  token: zod
+    .string()
+    .min(acceptInvitationBodyTokenMin)
+    .max(acceptInvitationBodyTokenMax),
+  password: zod.string().min(1).max(acceptInvitationBodyPasswordMax),
+  firstName: zod.string().max(acceptInvitationBodyFirstNameMax).optional(),
+  lastName: zod.string().max(acceptInvitationBodyLastNameMax).optional(),
+});
+
+export const AcceptInvitationResponse = zod.object({
+  success: zod.boolean(),
+  user: zod.object({
+    id: zod.string(),
+    email: zod.string().email(),
+    firstName: zod.string().nullable(),
+    lastName: zod.string().nullable(),
+  }),
+});
+
+/**
  * Requires the `claims:read` organization permission.
  * @summary Get dashboard aggregates
  */
@@ -3599,6 +3725,25 @@ export const GetSettingsOverviewResponse = zod.object({
       joinedAt: zod.string().datetime({}),
     }),
   ),
+  invitations: zod.array(
+    zod.object({
+      id: zod.string().uuid(),
+      email: zod.string().email(),
+      role: zod.enum([
+        "owner",
+        "admin",
+        "auditor",
+        "reviewer",
+        "member",
+        "viewer",
+      ]),
+      status: zod.enum(["pending", "expired"]),
+      expiresAt: zod.string().datetime({}),
+      lastSentAt: zod.string().datetime({}).nullable(),
+      sendCount: zod.number().min(1).optional(),
+      createdAt: zod.string().datetime({}).optional(),
+    }),
+  ),
   integrations: zod.object({
     ai: zod.object({
       configured: zod.boolean(),
@@ -3700,6 +3845,85 @@ export const UpdateOrganizationMemberRoleResponse = zod.object({
   membershipId: zod.string().uuid(),
   userId: zod.string(),
   role: zod.enum(["owner", "admin", "auditor", "reviewer", "member", "viewer"]),
+});
+
+/**
+ * Requires `settings:manage`; privileged role invitations require an owner.
+ * @summary Send an organization invitation
+ */
+export const InviteOrganizationMemberHeader = zod.object({
+  "X-Organization-Id": zod
+    .string()
+    .uuid()
+    .optional()
+    .describe(
+      "Organization membership to use for this request. Omit to use the\ncaller's default membership. An inaccessible value returns `403`.\n",
+    ),
+});
+
+export const inviteOrganizationMemberBodyEmailMax = 254;
+
+export const InviteOrganizationMemberBody = zod.object({
+  email: zod.string().email().max(inviteOrganizationMemberBodyEmailMax),
+  role: zod.enum(["owner", "admin", "auditor", "reviewer", "member", "viewer"]),
+});
+
+/**
+ * @summary Revoke a pending organization invitation
+ */
+export const RevokeOrganizationInvitationParams = zod.object({
+  invitationId: zod.coerce.string().uuid(),
+});
+
+export const RevokeOrganizationInvitationHeader = zod.object({
+  "X-Organization-Id": zod
+    .string()
+    .uuid()
+    .optional()
+    .describe(
+      "Organization membership to use for this request. Omit to use the\ncaller's default membership. An inaccessible value returns `403`.\n",
+    ),
+});
+
+/**
+ * @summary Rotate and resend a pending invitation
+ */
+export const ResendOrganizationInvitationParams = zod.object({
+  invitationId: zod.coerce.string().uuid(),
+});
+
+export const ResendOrganizationInvitationHeader = zod.object({
+  "X-Organization-Id": zod
+    .string()
+    .uuid()
+    .optional()
+    .describe(
+      "Organization membership to use for this request. Omit to use the\ncaller's default membership. An inaccessible value returns `403`.\n",
+    ),
+});
+
+export const ResendOrganizationInvitationResponse = zod.object({
+  id: zod.string().uuid(),
+  status: zod.enum(["pending"]),
+  expiresAt: zod.string().datetime({}),
+  lastSentAt: zod.string().datetime({}),
+});
+
+/**
+ * @summary Send a member a password reset link
+ */
+export const SendOrganizationMemberPasswordResetParams = zod.object({
+  membershipId: zod.coerce.string().uuid(),
+});
+
+export const SendOrganizationMemberPasswordResetHeader = zod.object({
+  "X-Organization-Id": zod
+    .string()
+    .uuid()
+    .optional()
+    .describe(
+      "Organization membership to use for this request. Omit to use the\ncaller's default membership. An inaccessible value returns `403`.\n",
+    ),
 });
 
 /**
