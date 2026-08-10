@@ -16,6 +16,26 @@ import logger from "../lib/logger";
 
 const router: IRouter = Router();
 
+const numericClaimAmount = sql<number | null>`case
+  when nullif(
+    regexp_replace(${claims.totalClaimAmount}, '[^0-9.-]', '', 'g'),
+    ''
+  ) ~ '^-?[0-9]+([.][0-9]+)?$'
+  then nullif(
+    regexp_replace(${claims.totalClaimAmount}, '[^0-9.-]', '', 'g'),
+    ''
+  )::numeric
+  else null
+end`;
+
+function formatClaimAmount(value: string | null): string | null {
+  if (!value) return null;
+  const normalized = value.replace(/[^0-9.-]/g, "");
+  if (!/^-?[0-9]+([.][0-9]+)?$/.test(normalized)) return null;
+  const amount = Number(normalized);
+  return Number.isFinite(amount) ? amount.toFixed(2) : null;
+}
+
 router.get("/dashboard", requireAuth, requireOrganizationPermission("claims:read"), async (req, res) => {
   try {
     const [statsRow] = await db
@@ -41,7 +61,7 @@ router.get("/dashboard", requireAuth, requireOrganizationPermission("claims:read
           where ${claims.systemStatus} in ('uploaded', 'processing', 'error')
              or ${claims.humanReviewStatus} in ('unassigned', 'pending', 'in_review', 'changes_requested')
         )::int`,
-        dollarsAtRisk: sql<string>`coalesce(round(sum(${claims.totalClaimAmount}) filter (
+        dollarsAtRisk: sql<string>`coalesce(round(sum(${numericClaimAmount}) filter (
           where ${audits.riskLevel} = 'HIGH'
              or ${audits.approvalStatus} in ('REVIEW', 'NOT_READY')
         ), 2), 0)::text`,
@@ -198,9 +218,7 @@ router.get("/dashboard", requireAuth, requireOrganizationPermission("claims:read
       overallScore: c.overallScore ? Number(c.overallScore) : null,
       riskLevel: c.riskLevel ?? null,
       approvalStatus: c.approvalStatus ?? null,
-      totalClaimAmount: c.totalClaimAmount
-        ? Number(c.totalClaimAmount).toFixed(2)
-        : null,
+      totalClaimAmount: formatClaimAmount(c.totalClaimAmount),
       assigneeUserId: c.assigneeUserId ?? null,
       systemStatus: c.systemStatus,
       aiStatus: c.aiStatus,
@@ -251,7 +269,7 @@ router.get(
           name: sql<string>`coalesce(${claims.carrier}, 'Unknown')`,
           claimCount: sql<number>`count(*)::int`,
           averageScore: sql<number | null>`round(avg(${audits.overallScore}::numeric))::int`,
-          dollarsAtRisk: sql<string>`coalesce(round(sum(${claims.totalClaimAmount}) filter (
+          dollarsAtRisk: sql<string>`coalesce(round(sum(${numericClaimAmount}) filter (
             where ${audits.riskLevel} = 'HIGH'
                or ${audits.approvalStatus} in ('REVIEW', 'NOT_READY')
           ), 2), 0)::text`,

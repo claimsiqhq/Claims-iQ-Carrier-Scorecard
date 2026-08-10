@@ -49,7 +49,17 @@ app.use((req, res, next) => {
     && presentedOrigin
     && !isAllowedOrigin(req, presentedOrigin)
   ) {
-    logger.warn({ method: req.method }, "Blocked cross-origin state change");
+    const requestOrigin = `${req.protocol}://${req.get("host")}`.replace(/\/$/, "");
+    logger.warn(
+      {
+        method: req.method,
+        path: req.path,
+        presentedOrigin,
+        requestOrigin,
+        allowedOrigins: env.ALLOWED_ORIGINS,
+      },
+      "Blocked cross-origin state change",
+    );
     res.status(403).json({ error: "Forbidden: origin mismatch" });
     return;
   }
