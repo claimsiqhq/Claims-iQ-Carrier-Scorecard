@@ -118,6 +118,13 @@ router.post(
     const [row] = await db
       .select({ id: passwordResetTokens.id })
       .from(passwordResetTokens)
+      .innerJoin(
+        usersTable,
+        and(
+          eq(passwordResetTokens.userId, usersTable.id),
+          eq(passwordResetTokens.authVersion, usersTable.authVersion),
+        ),
+      )
       .where(
         and(
           eq(passwordResetTokens.tokenHash, hashAccountToken(token)),
@@ -152,8 +159,18 @@ router.post(
     try {
       const tokenHash = hashAccountToken(token);
       const [candidate] = await db
-        .select({ id: passwordResetTokens.id })
+        .select({
+          id: passwordResetTokens.id,
+          userId: passwordResetTokens.userId,
+        })
         .from(passwordResetTokens)
+        .innerJoin(
+          usersTable,
+          and(
+            eq(passwordResetTokens.userId, usersTable.id),
+            eq(passwordResetTokens.authVersion, usersTable.authVersion),
+          ),
+        )
         .where(
           and(
             eq(passwordResetTokens.tokenHash, tokenHash),
@@ -171,12 +188,26 @@ router.post(
       }
       const passwordHash = await hashPassword(password);
       await db.transaction(async (tx) => {
+        const [lockedUser] = await tx
+          .select({ authVersion: usersTable.authVersion })
+          .from(usersTable)
+          .where(eq(usersTable.id, candidate.userId))
+          .for("update")
+          .limit(1);
+        if (!lockedUser) {
+          throw new AccountActionError(
+            "This password reset link is invalid or expired",
+            410,
+          );
+        }
         const [resetToken] = await tx
           .select()
           .from(passwordResetTokens)
           .where(
             and(
               eq(passwordResetTokens.tokenHash, tokenHash),
+              eq(passwordResetTokens.userId, candidate.userId),
+              eq(passwordResetTokens.authVersion, lockedUser.authVersion),
               isNull(passwordResetTokens.usedAt),
               isNull(passwordResetTokens.revokedAt),
               gt(passwordResetTokens.expiresAt, new Date()),

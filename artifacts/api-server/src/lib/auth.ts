@@ -73,6 +73,7 @@ export async function getSession(sessionToken: string): Promise<SessionData | nu
   }
 
   return {
+    authVersion: currentUser.authVersion,
     user: {
       id: currentUser.id,
       email: currentUser.email,

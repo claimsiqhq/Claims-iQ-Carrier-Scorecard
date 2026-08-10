@@ -34,12 +34,18 @@ export async function issuePasswordReset(input: {
   );
 
   const issued = await db.transaction(async (tx) => {
-    await tx
-      .select({ id: usersTable.id })
+    const [lockedUser] = await tx
+      .select({
+        id: usersTable.id,
+        authVersion: usersTable.authVersion,
+      })
       .from(usersTable)
       .where(eq(usersTable.id, input.userId))
       .for("update")
       .limit(1);
+    if (!lockedUser) {
+      throw new Error("Cannot issue a password reset for an unknown user.");
+    }
     const [activeToken] = await tx
       .select()
       .from(passwordResetTokens)
@@ -61,6 +67,7 @@ export async function issuePasswordReset(input: {
         tokenId: null,
         previousToken: null,
         expiresAt: activeToken.expiresAt,
+        authVersion: lockedUser.authVersion,
       };
     }
 
@@ -82,12 +89,14 @@ export async function issuePasswordReset(input: {
         requestedByUserId: input.requestedByUserId,
         requestedForOrganizationId: input.organizationId,
         expiresAt,
+        authVersion: lockedUser.authVersion,
       })
       .returning({ id: passwordResetTokens.id });
     return {
       tokenId: created.id,
       previousToken: activeToken ?? null,
       expiresAt,
+      authVersion: lockedUser.authVersion,
     };
   });
 
@@ -103,12 +112,27 @@ export async function issuePasswordReset(input: {
     });
   } catch (error) {
     await db.transaction(async (tx) => {
-      await tx
+      const [lockedUser] = await tx
+        .select({ authVersion: usersTable.authVersion })
+        .from(usersTable)
+        .where(eq(usersTable.id, input.userId))
+        .for("update")
+        .limit(1);
+      const [revokedIssuedToken] = await tx
         .update(passwordResetTokens)
         .set({ revokedAt: new Date() })
-        .where(eq(passwordResetTokens.id, issued.tokenId!));
+        .where(
+          and(
+            eq(passwordResetTokens.id, issued.tokenId!),
+            isNull(passwordResetTokens.usedAt),
+            isNull(passwordResetTokens.revokedAt),
+          ),
+        )
+        .returning({ id: passwordResetTokens.id });
       if (
-        issued.previousToken
+        lockedUser?.authVersion === issued.authVersion
+        && revokedIssuedToken
+        && issued.previousToken
         && issued.previousToken.usedAt === null
         && issued.previousToken.expiresAt > new Date()
       ) {

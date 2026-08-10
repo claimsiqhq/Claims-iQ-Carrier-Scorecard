@@ -26,8 +26,8 @@ export interface ResetPasswordRequest {
    */
   token: string;
   /**
+   * Must not exceed bcrypt's 72-byte UTF-8 input limit.
    * @minLength 12
-   * @maxLength 72
    */
   password: string;
 }

@@ -136,6 +136,32 @@ BEGIN
     RAISE EXCEPTION 'credential versioning/session ownership migration failed';
   END IF;
 
+  IF NOT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'sessions'
+      AND column_name = 'auth_version'
+      AND is_nullable = 'NO'
+  ) OR NOT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'password_reset_tokens'
+      AND column_name = 'auth_version'
+      AND is_nullable = 'NO'
+  ) OR EXISTS (
+    SELECT 1
+    FROM sessions
+  ) OR EXISTS (
+    SELECT 1
+    FROM password_reset_tokens
+    WHERE used_at IS NULL
+      AND revoked_at IS NULL
+  ) THEN
+    RAISE EXCEPTION 'legacy credential revocation migration failed';
+  END IF;
+
   IF EXISTS (
     SELECT 1
     FROM prompt_settings

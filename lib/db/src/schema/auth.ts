@@ -33,7 +33,7 @@ export const sessionsTable = pgTable(
       .references(() => usersTable.id, {
         onDelete: "cascade",
       }),
-    authVersion: integer("auth_version"),
+    authVersion: integer("auth_version").notNull().default(0),
   },
   (table) => [
     index("IDX_session_expire").on(table.expire),

@@ -142,6 +142,7 @@ export const passwordResetTokens = pgTable(
       { onDelete: "set null" },
     ),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    authVersion: integer("auth_version").notNull().default(0),
     usedAt: timestamp("used_at", { withTimezone: true }),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

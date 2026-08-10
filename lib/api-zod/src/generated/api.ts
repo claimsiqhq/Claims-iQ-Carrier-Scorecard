@@ -194,7 +194,6 @@ export const resetPasswordBodyTokenMin = 40;
 export const resetPasswordBodyTokenMax = 60;
 
 export const resetPasswordBodyPasswordMin = 12;
-export const resetPasswordBodyPasswordMax = 72;
 
 export const ResetPasswordBody = zod.object({
   token: zod
@@ -204,7 +203,7 @@ export const ResetPasswordBody = zod.object({
   password: zod
     .string()
     .min(resetPasswordBodyPasswordMin)
-    .max(resetPasswordBodyPasswordMax),
+    .describe("Must not exceed bcrypt's 72-byte UTF-8 input limit."),
 });
 
 export const ResetPasswordResponse = zod.object({
@@ -218,14 +217,13 @@ export const ResetPasswordResponse = zod.object({
  */
 
 export const changePasswordBodyNewPasswordMin = 12;
-export const changePasswordBodyNewPasswordMax = 72;
 
 export const ChangePasswordBody = zod.object({
   currentPassword: zod.string().min(1),
   newPassword: zod
     .string()
     .min(changePasswordBodyNewPasswordMin)
-    .max(changePasswordBodyNewPasswordMax),
+    .describe("Must not exceed bcrypt's 72-byte UTF-8 input limit."),
 });
 
 export const ChangePasswordResponse = zod.object({
@@ -261,8 +259,6 @@ export const InspectInvitationResponse = zod.object({
 export const acceptInvitationBodyTokenMin = 40;
 export const acceptInvitationBodyTokenMax = 60;
 
-export const acceptInvitationBodyPasswordMax = 72;
-
 export const acceptInvitationBodyFirstNameMax = 80;
 
 export const acceptInvitationBodyLastNameMax = 80;
@@ -272,13 +268,19 @@ export const AcceptInvitationBody = zod.object({
     .string()
     .min(acceptInvitationBodyTokenMin)
     .max(acceptInvitationBodyTokenMax),
-  password: zod.string().min(1).max(acceptInvitationBodyPasswordMax),
+  password: zod
+    .string()
+    .min(1)
+    .describe(
+      "New-account passwords require 12 characters and all passwords must fit bcrypt's 72-byte UTF-8 limit.",
+    ),
   firstName: zod.string().max(acceptInvitationBodyFirstNameMax).optional(),
   lastName: zod.string().max(acceptInvitationBodyLastNameMax).optional(),
 });
 
 export const AcceptInvitationResponse = zod.object({
   success: zod.boolean(),
+  organizationId: zod.string().uuid(),
   user: zod.object({
     id: zod.string(),
     email: zod.string().email(),

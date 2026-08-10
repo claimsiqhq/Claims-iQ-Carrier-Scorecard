@@ -22,6 +22,7 @@ export async function organizationContextMiddleware(
 ) {
   const organizationOptionalAuthPaths = [
     "/api/auth/invitations/",
+    "/api/auth/logout",
     "/api/auth/password/change",
     "/api/auth/password/forgot",
     "/api/auth/password/reset",

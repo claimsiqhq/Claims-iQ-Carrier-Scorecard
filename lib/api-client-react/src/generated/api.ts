@@ -688,7 +688,9 @@ export const inspectPasswordReset = async (
 };
 
 export const getInspectPasswordResetMutationOptions = <
-  TError = ErrorType<GoneResponse | TooManyRequestsResponse>,
+  TError = ErrorType<
+    GoneResponse | TooManyRequestsResponse | InternalServerErrorResponse
+  >,
   TContext = unknown,
 >(options?: {
   mutation?: UseMutationOptions<
@@ -730,14 +732,16 @@ export type InspectPasswordResetMutationResult = NonNullable<
 >;
 export type InspectPasswordResetMutationBody = BodyType<AccountTokenRequest>;
 export type InspectPasswordResetMutationError = ErrorType<
-  GoneResponse | TooManyRequestsResponse
+  GoneResponse | TooManyRequestsResponse | InternalServerErrorResponse
 >;
 
 /**
  * @summary Validate a password reset token
  */
 export const useInspectPasswordReset = <
-  TError = ErrorType<GoneResponse | TooManyRequestsResponse>,
+  TError = ErrorType<
+    GoneResponse | TooManyRequestsResponse | InternalServerErrorResponse
+  >,
   TContext = unknown,
 >(options?: {
   mutation?: UseMutationOptions<
@@ -778,7 +782,10 @@ export const resetPassword = async (
 
 export const getResetPasswordMutationOptions = <
   TError = ErrorType<
-    BadRequestResponse | GoneResponse | TooManyRequestsResponse
+    | BadRequestResponse
+    | GoneResponse
+    | TooManyRequestsResponse
+    | InternalServerErrorResponse
   >,
   TContext = unknown,
 >(options?: {
@@ -821,7 +828,10 @@ export type ResetPasswordMutationResult = NonNullable<
 >;
 export type ResetPasswordMutationBody = BodyType<ResetPasswordRequest>;
 export type ResetPasswordMutationError = ErrorType<
-  BadRequestResponse | GoneResponse | TooManyRequestsResponse
+  | BadRequestResponse
+  | GoneResponse
+  | TooManyRequestsResponse
+  | InternalServerErrorResponse
 >;
 
 /**
@@ -829,7 +839,10 @@ export type ResetPasswordMutationError = ErrorType<
  */
 export const useResetPassword = <
   TError = ErrorType<
-    BadRequestResponse | GoneResponse | TooManyRequestsResponse
+    | BadRequestResponse
+    | GoneResponse
+    | TooManyRequestsResponse
+    | InternalServerErrorResponse
   >,
   TContext = unknown,
 >(options?: {
@@ -871,7 +884,10 @@ export const changePassword = async (
 
 export const getChangePasswordMutationOptions = <
   TError = ErrorType<
-    BadRequestResponse | UnauthorizedResponse | TooManyRequestsResponse
+    | BadRequestResponse
+    | UnauthorizedResponse
+    | TooManyRequestsResponse
+    | InternalServerErrorResponse
   >,
   TContext = unknown,
 >(options?: {
@@ -914,7 +930,10 @@ export type ChangePasswordMutationResult = NonNullable<
 >;
 export type ChangePasswordMutationBody = BodyType<ChangePasswordRequest>;
 export type ChangePasswordMutationError = ErrorType<
-  BadRequestResponse | UnauthorizedResponse | TooManyRequestsResponse
+  | BadRequestResponse
+  | UnauthorizedResponse
+  | TooManyRequestsResponse
+  | InternalServerErrorResponse
 >;
 
 /**
@@ -922,7 +941,10 @@ export type ChangePasswordMutationError = ErrorType<
  */
 export const useChangePassword = <
   TError = ErrorType<
-    BadRequestResponse | UnauthorizedResponse | TooManyRequestsResponse
+    | BadRequestResponse
+    | UnauthorizedResponse
+    | TooManyRequestsResponse
+    | InternalServerErrorResponse
   >,
   TContext = unknown,
 >(options?: {
@@ -962,7 +984,9 @@ export const inspectInvitation = async (
 };
 
 export const getInspectInvitationMutationOptions = <
-  TError = ErrorType<GoneResponse | TooManyRequestsResponse>,
+  TError = ErrorType<
+    GoneResponse | TooManyRequestsResponse | InternalServerErrorResponse
+  >,
   TContext = unknown,
 >(options?: {
   mutation?: UseMutationOptions<
@@ -1004,14 +1028,16 @@ export type InspectInvitationMutationResult = NonNullable<
 >;
 export type InspectInvitationMutationBody = BodyType<AccountTokenRequest>;
 export type InspectInvitationMutationError = ErrorType<
-  GoneResponse | TooManyRequestsResponse
+  GoneResponse | TooManyRequestsResponse | InternalServerErrorResponse
 >;
 
 /**
  * @summary Validate and describe an organization invitation
  */
 export const useInspectInvitation = <
-  TError = ErrorType<GoneResponse | TooManyRequestsResponse>,
+  TError = ErrorType<
+    GoneResponse | TooManyRequestsResponse | InternalServerErrorResponse
+  >,
   TContext = unknown,
 >(options?: {
   mutation?: UseMutationOptions<
@@ -1056,6 +1082,7 @@ export const getAcceptInvitationMutationOptions = <
     | ConflictResponse
     | GoneResponse
     | TooManyRequestsResponse
+    | InternalServerErrorResponse
   >,
   TContext = unknown,
 >(options?: {
@@ -1098,7 +1125,11 @@ export type AcceptInvitationMutationResult = NonNullable<
 >;
 export type AcceptInvitationMutationBody = BodyType<AcceptInvitationRequest>;
 export type AcceptInvitationMutationError = ErrorType<
-  BadRequestResponse | ConflictResponse | GoneResponse | TooManyRequestsResponse
+  | BadRequestResponse
+  | ConflictResponse
+  | GoneResponse
+  | TooManyRequestsResponse
+  | InternalServerErrorResponse
 >;
 
 /**
@@ -1110,6 +1141,7 @@ export const useAcceptInvitation = <
     | ConflictResponse
     | GoneResponse
     | TooManyRequestsResponse
+    | InternalServerErrorResponse
   >,
   TContext = unknown,
 >(options?: {
@@ -6010,6 +6042,8 @@ export const getInviteOrganizationMemberMutationOptions = <
     | UnauthorizedResponse
     | ForbiddenResponse
     | ConflictResponse
+    | TooManyRequestsResponse
+    | InternalServerErrorResponse
     | BadGatewayResponse
     | ServiceUnavailableResponse
   >,
@@ -6059,6 +6093,8 @@ export type InviteOrganizationMemberMutationError = ErrorType<
   | UnauthorizedResponse
   | ForbiddenResponse
   | ConflictResponse
+  | TooManyRequestsResponse
+  | InternalServerErrorResponse
   | BadGatewayResponse
   | ServiceUnavailableResponse
 >;
@@ -6072,6 +6108,8 @@ export const useInviteOrganizationMember = <
     | UnauthorizedResponse
     | ForbiddenResponse
     | ConflictResponse
+    | TooManyRequestsResponse
+    | InternalServerErrorResponse
     | BadGatewayResponse
     | ServiceUnavailableResponse
   >,
@@ -6112,7 +6150,11 @@ export const revokeOrganizationInvitation = async (
 
 export const getRevokeOrganizationInvitationMutationOptions = <
   TError = ErrorType<
-    UnauthorizedResponse | ForbiddenResponse | NotFoundResponse
+    | UnauthorizedResponse
+    | ForbiddenResponse
+    | NotFoundResponse
+    | TooManyRequestsResponse
+    | InternalServerErrorResponse
   >,
   TContext = unknown,
 >(options?: {
@@ -6155,7 +6197,11 @@ export type RevokeOrganizationInvitationMutationResult = NonNullable<
 >;
 
 export type RevokeOrganizationInvitationMutationError = ErrorType<
-  UnauthorizedResponse | ForbiddenResponse | NotFoundResponse
+  | UnauthorizedResponse
+  | ForbiddenResponse
+  | NotFoundResponse
+  | TooManyRequestsResponse
+  | InternalServerErrorResponse
 >;
 
 /**
@@ -6163,7 +6209,11 @@ export type RevokeOrganizationInvitationMutationError = ErrorType<
  */
 export const useRevokeOrganizationInvitation = <
   TError = ErrorType<
-    UnauthorizedResponse | ForbiddenResponse | NotFoundResponse
+    | UnauthorizedResponse
+    | ForbiddenResponse
+    | NotFoundResponse
+    | TooManyRequestsResponse
+    | InternalServerErrorResponse
   >,
   TContext = unknown,
 >(options?: {
@@ -6209,7 +6259,10 @@ export const getResendOrganizationInvitationMutationOptions = <
     | ForbiddenResponse
     | NotFoundResponse
     | ConflictResponse
+    | TooManyRequestsResponse
+    | InternalServerErrorResponse
     | BadGatewayResponse
+    | ServiceUnavailableResponse
   >,
   TContext = unknown,
 >(options?: {
@@ -6256,7 +6309,10 @@ export type ResendOrganizationInvitationMutationError = ErrorType<
   | ForbiddenResponse
   | NotFoundResponse
   | ConflictResponse
+  | TooManyRequestsResponse
+  | InternalServerErrorResponse
   | BadGatewayResponse
+  | ServiceUnavailableResponse
 >;
 
 /**
@@ -6268,7 +6324,10 @@ export const useResendOrganizationInvitation = <
     | ForbiddenResponse
     | NotFoundResponse
     | ConflictResponse
+    | TooManyRequestsResponse
+    | InternalServerErrorResponse
     | BadGatewayResponse
+    | ServiceUnavailableResponse
   >,
   TContext = unknown,
 >(options?: {
@@ -6315,6 +6374,8 @@ export const getSendOrganizationMemberPasswordResetMutationOptions = <
     | UnauthorizedResponse
     | ForbiddenResponse
     | NotFoundResponse
+    | TooManyRequestsResponse
+    | InternalServerErrorResponse
     | BadGatewayResponse
     | ServiceUnavailableResponse
   >,
@@ -6362,6 +6423,8 @@ export type SendOrganizationMemberPasswordResetMutationError = ErrorType<
   | UnauthorizedResponse
   | ForbiddenResponse
   | NotFoundResponse
+  | TooManyRequestsResponse
+  | InternalServerErrorResponse
   | BadGatewayResponse
   | ServiceUnavailableResponse
 >;
@@ -6374,6 +6437,8 @@ export const useSendOrganizationMemberPasswordReset = <
     | UnauthorizedResponse
     | ForbiddenResponse
     | NotFoundResponse
+    | TooManyRequestsResponse
+    | InternalServerErrorResponse
     | BadGatewayResponse
     | ServiceUnavailableResponse
   >,

@@ -23,8 +23,8 @@ export interface ChangePasswordRequest {
   /** @minLength 1 */
   currentPassword: string;
   /**
+   * Must not exceed bcrypt's 72-byte UTF-8 input limit.
    * @minLength 12
-   * @maxLength 72
    */
   newPassword: string;
 }

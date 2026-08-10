@@ -22,5 +22,6 @@ import type { AcceptInvitationResponseUser } from "./acceptInvitationResponseUse
 
 export interface AcceptInvitationResponse {
   success: boolean;
+  organizationId: string;
   user: AcceptInvitationResponseUser;
 }

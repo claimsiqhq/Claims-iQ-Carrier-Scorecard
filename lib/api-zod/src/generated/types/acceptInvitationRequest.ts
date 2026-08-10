@@ -26,8 +26,8 @@ export interface AcceptInvitationRequest {
    */
   token: string;
   /**
+   * New-account passwords require 12 characters and all passwords must fit bcrypt's 72-byte UTF-8 limit.
    * @minLength 1
-   * @maxLength 72
    */
   password: string;
   /** @maxLength 80 */
