@@ -2,8 +2,11 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { useQueryClient } from "@tanstack/react-query";
 import {
   api,
+  ApiError,
   apiErrorMessage,
+  getSelectedOrganizationId,
   SESSION_EXPIRED_EVENT,
+  setSelectedOrganizationId,
 } from "@/lib/api";
 import type { AuthOrganization, AuthUser } from "@/lib/types";
 
@@ -29,6 +32,22 @@ export function useAuth() {
   return useContext(AuthContext);
 }
 
+async function getSessionWithOrganizationFallback() {
+  try {
+    return await api.getSession();
+  } catch (error) {
+    if (
+      error instanceof ApiError
+      && error.status === 403
+      && getSelectedOrganizationId()
+    ) {
+      setSelectedOrganizationId(null);
+      return api.getSession();
+    }
+    throw error;
+  }
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const queryClient = useQueryClient();
   const [user, setUser] = useState<AuthUser | null>(null);
@@ -36,10 +55,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    api.getSession()
+    getSessionWithOrganizationFallback()
       .then((data) => {
         setUser(data.user ?? null);
         setOrganization(data.organization ?? null);
+        if (data.organization) setSelectedOrganizationId(data.organization.id);
       })
       .catch(() => {
         setUser(null);
@@ -64,9 +84,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const data = await api.login(email, password);
       queryClient.clear();
-      setUser(data.user);
-      const session = await api.getSession();
+      const session = await getSessionWithOrganizationFallback();
+      setUser(session.user ?? data.user);
       setOrganization(session.organization ?? null);
+      if (session.organization) setSelectedOrganizationId(session.organization.id);
       window.sessionStorage.removeItem(SESSION_EXPIRED_EVENT);
       return null;
     } catch (error) {

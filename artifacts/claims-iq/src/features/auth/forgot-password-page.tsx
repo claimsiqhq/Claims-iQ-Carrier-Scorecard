@@ -18,6 +18,7 @@ export default function ForgotPasswordPage() {
     if (!email.trim()) return
     setSubmitting(true)
     setError(null)
+    setMessage(null)
     try {
       const result = await api.forgotPassword(email)
       setMessage(result.message)

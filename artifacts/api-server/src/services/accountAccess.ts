@@ -3,7 +3,7 @@ import {
   passwordResetTokens,
   usersTable,
 } from "@workspace/db";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { env } from "../env";
 import {
   createAccountToken,
@@ -27,13 +27,43 @@ export async function issuePasswordReset(input: {
   email: string;
   requestedByUserId?: string;
   organizationId?: string;
-}): Promise<{ expiresAt: Date }> {
+}): Promise<{ expiresAt: Date; delivered: boolean }> {
   const token = createAccountToken();
   const expiresAt = new Date(
     Date.now() + env.PASSWORD_RESET_TTL_MINUTES * 60 * 1000,
   );
 
-  await db.transaction(async (tx) => {
+  const issued = await db.transaction(async (tx) => {
+    await tx
+      .select({ id: usersTable.id })
+      .from(usersTable)
+      .where(eq(usersTable.id, input.userId))
+      .for("update")
+      .limit(1);
+    const [activeToken] = await tx
+      .select()
+      .from(passwordResetTokens)
+      .where(
+        and(
+          eq(passwordResetTokens.userId, input.userId),
+          isNull(passwordResetTokens.usedAt),
+          isNull(passwordResetTokens.revokedAt),
+        ),
+      )
+      .orderBy(desc(passwordResetTokens.createdAt))
+      .limit(1);
+    if (
+      activeToken
+      && activeToken.createdAt > new Date(Date.now() - 60_000)
+      && activeToken.expiresAt > new Date()
+    ) {
+      return {
+        tokenId: null,
+        previousToken: null,
+        expiresAt: activeToken.expiresAt,
+      };
+    }
+
     await tx
       .update(passwordResetTokens)
       .set({ revokedAt: new Date() })
@@ -44,20 +74,57 @@ export async function issuePasswordReset(input: {
           isNull(passwordResetTokens.revokedAt),
         ),
       );
-    await tx.insert(passwordResetTokens).values({
-      userId: input.userId,
-      tokenHash: token.hash,
-      requestedByUserId: input.requestedByUserId,
-      requestedForOrganizationId: input.organizationId,
+    const [created] = await tx
+      .insert(passwordResetTokens)
+      .values({
+        userId: input.userId,
+        tokenHash: token.hash,
+        requestedByUserId: input.requestedByUserId,
+        requestedForOrganizationId: input.organizationId,
+        expiresAt,
+      })
+      .returning({ id: passwordResetTokens.id });
+    return {
+      tokenId: created.id,
+      previousToken: activeToken ?? null,
       expiresAt,
+    };
+  });
+
+  if (!issued.tokenId) {
+    return { expiresAt: issued.expiresAt, delivered: false };
+  }
+
+  try {
+    await sendPasswordResetEmail({
+      to: input.email,
+      token: token.raw,
+      expiresAt: issued.expiresAt,
     });
-  });
+  } catch (error) {
+    await db.transaction(async (tx) => {
+      await tx
+        .update(passwordResetTokens)
+        .set({ revokedAt: new Date() })
+        .where(eq(passwordResetTokens.id, issued.tokenId!));
+      if (
+        issued.previousToken
+        && issued.previousToken.usedAt === null
+        && issued.previousToken.expiresAt > new Date()
+      ) {
+        await tx
+          .update(passwordResetTokens)
+          .set({ revokedAt: null })
+          .where(
+            and(
+              eq(passwordResetTokens.id, issued.previousToken.id),
+              isNull(passwordResetTokens.usedAt),
+            ),
+          );
+      }
+    });
+    throw error;
+  }
 
-  await sendPasswordResetEmail({
-    to: input.email,
-    token: token.raw,
-    expiresAt,
-  });
-
-  return { expiresAt };
+  return { expiresAt: issued.expiresAt, delivered: true };
 }

@@ -249,6 +249,8 @@ paths:
           $ref: "#/components/responses/Gone"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
 
   /auth/password/reset:
     post:
@@ -276,6 +278,8 @@ paths:
           $ref: "#/components/responses/Gone"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
 
   /auth/password/change:
     post:
@@ -302,6 +306,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
 
   /auth/invitations/inspect:
     post:
@@ -326,6 +332,8 @@ paths:
           $ref: "#/components/responses/Gone"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
 
   /auth/invitations/accept:
     post:
@@ -355,6 +363,8 @@ paths:
           $ref: "#/components/responses/Gone"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
 
   /dashboard:
     get:
@@ -1810,6 +1820,10 @@ paths:
           $ref: "#/components/responses/BadGateway"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
 
   /settings/invitations/{invitationId}:
     delete:
@@ -1833,6 +1847,10 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
 
   /settings/invitations/{invitationId}/resend:
     post:
@@ -1864,6 +1882,12 @@ paths:
           $ref: "#/components/responses/Conflict"
         "502":
           $ref: "#/components/responses/BadGateway"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
 
   /settings/members/{membershipId}/password-reset:
     post:
@@ -1895,6 +1919,10 @@ paths:
           $ref: "#/components/responses/BadGateway"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
 
   /settings/prompts:
     get:
@@ -2456,7 +2484,7 @@ components:
           type: string
           format: password
           minLength: 12
-          maxLength: 72
+          description: Must not exceed bcrypt's 72-byte UTF-8 input limit.
       additionalProperties: false
 
     ChangePasswordRequest:
@@ -2471,7 +2499,7 @@ components:
           type: string
           format: password
           minLength: 12
-          maxLength: 72
+          description: Must not exceed bcrypt's 72-byte UTF-8 input limit.
       additionalProperties: false
 
     InvitationPreview:
@@ -2504,7 +2532,7 @@ components:
           type: string
           format: password
           minLength: 1
-          maxLength: 72
+          description: New-account passwords require 12 characters and all passwords must fit bcrypt's 72-byte UTF-8 limit.
         firstName:
           type: string
           maxLength: 80
@@ -2515,10 +2543,13 @@ components:
 
     AcceptInvitationResponse:
       type: object
-      required: [success, user]
+      required: [success, organizationId, user]
       properties:
         success:
           type: boolean
+        organizationId:
+          type: string
+          format: uuid
         user:
           type: object
           required: [id, email, firstName, lastName]

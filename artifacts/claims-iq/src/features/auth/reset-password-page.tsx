@@ -4,11 +4,14 @@ import { Link } from "wouter"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { api, apiErrorMessage } from "@/lib/api"
+import { useAuth } from "@/lib/auth-context"
+import { validateNewPassword } from "@/lib/password-policy"
 import { AuthShell } from "./auth-shell"
 import { useAccountToken } from "./use-account-token"
 
 export default function ResetPasswordPage() {
-  const token = useAccountToken()
+  const { token, clearToken } = useAccountToken()
+  const { logout } = useAuth()
   const passwordId = useId()
   const confirmationId = useId()
   const [validating, setValidating] = useState(true)
@@ -34,6 +37,11 @@ export default function ResetPasswordPage() {
   const submit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setError(null)
+    const passwordError = validateNewPassword(password)
+    if (passwordError) {
+      setError(passwordError)
+      return
+    }
     if (password !== confirmation) {
       setError("Passwords do not match.")
       return
@@ -41,6 +49,8 @@ export default function ResetPasswordPage() {
     setSubmitting(true)
     try {
       await api.resetPassword(token, password)
+      clearToken()
+      await logout()
       setComplete(true)
       setValid(false)
     } catch (requestError) {
@@ -132,8 +142,8 @@ export default function ResetPasswordPage() {
             className="w-full"
             disabled={
               submitting
-              || password.length < 12
-              || confirmation.length < 12
+              || Boolean(validateNewPassword(password))
+              || password !== confirmation
             }
           >
             {submitting ? "Securing account…" : "Set new password"}

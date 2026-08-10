@@ -85,6 +85,7 @@ router.post("/auth/login", loginLimiter, async (req: Request, res: Response) => 
     }
 
     const sessionData: SessionData = {
+      authVersion: user.authVersion,
       user: {
         id: user.id,
         email: user.email,

@@ -17,6 +17,7 @@ export interface SessionUser {
 
 export interface SessionData {
   user: SessionUser;
+  authVersion: number;
 }
 
 function storedSessionId(sessionId: string): string {
@@ -30,6 +31,7 @@ export async function createSession(data: SessionData): Promise<string> {
     sess: data as unknown as Record<string, unknown>,
     expire: new Date(Date.now() + SESSION_TTL),
     userId: data.user.id,
+    authVersion: data.authVersion,
   });
   return sessionToken;
 }
@@ -58,6 +60,14 @@ export async function getSession(sessionToken: string): Promise<SessionData | nu
     .where(eq(usersTable.id, stored.user.id))
     .limit(1);
   if (!currentUser) {
+    await deleteSession(sessionToken);
+    return null;
+  }
+  if (
+    row.userId !== currentUser.id
+    || row.authVersion === null
+    || row.authVersion !== currentUser.authVersion
+  ) {
     await deleteSession(sessionToken);
     return null;
   }

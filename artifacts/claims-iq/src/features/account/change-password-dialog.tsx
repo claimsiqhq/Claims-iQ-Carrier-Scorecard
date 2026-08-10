@@ -12,6 +12,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { api, apiErrorMessage } from "@/lib/api"
 import { useAuth } from "@/lib/auth-context"
+import { validateNewPassword } from "@/lib/password-policy"
 
 export function ChangePasswordDialog({
   open,
@@ -44,6 +45,11 @@ export function ChangePasswordDialog({
   const submit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setError(null)
+    const passwordError = validateNewPassword(newPassword)
+    if (passwordError) {
+      setError(passwordError)
+      return
+    }
     if (newPassword !== confirmation) {
       setError("Passwords do not match.")
       return
@@ -61,7 +67,7 @@ export function ChangePasswordDialog({
 
   return (
     <Dialog open={open} onOpenChange={close}>
-      <DialogContent>
+      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Change password</DialogTitle>
           <DialogDescription>
@@ -126,8 +132,8 @@ export function ChangePasswordDialog({
               disabled={
                 saving
                 || !currentPassword
-                || newPassword.length < 12
-                || confirmation.length < 12
+                || Boolean(validateNewPassword(newPassword))
+                || newPassword !== confirmation
               }
             >
               {saving ? "Changing password…" : "Change password"}

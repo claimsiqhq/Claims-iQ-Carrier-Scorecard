@@ -3,13 +3,16 @@ import { ArrowLeft, LockKeyhole, UserRound } from "lucide-react"
 import { Link } from "wouter"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { api, apiErrorMessage } from "@/lib/api"
+import { api, apiErrorMessage, setSelectedOrganizationId } from "@/lib/api"
+import { useAuth } from "@/lib/auth-context"
+import { validateNewPassword } from "@/lib/password-policy"
 import type { InvitationPreview } from "@/lib/types"
 import { AuthShell } from "./auth-shell"
 import { useAccountToken } from "./use-account-token"
 
 export default function AcceptInvitationPage() {
-  const token = useAccountToken()
+  const { token, clearToken } = useAccountToken()
+  const { logout } = useAuth()
   const firstNameId = useId()
   const lastNameId = useId()
   const passwordId = useId()
@@ -40,17 +43,27 @@ export default function AcceptInvitationPage() {
     event.preventDefault()
     if (!preview) return
     setError(null)
+    if (!preview.accountExists) {
+      const passwordError = validateNewPassword(password)
+      if (passwordError) {
+        setError(passwordError)
+        return
+      }
+    }
     if (!preview.accountExists && password !== confirmation) {
       setError("Passwords do not match.")
       return
     }
     setSubmitting(true)
     try {
-      await api.acceptInvitation(token, {
+      const result = await api.acceptInvitation(token, {
         password,
         firstName: preview.accountExists ? undefined : firstName,
         lastName: preview.accountExists ? undefined : lastName,
       })
+      await logout()
+      setSelectedOrganizationId(result.organizationId)
+      clearToken()
       setComplete(true)
       setPreview(null)
     } catch (requestError) {
@@ -185,8 +198,8 @@ export default function AcceptInvitationPage() {
               || !password
               || (Boolean(needsNewAccount) && (
                 firstName.trim().length === 0
-                || password.length < 12
-                || confirmation.length < 12
+                || Boolean(validateNewPassword(password))
+                || password !== confirmation
               ))
             }
           >

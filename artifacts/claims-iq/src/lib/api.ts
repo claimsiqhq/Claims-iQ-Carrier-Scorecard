@@ -26,6 +26,27 @@ import type {
 
 export const API_BASE_URL = (import.meta.env.VITE_API_URL || "/api").replace(/\/$/, "")
 export const SESSION_EXPIRED_EVENT = "complete-iq:session-expired"
+const SELECTED_ORGANIZATION_KEY = "complete-iq:selected-organization"
+
+export function getSelectedOrganizationId(): string | null {
+  try {
+    return window.localStorage.getItem(SELECTED_ORGANIZATION_KEY)
+  } catch {
+    return null
+  }
+}
+
+export function setSelectedOrganizationId(organizationId: string | null): void {
+  try {
+    if (organizationId) {
+      window.localStorage.setItem(SELECTED_ORGANIZATION_KEY, organizationId)
+    } else {
+      window.localStorage.removeItem(SELECTED_ORGANIZATION_KEY)
+    }
+  } catch {
+    // The server will fall back to the user's default membership.
+  }
+}
 
 export class ApiError extends Error {
   status: number
@@ -47,6 +68,11 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
   const headers = new Headers(init.headers)
   if (init.body && !(init.body instanceof FormData) && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json")
+  }
+  const selectedOrganizationId =
+    typeof window !== "undefined" ? getSelectedOrganizationId() : null
+  if (selectedOrganizationId && !headers.has("X-Organization-Id")) {
+    headers.set("X-Organization-Id", selectedOrganizationId)
   }
 
   let response: Response
@@ -153,7 +179,7 @@ export const api = {
       lastName?: string
     },
   ) =>
-    apiRequest<{ success: true }>("/auth/invitations/accept", {
+    apiRequest<{ success: true; organizationId: string }>("/auth/invitations/accept", {
       method: "POST",
       body: JSON.stringify({ token, ...input }),
     }),

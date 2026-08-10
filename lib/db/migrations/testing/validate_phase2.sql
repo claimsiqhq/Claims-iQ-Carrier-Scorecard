@@ -114,6 +114,30 @@ BEGIN
 
   IF EXISTS (
     SELECT 1
+    FROM users
+    WHERE email IS NOT NULL
+      AND email IS DISTINCT FROM lower(btrim(email))
+  ) THEN
+    RAISE EXCEPTION 'user email normalization failed';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'users'
+      AND column_name = 'auth_version'
+      AND is_nullable = 'NO'
+  ) OR EXISTS (
+    SELECT 1
+    FROM sessions
+    WHERE user_id IS NULL
+  ) THEN
+    RAISE EXCEPTION 'credential versioning/session ownership migration failed';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
     FROM prompt_settings
     WHERE organization_id IS NULL
   ) THEN

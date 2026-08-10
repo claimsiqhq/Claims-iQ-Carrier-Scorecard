@@ -5,6 +5,7 @@ import {
   organizationAuditEvents,
   organizationInvitations,
   organizationMemberships,
+  organizations,
   usersTable,
   type OrganizationRole,
 } from "@workspace/db";
@@ -104,7 +105,13 @@ router.post(
       const expiresAt = new Date(
         Date.now() + env.INVITATION_TTL_HOURS * 60 * 60 * 1000,
       );
-      const invitation = await db.transaction(async (tx) => {
+      const issuance = await db.transaction(async (tx) => {
+        await tx
+          .select({ id: organizations.id })
+          .from(organizations)
+          .where(eq(organizations.id, organization.organizationId))
+          .for("update")
+          .limit(1);
         const [pending] = await tx
           .select()
           .from(organizationInvitations)
@@ -135,7 +142,7 @@ router.post(
             })
             .where(eq(organizationInvitations.id, pending.id))
             .returning();
-          return updated;
+          return { invitation: updated, previous: pending };
         }
         const [created] = await tx
           .insert(organizationInvitations)
@@ -148,22 +155,71 @@ router.post(
             expiresAt,
           })
           .returning();
-        return created;
+        return { invitation: created, previous: null };
       });
 
-      await sendInvitationEmail({
-        to: email,
-        organizationName: organization.organizationName,
-        role,
-        token: token.raw,
-        expiresAt,
-      });
+      try {
+        await sendInvitationEmail({
+          to: email,
+          organizationName: organization.organizationName,
+          role,
+          token: token.raw,
+          expiresAt,
+        });
+      } catch (error) {
+        await db.transaction(async (tx) => {
+          if (issuance.previous) {
+            await tx
+              .update(organizationInvitations)
+              .set({
+                role: issuance.previous.role,
+                tokenHash: issuance.previous.tokenHash,
+                invitedByUserId: issuance.previous.invitedByUserId,
+                expiresAt: issuance.previous.expiresAt,
+                lastSentAt: issuance.previous.lastSentAt,
+                sendCount: issuance.previous.sendCount,
+                updatedAt: issuance.previous.updatedAt,
+              })
+              .where(
+                and(
+                  eq(
+                    organizationInvitations.id,
+                    issuance.invitation.id,
+                  ),
+                  eq(organizationInvitations.tokenHash, token.hash),
+                ),
+              );
+          } else {
+            await tx
+              .update(organizationInvitations)
+              .set({ revokedAt: new Date(), updatedAt: new Date() })
+              .where(
+                and(
+                  eq(
+                    organizationInvitations.id,
+                    issuance.invitation.id,
+                  ),
+                  eq(organizationInvitations.tokenHash, token.hash),
+                ),
+              );
+          }
+        });
+        throw error;
+      }
+      const invitation = issuance.invitation;
       const sentAt = new Date();
-      await db.transaction(async (tx) => {
-        await tx
+      const markedDelivered = await db.transaction(async (tx) => {
+        const [marked] = await tx
           .update(organizationInvitations)
           .set({ lastSentAt: sentAt, updatedAt: sentAt })
-          .where(eq(organizationInvitations.id, invitation.id));
+          .where(
+            and(
+              eq(organizationInvitations.id, invitation.id),
+              eq(organizationInvitations.tokenHash, token.hash),
+            ),
+          )
+          .returning({ id: organizationInvitations.id });
+        if (!marked) return false;
         await tx.insert(organizationAuditEvents).values({
           organizationId: organization.organizationId,
           actorUserId: req.user!.id,
@@ -172,7 +228,14 @@ router.post(
           targetId: invitation.id,
           metadata: { email, role, expiresAt: expiresAt.toISOString() },
         });
+        return true;
       });
+      if (!markedDelivered) {
+        res.status(409).json({
+          error: "A newer invitation was sent before this request completed",
+        });
+        return;
+      }
       res.status(201).json({
         id: invitation.id,
         email,
@@ -180,6 +243,8 @@ router.post(
         status: "pending",
         expiresAt: expiresAt.toISOString(),
         lastSentAt: sentAt.toISOString(),
+        sendCount: invitation.sendCount,
+        createdAt: invitation.createdAt.toISOString(),
       });
     } catch (error) {
       logger.error(
@@ -263,19 +328,45 @@ router.post(
         return;
       }
 
-      await sendInvitationEmail({
-        to: invitation.email,
-        organizationName: organization.organizationName,
-        role: invitation.role,
-        token: token.raw,
-        expiresAt,
-      });
+      try {
+        await sendInvitationEmail({
+          to: invitation.email,
+          organizationName: organization.organizationName,
+          role: invitation.role,
+          token: token.raw,
+          expiresAt,
+        });
+      } catch (error) {
+        await db
+          .update(organizationInvitations)
+          .set({
+            tokenHash: pendingInvitation.tokenHash,
+            expiresAt: pendingInvitation.expiresAt,
+            lastSentAt: pendingInvitation.lastSentAt,
+            sendCount: pendingInvitation.sendCount,
+            updatedAt: pendingInvitation.updatedAt,
+          })
+          .where(
+            and(
+              eq(organizationInvitations.id, invitation.id),
+              eq(organizationInvitations.tokenHash, token.hash),
+            ),
+          );
+        throw error;
+      }
       const sentAt = new Date();
-      await db.transaction(async (tx) => {
-        await tx
+      const markedDelivered = await db.transaction(async (tx) => {
+        const [marked] = await tx
           .update(organizationInvitations)
           .set({ lastSentAt: sentAt, updatedAt: sentAt })
-          .where(eq(organizationInvitations.id, invitation.id));
+          .where(
+            and(
+              eq(organizationInvitations.id, invitation.id),
+              eq(organizationInvitations.tokenHash, token.hash),
+            ),
+          )
+          .returning({ id: organizationInvitations.id });
+        if (!marked) return false;
         await tx.insert(organizationAuditEvents).values({
           organizationId: organization.organizationId,
           actorUserId: req.user!.id,
@@ -288,7 +379,14 @@ router.post(
             expiresAt: expiresAt.toISOString(),
           },
         });
+        return true;
       });
+      if (!markedDelivered) {
+        res.status(409).json({
+          error: "A newer invitation was sent before this request completed",
+        });
+        return;
+      }
       res.json({
         id: invitation.id,
         status: "pending",
@@ -403,7 +501,7 @@ router.post(
     }
 
     try {
-      const { expiresAt } = await issuePasswordReset({
+      const { expiresAt, delivered } = await issuePasswordReset({
         userId: member.userId,
         email: member.email,
         requestedByUserId: req.user!.id,
@@ -412,16 +510,21 @@ router.post(
       await db.insert(organizationAuditEvents).values({
         organizationId: organization.organizationId,
         actorUserId: req.user!.id,
-        eventType: "member.password_reset_sent",
+        eventType: delivered
+          ? "member.password_reset_sent"
+          : "member.password_reset_suppressed",
         targetType: "organization_membership",
         targetId: member.membershipId,
         metadata: {
           userId: member.userId,
+          delivered,
           expiresAt: expiresAt.toISOString(),
         },
       });
       res.status(202).json({
-        message: "Password reset email sent",
+        message: delivered
+          ? "Password reset email sent"
+          : "A password reset email was already sent recently",
         expiresAt: expiresAt.toISOString(),
       });
     } catch (error) {

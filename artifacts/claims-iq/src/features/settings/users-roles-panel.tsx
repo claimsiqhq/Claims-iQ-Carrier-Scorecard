@@ -56,6 +56,7 @@ export function UsersRolesPanel({
   const [inviteRole, setInviteRole] = useState("viewer")
   const [inviting, setInviting] = useState(false)
   const [actionId, setActionId] = useState<string | null>(null)
+  const [dialogError, setDialogError] = useState<string | null>(null)
   const [revokeTarget, setRevokeTarget] =
     useState<SettingsOverview["invitations"][number] | null>(null)
   const [resetTarget, setResetTarget] =
@@ -64,6 +65,7 @@ export function UsersRolesPanel({
   const invite = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setInviting(true)
+    setDialogError(null)
     try {
       await api.inviteMember(inviteEmail, inviteRole)
       onMessage(`Invitation sent to ${inviteEmail.trim().toLowerCase()}.`)
@@ -72,7 +74,7 @@ export function UsersRolesPanel({
       setInviteRole("viewer")
       await onRefresh()
     } catch (requestError) {
-      onError(apiErrorMessage(requestError, "Invitation could not be sent."))
+      setDialogError(apiErrorMessage(requestError, "Invitation could not be sent."))
     } finally {
       setInviting(false)
     }
@@ -92,30 +94,32 @@ export function UsersRolesPanel({
   }
 
   const revoke = async () => {
-    if (!revokeTarget) return
+    if (!revokeTarget || actionId) return
     setActionId(revokeTarget.id)
+    setDialogError(null)
     try {
       await api.revokeInvitation(revokeTarget.id)
       onMessage(`Invitation for ${revokeTarget.email} revoked.`)
       setRevokeTarget(null)
       await onRefresh()
     } catch (requestError) {
-      onError(apiErrorMessage(requestError, "Invitation could not be revoked."))
+      setDialogError(apiErrorMessage(requestError, "Invitation could not be revoked."))
     } finally {
       setActionId(null)
     }
   }
 
   const sendReset = async () => {
-    if (!resetTarget) return
+    if (!resetTarget || actionId) return
     setActionId(resetTarget.membershipId)
+    setDialogError(null)
     try {
-      await api.sendMemberPasswordReset(resetTarget.membershipId)
-      onMessage(`Password reset sent to ${resetTarget.email}.`)
+      const result = await api.sendMemberPasswordReset(resetTarget.membershipId)
+      onMessage(`${result.message} for ${resetTarget.email}.`)
       setResetTarget(null)
       await onRefresh()
     } catch (requestError) {
-      onError(apiErrorMessage(requestError, "Password reset could not be sent."))
+      setDialogError(apiErrorMessage(requestError, "Password reset could not be sent."))
     } finally {
       setActionId(null)
     }
@@ -148,7 +152,14 @@ export function UsersRolesPanel({
                 label={`${overview.invitations.length} invited`}
                 tone="progress"
               />
-              <Button size="sm" onClick={() => setInviteOpen(true)} disabled={!emailReady}>
+              <Button
+                size="sm"
+                onClick={() => {
+                  setDialogError(null)
+                  setInviteOpen(true)
+                }}
+                disabled={!emailReady}
+              >
                 <UserPlus aria-hidden="true" />
                 Invite user
               </Button>
@@ -159,51 +170,60 @@ export function UsersRolesPanel({
             <div className="border-b border-[var(--ciq-border)] bg-[var(--ciq-surface-subtle)] p-4">
               <h3 className="ciq-section-title mb-3">Pending invitations</h3>
               <div className="grid gap-2">
-                {overview.invitations.map((invitation) => (
-                  <div
-                    key={invitation.id}
-                    className="flex flex-col gap-3 rounded-md border border-[var(--ciq-border)] bg-[var(--ciq-surface)] p-3 sm:flex-row sm:items-center sm:justify-between"
-                  >
-                    <div className="min-w-0">
-                      <strong className="block truncate text-sm">{invitation.email}</strong>
-                      <p className="mt-1 text-xs text-[var(--ciq-ink-muted)]">
-                        {humanize(invitation.role)} ·{" "}
-                        {invitation.status === "expired"
-                          ? "Expired"
-                          : `Expires ${new Date(invitation.expiresAt).toLocaleString()}`}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <StatusPill
-                        value={invitation.status}
-                        label={humanize(invitation.status)}
-                        tone={invitation.status === "expired" ? "warning" : "progress"}
-                      />
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => void resend(invitation.id)}
-                        disabled={actionId === invitation.id}
-                      >
-                        <RefreshCw
-                          className={actionId === invitation.id ? "animate-spin" : ""}
-                          aria-hidden="true"
+                {overview.invitations.map((invitation) => {
+                  const privilegedInvitation = ["owner", "admin"].includes(invitation.role)
+                  const actionDisabled =
+                    actionId === invitation.id
+                    || (currentRole !== "owner" && privilegedInvitation)
+                  return (
+                    <div
+                      key={invitation.id}
+                      className="flex flex-col gap-3 rounded-md border border-[var(--ciq-border)] bg-[var(--ciq-surface)] p-3 sm:flex-row sm:items-center sm:justify-between"
+                    >
+                      <div className="min-w-0">
+                        <strong className="block truncate text-sm">{invitation.email}</strong>
+                        <p className="mt-1 text-xs text-[var(--ciq-ink-muted)]">
+                          {humanize(invitation.role)} ·{" "}
+                          {invitation.status === "expired"
+                            ? "Expired"
+                            : `Expires ${new Date(invitation.expiresAt).toLocaleString()}`}
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <StatusPill
+                          value={invitation.status}
+                          label={humanize(invitation.status)}
+                          tone={invitation.status === "expired" ? "warning" : "progress"}
                         />
-                        Resend
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => setRevokeTarget(invitation)}
-                        disabled={actionId === invitation.id}
-                        aria-label={`Revoke invitation for ${invitation.email}`}
-                      >
-                        <XCircle aria-hidden="true" />
-                        Revoke
-                      </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => void resend(invitation.id)}
+                          disabled={actionDisabled}
+                        >
+                          <RefreshCw
+                            className={actionId === invitation.id ? "animate-spin" : ""}
+                            aria-hidden="true"
+                          />
+                          Resend
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => {
+                            setDialogError(null)
+                            setRevokeTarget(invitation)
+                          }}
+                          disabled={actionDisabled}
+                          aria-label={`Revoke invitation for ${invitation.email}`}
+                        >
+                          <XCircle aria-hidden="true" />
+                          Revoke
+                        </Button>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             </div>
           )}
@@ -269,7 +289,10 @@ export function UsersRolesPanel({
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => setResetTarget(member)}
+                          onClick={() => {
+                            setDialogError(null)
+                            setResetTarget(member)
+                          }}
                           disabled={
                             !emailReady
                             || actionId === member.membershipId
@@ -296,8 +319,15 @@ export function UsersRolesPanel({
         </section>
       </div>
 
-      <Dialog open={inviteOpen} onOpenChange={(open) => !inviting && setInviteOpen(open)}>
-        <DialogContent>
+      <Dialog
+        open={inviteOpen}
+        onOpenChange={(open) => {
+          if (inviting) return
+          setInviteOpen(open)
+          if (!open) setDialogError(null)
+        }}
+      >
+        <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Invite user</DialogTitle>
             <DialogDescription>
@@ -342,6 +372,14 @@ export function UsersRolesPanel({
                 ))}
               </select>
             </div>
+            {dialogError && (
+              <p
+                className="rounded-md border border-[#e5b3b3] bg-[var(--ciq-critical-soft)] px-3 py-2.5 text-sm text-[var(--ciq-critical)]"
+                role="alert"
+              >
+                {dialogError}
+              </p>
+            )}
             <DialogFooter>
               <Button
                 type="button"
@@ -360,46 +398,76 @@ export function UsersRolesPanel({
         </DialogContent>
       </Dialog>
 
-      <AlertDialog open={Boolean(revokeTarget)} onOpenChange={(open) => !open && setRevokeTarget(null)}>
-        <AlertDialogContent>
+      <AlertDialog
+        open={Boolean(revokeTarget)}
+        onOpenChange={(open) => {
+          if (actionId) return
+          if (!open) {
+            setRevokeTarget(null)
+            setDialogError(null)
+          }
+        }}
+      >
+        <AlertDialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto">
           <AlertDialogHeader>
             <AlertDialogTitle>Revoke this invitation?</AlertDialogTitle>
             <AlertDialogDescription>
               The current secure link for {revokeTarget?.email} will stop working immediately.
             </AlertDialogDescription>
+            {dialogError && (
+              <p className="text-sm text-[var(--ciq-critical)]" role="alert">
+                {dialogError}
+              </p>
+            )}
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Keep invitation</AlertDialogCancel>
+            <AlertDialogCancel disabled={Boolean(actionId)}>Keep invitation</AlertDialogCancel>
             <AlertDialogAction
               onClick={(event) => {
                 event.preventDefault()
                 void revoke()
               }}
+              disabled={Boolean(actionId)}
             >
-              Revoke invitation
+              {actionId ? "Revoking…" : "Revoke invitation"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog open={Boolean(resetTarget)} onOpenChange={(open) => !open && setResetTarget(null)}>
-        <AlertDialogContent>
+      <AlertDialog
+        open={Boolean(resetTarget)}
+        onOpenChange={(open) => {
+          if (actionId) return
+          if (!open) {
+            setResetTarget(null)
+            setDialogError(null)
+          }
+        }}
+      >
+        <AlertDialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto">
           <AlertDialogHeader>
             <AlertDialogTitle>Send password reset?</AlertDialogTitle>
             <AlertDialogDescription>
               Complete iQ will send {resetTarget?.email} a one-hour, single-use reset link. Their
               password remains unchanged until they complete it.
             </AlertDialogDescription>
+            {dialogError && (
+              <p className="text-sm text-[var(--ciq-critical)]" role="alert">
+                {dialogError}
+              </p>
+            )}
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel disabled={Boolean(actionId)}>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={(event) => {
                 event.preventDefault()
                 void sendReset()
               }}
+              disabled={Boolean(actionId)}
             >
-              Send password reset
+              {actionId ? "Sending…" : "Send password reset"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

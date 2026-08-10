@@ -11,7 +11,7 @@ export function normalizeEmail(value: unknown): string {
 
 export function validatePassword(value: unknown): string | null {
   if (typeof value !== "string") return "A password is required";
-  if (value.length < PASSWORD_MIN_LENGTH) {
+  if (Array.from(value).length < PASSWORD_MIN_LENGTH) {
     return `Password must contain at least ${PASSWORD_MIN_LENGTH} characters`;
   }
   if (Buffer.byteLength(value, "utf8") > BCRYPT_MAX_BYTES) {

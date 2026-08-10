@@ -76,28 +76,33 @@ router.post(
   "/auth/password/forgot",
   recoveryLimiter,
   async (req, res) => {
+    const startedAt = Date.now();
     const email = normalizeEmail(req.body?.email);
-    res.status(202).json({
-      message:
-        "If an account matches that email, a password reset link will be sent.",
-    });
-
-    if (!email) return;
-    void (async () => {
+    if (email) {
       try {
         const user = await findUserByEmail(email);
-        if (!user?.email) return;
-        await issuePasswordReset({
-          userId: user.id,
-          email: user.email,
-        });
+        if (user?.email) {
+          await issuePasswordReset({
+            userId: user.id,
+            email: user.email,
+          });
+        }
       } catch (error) {
         logger.error(
           { errorName: error instanceof Error ? error.name : "UnknownError" },
           "Forgot-password delivery failed",
         );
       }
-    })();
+    }
+    const minimumResponseMs = 500;
+    const remainingDelay = minimumResponseMs - (Date.now() - startedAt);
+    if (remainingDelay > 0) {
+      await new Promise((resolve) => setTimeout(resolve, remainingDelay));
+    }
+    res.status(202).json({
+      message:
+        "If an account matches that email, a password reset link will be sent.",
+    });
   },
 );
 
@@ -145,6 +150,25 @@ router.post(
     }
 
     try {
+      const tokenHash = hashAccountToken(token);
+      const [candidate] = await db
+        .select({ id: passwordResetTokens.id })
+        .from(passwordResetTokens)
+        .where(
+          and(
+            eq(passwordResetTokens.tokenHash, tokenHash),
+            isNull(passwordResetTokens.usedAt),
+            isNull(passwordResetTokens.revokedAt),
+            gt(passwordResetTokens.expiresAt, new Date()),
+          ),
+        )
+        .limit(1);
+      if (!candidate) {
+        throw new AccountActionError(
+          "This password reset link is invalid or expired",
+          410,
+        );
+      }
       const passwordHash = await hashPassword(password);
       await db.transaction(async (tx) => {
         const [resetToken] = await tx
@@ -152,7 +176,7 @@ router.post(
           .from(passwordResetTokens)
           .where(
             and(
-              eq(passwordResetTokens.tokenHash, hashAccountToken(token)),
+              eq(passwordResetTokens.tokenHash, tokenHash),
               isNull(passwordResetTokens.usedAt),
               isNull(passwordResetTokens.revokedAt),
               gt(passwordResetTokens.expiresAt, new Date()),
@@ -173,6 +197,8 @@ router.post(
           .set({
             passwordHash,
             passwordChangedAt: now,
+            emailVerifiedAt: now,
+            authVersion: sql`${usersTable.authVersion} + 1`,
             updatedAt: now,
           })
           .where(eq(usersTable.id, resetToken.userId));
@@ -249,21 +275,54 @@ router.post(
 
       const passwordHash = await hashPassword(newPassword);
       await db.transaction(async (tx) => {
+        const [lockedUser] = await tx
+          .select()
+          .from(usersTable)
+          .where(eq(usersTable.id, user.id))
+          .for("update")
+          .limit(1);
+        if (
+          !lockedUser
+          || !(await verifyPassword(currentPassword, lockedUser.passwordHash))
+        ) {
+          throw new AccountActionError("Current password is incorrect", 400);
+        }
+        if (await verifyPassword(newPassword, lockedUser.passwordHash)) {
+          throw new AccountActionError(
+            "New password must be different from the current password",
+            400,
+          );
+        }
         const now = new Date();
         await tx
           .update(usersTable)
-          .set({ passwordHash, passwordChangedAt: now, updatedAt: now })
-          .where(eq(usersTable.id, user.id));
+          .set({
+            passwordHash,
+            passwordChangedAt: now,
+            authVersion: sql`${usersTable.authVersion} + 1`,
+            updatedAt: now,
+          })
+          .where(eq(usersTable.id, lockedUser.id));
+        await tx
+          .update(passwordResetTokens)
+          .set({ revokedAt: now })
+          .where(
+            and(
+              eq(passwordResetTokens.userId, lockedUser.id),
+              isNull(passwordResetTokens.usedAt),
+              isNull(passwordResetTokens.revokedAt),
+            ),
+          );
         await tx
           .delete(sessionsTable)
-          .where(eq(sessionsTable.userId, user.id));
+          .where(eq(sessionsTable.userId, lockedUser.id));
         if (req.organization) {
           await tx.insert(organizationAuditEvents).values({
             organizationId: req.organization.organizationId,
-            actorUserId: user.id,
+            actorUserId: lockedUser.id,
             eventType: "account.password_changed",
             targetType: "user",
-            targetId: user.id,
+            targetId: lockedUser.id,
             metadata: {},
           });
         }
@@ -375,7 +434,7 @@ router.post(
         passwordHash = await hashPassword(password);
       }
 
-      const user = await db.transaction(async (tx) => {
+      const acceptance = await db.transaction(async (tx) => {
         const [invitation] = await tx
           .select()
           .from(organizationInvitations)
@@ -393,7 +452,22 @@ router.post(
           throw new AccountActionError("This invitation is invalid or expired", 410);
         }
 
-        let acceptedUser = existingUser;
+        const [currentUser] = await tx
+          .select()
+          .from(usersTable)
+          .where(sql`lower(${usersTable.email}) = ${invitation.email}`)
+          .for("update")
+          .limit(1);
+        let acceptedUser = currentUser;
+        if (
+          acceptedUser
+          && !(await verifyPassword(password, acceptedUser.passwordHash))
+        ) {
+          throw new AccountActionError(
+            "Password confirmation did not match the existing account",
+            400,
+          );
+        }
         if (!acceptedUser) {
           const firstName =
             typeof req.body?.firstName === "string"
@@ -477,16 +551,20 @@ router.post(
             role: invitation.role,
           },
         });
-        return acceptedUser;
+        return {
+          user: acceptedUser,
+          organizationId: invitation.organizationId,
+        };
       });
 
       res.json({
         success: true,
+        organizationId: acceptance.organizationId,
         user: {
-          id: user.id,
-          email: user.email,
-          firstName: user.firstName,
-          lastName: user.lastName,
+          id: acceptance.user.id,
+          email: acceptance.user.email,
+          firstName: acceptance.user.firstName,
+          lastName: acceptance.user.lastName,
         },
       });
     } catch (error) {

@@ -1,12 +1,15 @@
-import { useEffect, useState } from "react"
+import { useCallback, useState } from "react"
 
-export function useAccountToken(): string {
+export function useAccountToken(): {
+  token: string
+  clearToken: () => void
+} {
   const [token] = useState(() => {
     if (typeof window === "undefined") return ""
     return new URLSearchParams(window.location.hash.slice(1)).get("token") || ""
   })
 
-  useEffect(() => {
+  const clearToken = useCallback(() => {
     if (!window.location.hash) return
     window.history.replaceState(
       window.history.state,
@@ -15,5 +18,5 @@ export function useAccountToken(): string {
     )
   }, [])
 
-  return token
+  return { token, clearToken }
 }
