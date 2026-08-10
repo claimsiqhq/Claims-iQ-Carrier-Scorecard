@@ -5,6 +5,7 @@ import {
   and,
   desc,
   eq,
+  ne,
 } from "drizzle-orm";
 import {
   claimActivity,
@@ -15,6 +16,7 @@ import {
 } from "@workspace/db";
 import {
   buildJobIdempotencyKey,
+  ClaimJobStateError,
   enqueueProcessingJob,
   retryOrganizationJob,
 } from "../services/jobQueue";
@@ -495,6 +497,8 @@ router.post(
           and(
             eq(claims.id, claimId),
             eq(claims.organizationId, req.organization!.organizationId),
+            ne(claims.status, "archived"),
+            ne(claims.systemStatus, "archived"),
           ),
         );
       res.status(202).json({
@@ -507,6 +511,10 @@ router.post(
         duplicate: !queued.created,
       });
     } catch (error) {
+      if (error instanceof ClaimJobStateError) {
+        res.status(error.status).json({ error: error.message });
+        return;
+      }
       logger.error({ error }, "Claim retry enqueue failed");
       res.status(500).json({ error: "Failed to queue claim retry" });
     }
@@ -563,6 +571,8 @@ router.post(
           and(
             eq(claims.id, claimId),
             eq(claims.organizationId, req.organization!.organizationId),
+            ne(claims.status, "archived"),
+            ne(claims.systemStatus, "archived"),
           ),
         );
       res.status(202).json({
@@ -575,6 +585,10 @@ router.post(
         duplicate: !queued.created,
       });
     } catch (error) {
+      if (error instanceof ClaimJobStateError) {
+        res.status(error.status).json({ error: error.message });
+        return;
+      }
       logger.error({ error }, "Claim reprocess enqueue failed");
       res.status(500).json({ error: "Failed to queue claim reprocessing" });
     }

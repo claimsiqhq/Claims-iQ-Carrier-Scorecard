@@ -10,13 +10,17 @@ import {
   organizationMemberships,
   usersTable,
 } from "@workspace/db";
-import { and, asc, desc, eq, ilike, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, ilike, ne, or, sql, type SQL } from "drizzle-orm";
 import { ListClaimsResponse, GetClaimDetailResponse } from "@workspace/api-zod";
 import { z } from "zod";
 import { getCurrentAuthorizedAudit } from "../lib/authorization";
 import { requireAuth } from "../middlewares/requireAuth";
 import { requireOrganizationPermission } from "../middlewares/organizationContext";
 import logger from "../lib/logger";
+import {
+  archiveClaims,
+  ClaimArchiveError,
+} from "../services/claimLifecycle";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const firstParam = (value: string | string[] | undefined): string =>
@@ -34,6 +38,15 @@ export const claimsQueueQuerySchema = z.object({
     .default("all"),
   sort: z.enum(["received", "claim", "carrier", "score"]).default("received"),
 });
+export const archiveClaimsBodySchema = z
+  .object({
+    claimIds: z.array(z.string().uuid()).min(1).max(100),
+  })
+  .strict()
+  .refine(({ claimIds }) => new Set(claimIds).size === claimIds.length, {
+    message: "claimIds must be unique",
+    path: ["claimIds"],
+  });
 
 function mapClaim(c: any) {
   return {
@@ -119,7 +132,13 @@ router.get(
       })
       .from(claims)
       .leftJoin(audits, eq(claims.currentAuditId, audits.id))
-      .where(eq(claims.organizationId, req.organization!.organizationId))
+      .where(
+        and(
+          eq(claims.organizationId, req.organization!.organizationId),
+          ne(claims.status, "archived"),
+          ne(claims.systemStatus, "archived"),
+        ),
+      )
       .limit(limit)
       .offset(offset)
       .orderBy(sql`${claims.createdAt} DESC NULLS LAST`);
@@ -191,6 +210,9 @@ router.get(
         conditions.push(
           sql`coalesce(${claims.systemStatus}::text, ${claims.status}::text) = ${status}`,
         );
+      } else {
+        conditions.push(ne(claims.status, "archived"));
+        conditions.push(ne(claims.systemStatus, "archived"));
       }
       if (risk !== "ALL") {
         conditions.push(sql`upper(coalesce(${audits.riskLevel}, '')) = ${risk}`);
@@ -231,6 +253,16 @@ router.get(
       else if (sort === "score") orderBy = sql`${audits.overallScore} DESC NULLS LAST`;
       else orderBy = sql`${claims.createdAt} DESC NULLS LAST`;
 
+      const carrierConditions: SQL[] = [eq(claims.organizationId, organizationId)];
+      if (status === "archived") {
+        carrierConditions.push(
+          sql`coalesce(${claims.systemStatus}::text, ${claims.status}::text) = 'archived'`,
+        );
+      } else {
+        carrierConditions.push(ne(claims.status, "archived"));
+        carrierConditions.push(ne(claims.systemStatus, "archived"));
+      }
+
       const [rows, [countRow], carrierRows] = await Promise.all([
         db
           .select({
@@ -253,7 +285,7 @@ router.get(
         db
           .selectDistinct({ carrier: claims.carrier })
           .from(claims)
-          .where(eq(claims.organizationId, organizationId))
+          .where(and(...carrierConditions))
           .orderBy(asc(claims.carrier)),
       ]);
 
@@ -290,6 +322,50 @@ router.get(
     } catch (err) {
       logger.error({ err }, "Error loading claims queue");
       res.status(500).json({ error: "Failed to load claims queue" });
+    }
+  },
+);
+
+router.post(
+  "/claims/archive",
+  requireAuth,
+  requireOrganizationPermission("claims:delete"),
+  async (req, res) => {
+    const parsedBody = archiveClaimsBodySchema.safeParse(req.body);
+    if (!parsedBody.success) {
+      res.status(400).json({
+        error: "Select between 1 and 100 valid claims to delete",
+        details: parsedBody.error.flatten(),
+      });
+      return;
+    }
+
+    try {
+      const result = await archiveClaims({
+        organizationId: req.organization!.organizationId,
+        actorUserId: req.user!.id,
+        claimIds: parsedBody.data.claimIds,
+      });
+      const message = result.archivedCount
+        ? `${result.archivedCount} claim${result.archivedCount === 1 ? "" : "s"} deleted from active work`
+        : "The selected claims were already archived";
+
+      logger.info(
+        {
+          organizationId: req.organization!.organizationId,
+          archivedCount: result.archivedCount,
+          alreadyArchivedCount: result.alreadyArchivedCount,
+        },
+        "Claims archived with audit provenance retained",
+      );
+      res.json({ success: true, message, ...result });
+    } catch (err) {
+      if (err instanceof ClaimArchiveError) {
+        res.status(err.status).json({ error: err.message });
+        return;
+      }
+      logger.error({ err }, "Error archiving claims");
+      res.status(500).json({ error: "Failed to delete claims" });
     }
   },
 );
@@ -626,49 +702,20 @@ router.delete(
       return;
     }
 
-    const [claim] = await db
-      .select()
-      .from(claims)
-      .where(
-        and(
-          eq(claims.id, id),
-          eq(claims.organizationId, req.organization!.organizationId),
-        ),
-      );
-    if (!claim) {
-      res.status(404).json({ error: "Claim not found" });
-      return;
-    }
-
-    await db.transaction(async (tx) => {
-      await tx
-        .update(claims)
-        .set({
-          status: "archived",
-          systemStatus: "archived",
-        })
-        .where(
-          and(
-            eq(claims.id, id),
-            eq(claims.organizationId, req.organization!.organizationId),
-          ),
-        );
-      await tx.insert(claimActivity).values({
-        organizationId: req.organization!.organizationId,
-        claimId: id,
-        actorUserId: req.user!.id,
-        activityType: "claim_archived",
-        metadata: {
-          retainedAuditId: claim.currentAuditId,
-          retentionReason: "append_only_audit_provenance",
-        },
-      });
+    await archiveClaims({
+      organizationId: req.organization!.organizationId,
+      actorUserId: req.user!.id,
+      claimIds: [id],
     });
 
     logger.info({ claimId: id }, "Claim archived with audit provenance retained");
     res.json({ success: true, message: "Claim archived" });
   } catch (err) {
-    logger.error({ err }, "Error deleting claim");
+    if (err instanceof ClaimArchiveError) {
+      res.status(err.status).json({ error: err.message });
+      return;
+    }
+    logger.error({ err }, "Error archiving claim");
     res.status(500).json({ error: "Failed to delete claim" });
   }
   },

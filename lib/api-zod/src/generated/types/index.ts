@@ -25,6 +25,8 @@ export * from "./acceptInvitationResponseUser";
 export * from "./accountTokenRequest";
 export * from "./activityLimitParameter";
 export * from "./aiWorkflowStatus";
+export * from "./archiveClaimsRequest";
+export * from "./archiveClaimsResponse";
 export * from "./assignment";
 export * from "./auditAnswer";
 export * from "./auditFinding";

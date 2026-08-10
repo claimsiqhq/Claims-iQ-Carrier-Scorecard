@@ -132,6 +132,7 @@ async function fulfillJson(route: Route, body: unknown, status = 200) {
 
 async function mockAuthenticatedApi(page: Page) {
   let reviewStatus = claim.humanReviewStatus
+  let claimArchived = false
   await page.route("**/api/**", async (route) => {
     const url = new URL(route.request().url())
     const method = route.request().method()
@@ -143,23 +144,23 @@ async function mockAuthenticatedApi(page: Page) {
     if (url.pathname === "/api/dashboard") {
       await fulfillJson(route, {
         stats: {
-          totalClaims: 1,
-          analyzedCount: 1,
+          totalClaims: claimArchived ? 0 : 1,
+          analyzedCount: claimArchived ? 0 : 1,
           processingCount: 0,
           pendingCount: 0,
           highRiskCount: 0,
           approvalReadyCount: 0,
-          reviewRequiredCount: 1,
+          reviewRequiredCount: claimArchived ? 0 : 1,
           averageScore: 82,
-          backlogCount: 1,
-          dollarsAtRisk: 12500,
+          backlogCount: claimArchived ? 0 : 1,
+          dollarsAtRisk: claimArchived ? 0 : 12500,
           averageAgeDays: 6,
           completedLast7Days: 1,
           openFindingCount: 2,
         },
         riskDistribution: { HIGH: 0, MEDIUM: 1, LOW: 0 },
         approvalDistribution: { READY: 0, REVIEW: 1, NOT_READY: 0 },
-        recentClaims: [currentClaim],
+        recentClaims: claimArchived ? [] : [currentClaim],
         recentActivity: [],
         topIssues: [],
       })
@@ -167,8 +168,8 @@ async function mockAuthenticatedApi(page: Page) {
     }
     if (url.pathname === "/api/claims/queue") {
       await fulfillJson(route, {
-        items: [currentClaim],
-        total: 1,
+        items: claimArchived ? [] : [currentClaim],
+        total: claimArchived ? 0 : 1,
         page: 1,
         pageSize: 20,
         facets: { carriers: ["Andover"] },
@@ -240,6 +241,18 @@ async function mockAuthenticatedApi(page: Page) {
       }, 202)
       return
     }
+    if (url.pathname === "/api/claims/archive" && method === "POST") {
+      const body = route.request().postDataJSON() as { claimIds: string[] }
+      claimArchived = body.claimIds.includes(claim.id)
+      await fulfillJson(route, {
+        success: true,
+        message: `${body.claimIds.length} claim deleted from active work`,
+        archivedCount: body.claimIds.length,
+        alreadyArchivedCount: 0,
+        claimIds: body.claimIds,
+      })
+      return
+    }
     if (url.pathname === `/api/claims/${claim.id}`) {
       await fulfillJson(route, {
         ...claimDetail,
@@ -248,7 +261,7 @@ async function mockAuthenticatedApi(page: Page) {
       return
     }
     if (url.pathname === "/api/claims") {
-      await fulfillJson(route, [currentClaim])
+      await fulfillJson(route, claimArchived ? [] : [currentClaim])
       return
     }
     await fulfillJson(route, { error: `Unhandled test endpoint: ${url.pathname}` }, 404)
@@ -289,11 +302,56 @@ test("operational queue is responsive, keyboard reachable, and axe-clean", async
   })
 })
 
-test("batch intake reaches a recoverable ready state", async ({ page }) => {
+test("admin can delete selected claims from the operational queue", async ({ page }) => {
+  const archiveRequests: Array<{ claimIds: string[] }> = []
+  page.on("request", (request) => {
+    if (
+      new URL(request.url()).pathname === "/api/claims/archive"
+      && request.method() === "POST"
+    ) {
+      archiveRequests.push(request.postDataJSON() as { claimIds: string[] })
+    }
+  })
   await mockAuthenticatedApi(page)
   await page.goto("/claims")
 
-  await page.getByRole("button", { name: "New intake", exact: true }).last().click()
+  await page
+    .getByLabel(`Select claim ${claim.claimNumber}`)
+    .filter({ visible: true })
+    .first()
+    .click()
+  await page.getByRole("button", { name: "Delete selected" }).click()
+
+  const dialog = page.getByRole("alertdialog")
+  await expect(dialog).toContainText(`Delete ${claim.claimNumber}?`)
+  await expect(dialog).toContainText("retains the source record and immutable audit provenance")
+  await dialog.getByRole("button", { name: "Delete claim", exact: true }).click()
+
+  await expect(page.getByText("No active claims in the queue")).toBeVisible()
+  expect(archiveRequests).toEqual([{ claimIds: [claim.id] }])
+})
+
+test("admin can delete an individual claim from the dashboard", async ({ page }) => {
+  await mockAuthenticatedApi(page)
+  await page.goto("/")
+
+  await page
+    .getByRole("button", { name: /^Delete claim/ })
+    .filter({ visible: true })
+    .first()
+    .click()
+
+  const dialog = page.getByRole("alertdialog")
+  await expect(dialog).toContainText(`Delete ${claim.claimNumber}?`)
+  await dialog.getByRole("button", { name: "Delete claim", exact: true }).click()
+
+  await expect(page.getByText("No claims in the ledger")).toBeVisible()
+})
+
+test("batch intake reaches a recoverable ready state", async ({ page }) => {
+  await mockAuthenticatedApi(page)
+  await page.goto("/claims?upload=1")
+
   await expect(page.getByRole("dialog")).toContainText("Add source packages to the ledger")
   await page.getByLabel("Choose claim PDF files").setInputFiles({
     name: "synthetic-claim.pdf",

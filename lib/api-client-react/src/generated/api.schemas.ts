@@ -386,6 +386,24 @@ export interface ClaimsQueueResponse {
   facets: ClaimsQueueResponseFacets;
 }
 
+export interface ArchiveClaimsRequest {
+  /**
+   * @minItems 1
+   * @maxItems 100
+   */
+  claimIds: string[];
+}
+
+export interface ArchiveClaimsResponse {
+  success: boolean;
+  message: string;
+  /** @minimum 0 */
+  archivedCount: number;
+  /** @minimum 0 */
+  alreadyArchivedCount: number;
+  claimIds: string[];
+}
+
 export type ClaimAssigneesResponseAssigneesItem = {
   userId: string;
   name: string;

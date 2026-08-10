@@ -7,6 +7,7 @@ import {
 } from "@workspace/db";
 import {
   buildJobIdempotencyKey,
+  ClaimJobStateError,
   enqueueProcessingJob,
 } from "../services/jobQueue";
 import {
@@ -229,6 +230,10 @@ router.post(
         duplicate: !queued.created,
       });
     } catch (error) {
+      if (error instanceof ClaimJobStateError) {
+        res.status(error.status).json({ error: error.message });
+        return;
+      }
       logger.error({ error }, "Document extraction enqueue failed");
       res.status(500).json({ error: "Failed to queue document extraction" });
     }

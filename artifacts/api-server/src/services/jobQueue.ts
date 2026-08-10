@@ -4,6 +4,7 @@ import {
   eq,
 } from "drizzle-orm";
 import {
+  claims,
   db,
   pool,
   processingJobAttempts,
@@ -61,47 +62,85 @@ export class JobLeaseLostError extends Error {
   }
 }
 
+export class ClaimJobStateError extends Error {
+  constructor(
+    message: string,
+    readonly status: 404 | 409,
+  ) {
+    super(message);
+    this.name = "ClaimJobStateError";
+  }
+}
+
 export async function enqueueProcessingJob(
   input: EnqueueJobInput,
 ): Promise<EnqueueJobResult> {
-  const [inserted] = await db
-    .insert(processingJobs)
-    .values({
-      organizationId: input.organizationId,
-      claimId: input.claimId ?? null,
-      documentId: input.documentId ?? null,
-      requestedByUserId: input.requestedByUserId ?? null,
-      type: input.type,
-      status: "queued",
-      stage: "uploaded",
-      progress: 0,
-      idempotencyKey: input.idempotencyKey,
-      payload: input.payload ?? {},
-      maxAttempts: input.maxAttempts ?? 3,
-      priority: input.priority ?? 100,
-    })
-    .onConflictDoNothing({
-      target: [processingJobs.organizationId, processingJobs.idempotencyKey],
-    })
-    .returning();
+  return db.transaction(async (tx) => {
+    if (input.claimId) {
+      const [claim] = await tx
+        .select({
+          status: claims.status,
+          systemStatus: claims.systemStatus,
+        })
+        .from(claims)
+        .where(
+          and(
+            eq(claims.id, input.claimId),
+            eq(claims.organizationId, input.organizationId),
+          ),
+        )
+        .limit(1)
+        .for("key share");
+      if (!claim) {
+        throw new ClaimJobStateError("Claim not found", 404);
+      }
+      if (claim.status === "archived" || claim.systemStatus === "archived") {
+        throw new ClaimJobStateError(
+          "Archived claims cannot start new processing",
+          409,
+        );
+      }
+    }
 
-  if (inserted) return { job: inserted, created: true };
+    const [inserted] = await tx
+      .insert(processingJobs)
+      .values({
+        organizationId: input.organizationId,
+        claimId: input.claimId ?? null,
+        documentId: input.documentId ?? null,
+        requestedByUserId: input.requestedByUserId ?? null,
+        type: input.type,
+        status: "queued",
+        stage: "uploaded",
+        progress: 0,
+        idempotencyKey: input.idempotencyKey,
+        payload: input.payload ?? {},
+        maxAttempts: input.maxAttempts ?? 3,
+        priority: input.priority ?? 100,
+      })
+      .onConflictDoNothing({
+        target: [processingJobs.organizationId, processingJobs.idempotencyKey],
+      })
+      .returning();
 
-  const [existing] = await db
-    .select()
-    .from(processingJobs)
-    .where(
-      and(
-        eq(processingJobs.organizationId, input.organizationId),
-        eq(processingJobs.idempotencyKey, input.idempotencyKey),
-      ),
-    )
-    .limit(1);
+    if (inserted) return { job: inserted, created: true };
 
-  if (!existing) {
-    throw new Error("Idempotent job lookup failed after conflict");
-  }
-  return { job: existing, created: false };
+    const [existing] = await tx
+      .select()
+      .from(processingJobs)
+      .where(
+        and(
+          eq(processingJobs.organizationId, input.organizationId),
+          eq(processingJobs.idempotencyKey, input.idempotencyKey),
+        ),
+      )
+      .limit(1);
+
+    if (!existing) {
+      throw new Error("Idempotent job lookup failed after conflict");
+    }
+    return { job: existing, created: false };
+  });
 }
 
 export async function getOrganizationJob(
@@ -196,37 +235,74 @@ export async function retryOrganizationJob(
   organizationId: string,
   jobId: string,
 ): Promise<ProcessingJob | null> {
-  const existing = await getOrganizationJob(organizationId, jobId);
-  if (!existing || !isTerminalJobState(existing.status) || existing.status === "succeeded") {
-    return null;
-  }
+  return db.transaction(async (tx) => {
+    const [existing] = await tx
+      .select()
+      .from(processingJobs)
+      .where(
+        and(
+          eq(processingJobs.id, jobId),
+          eq(processingJobs.organizationId, organizationId),
+        ),
+      )
+      .limit(1);
+    if (!existing || !isTerminalJobState(existing.status) || existing.status === "succeeded") {
+      return null;
+    }
 
-  const [job] = await db
-    .update(processingJobs)
-    .set({
-      status: "queued",
-      stage: "uploaded",
-      progress: 0,
-      availableAt: new Date(),
-      completedAt: null,
-      cancelledAt: null,
-      leaseOwner: null,
-      leaseExpiresAt: null,
-      heartbeatAt: null,
-      errorCode: null,
-      errorMessage: null,
-      errorMetadata: null,
-      maxAttempts: Math.max(existing.maxAttempts, existing.attemptCount + 1),
-    })
-    .where(
-      and(
-        eq(processingJobs.id, jobId),
-        eq(processingJobs.organizationId, organizationId),
-        eq(processingJobs.status, existing.status),
-      ),
-    )
-    .returning();
-  return job ?? null;
+    if (existing.claimId) {
+      const [claim] = await tx
+        .select({
+          status: claims.status,
+          systemStatus: claims.systemStatus,
+        })
+        .from(claims)
+        .where(
+          and(
+            eq(claims.id, existing.claimId),
+            eq(claims.organizationId, organizationId),
+          ),
+        )
+        .limit(1)
+        .for("key share");
+      if (!claim) {
+        throw new ClaimJobStateError("Claim not found", 404);
+      }
+      if (claim.status === "archived" || claim.systemStatus === "archived") {
+        throw new ClaimJobStateError(
+          "Archived claims cannot restart processing",
+          409,
+        );
+      }
+    }
+
+    const [job] = await tx
+      .update(processingJobs)
+      .set({
+        status: "queued",
+        stage: "uploaded",
+        progress: 0,
+        availableAt: new Date(),
+        completedAt: null,
+        cancelledAt: null,
+        leaseOwner: null,
+        leaseExpiresAt: null,
+        heartbeatAt: null,
+        errorCode: null,
+        errorMessage: null,
+        errorMetadata: null,
+        maxAttempts: Math.max(existing.maxAttempts, existing.attemptCount + 1),
+      })
+      .where(
+        and(
+          eq(processingJobs.id, jobId),
+          eq(processingJobs.organizationId, organizationId),
+          eq(processingJobs.status, existing.status),
+        ),
+      )
+      .returning();
+    return job ?? null;
+  });
 }
 
 function mapClaimedJob(row: Record<string, unknown>, workerId: string): ClaimedJob {

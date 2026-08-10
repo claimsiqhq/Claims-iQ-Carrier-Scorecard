@@ -33,6 +33,8 @@ import type {
   AcceptInvitationRequest,
   AcceptInvitationResponse,
   AccountTokenRequest,
+  ArchiveClaimsRequest,
+  ArchiveClaimsResponse,
   Assignment,
   AuthSession,
   BadGatewayResponse,
@@ -1672,6 +1674,117 @@ export function useGetClaimsQueue<
 }
 
 /**
+ * Atomically removes 1–100 organization-scoped claims from active work while
+retaining source records and append-only audit provenance. Claims with queued
+or running processing jobs are rejected. Requires `claims:delete`.
+
+ * @summary Archive selected claims
+ */
+export const getArchiveClaimsUrl = () => {
+  return `/api/claims/archive`;
+};
+
+export const archiveClaims = async (
+  archiveClaimsRequest: ArchiveClaimsRequest,
+  options?: RequestInit,
+): Promise<ArchiveClaimsResponse> => {
+  return customFetch<ArchiveClaimsResponse>(getArchiveClaimsUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(archiveClaimsRequest),
+  });
+};
+
+export const getArchiveClaimsMutationOptions = <
+  TError = ErrorType<
+    | BadRequestResponse
+    | UnauthorizedResponse
+    | ForbiddenResponse
+    | NotFoundResponse
+    | TooManyRequestsResponse
+    | InternalServerErrorResponse
+  >,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof archiveClaims>>,
+    TError,
+    { data: BodyType<ArchiveClaimsRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof archiveClaims>>,
+  TError,
+  { data: BodyType<ArchiveClaimsRequest> },
+  TContext
+> => {
+  const mutationKey = ["archiveClaims"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof archiveClaims>>,
+    { data: BodyType<ArchiveClaimsRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return archiveClaims(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ArchiveClaimsMutationResult = NonNullable<
+  Awaited<ReturnType<typeof archiveClaims>>
+>;
+export type ArchiveClaimsMutationBody = BodyType<ArchiveClaimsRequest>;
+export type ArchiveClaimsMutationError = ErrorType<
+  | BadRequestResponse
+  | UnauthorizedResponse
+  | ForbiddenResponse
+  | NotFoundResponse
+  | TooManyRequestsResponse
+  | InternalServerErrorResponse
+>;
+
+/**
+ * @summary Archive selected claims
+ */
+export const useArchiveClaims = <
+  TError = ErrorType<
+    | BadRequestResponse
+    | UnauthorizedResponse
+    | ForbiddenResponse
+    | NotFoundResponse
+    | TooManyRequestsResponse
+    | InternalServerErrorResponse
+  >,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof archiveClaims>>,
+    TError,
+    { data: BodyType<ArchiveClaimsRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof archiveClaims>>,
+  TError,
+  { data: BodyType<ArchiveClaimsRequest> },
+  TContext
+> => {
+  return useMutation(getArchiveClaimsMutationOptions(options));
+};
+
+/**
  * Returns organization members available for claim assignment. Requires `claims:read`.
  * @summary List available claim assignees
  */
@@ -1899,6 +2012,7 @@ export const getArchiveClaimMutationOptions = <
     | UnauthorizedResponse
     | ForbiddenResponse
     | NotFoundResponse
+    | ConflictResponse
     | TooManyRequestsResponse
     | InternalServerErrorResponse
   >,
@@ -1947,6 +2061,7 @@ export type ArchiveClaimMutationError = ErrorType<
   | UnauthorizedResponse
   | ForbiddenResponse
   | NotFoundResponse
+  | ConflictResponse
   | TooManyRequestsResponse
   | InternalServerErrorResponse
 >;
@@ -1960,6 +2075,7 @@ export const useArchiveClaim = <
     | UnauthorizedResponse
     | ForbiddenResponse
     | NotFoundResponse
+    | ConflictResponse
     | TooManyRequestsResponse
     | InternalServerErrorResponse
   >,
@@ -3108,6 +3224,7 @@ export function useGetClaimProcessingStatus<
  * Requires `jobs:retry`. A latest failed, degraded, or cancelled job is
 reset in place; otherwise an equivalent retry job is created or reused.
 `X-Idempotency-Key` participates when a new retry job is needed.
+Archived claims return `409`.
 
  * @summary Retry claim processing
  */
@@ -3131,6 +3248,7 @@ export const getRetryClaimProcessingMutationOptions = <
     | UnauthorizedResponse
     | ForbiddenResponse
     | NotFoundResponse
+    | ConflictResponse
     | TooManyRequestsResponse
     | InternalServerErrorResponse
   >,
@@ -3179,6 +3297,7 @@ export type RetryClaimProcessingMutationError = ErrorType<
   | UnauthorizedResponse
   | ForbiddenResponse
   | NotFoundResponse
+  | ConflictResponse
   | TooManyRequestsResponse
   | InternalServerErrorResponse
 >;
@@ -3192,6 +3311,7 @@ export const useRetryClaimProcessing = <
     | UnauthorizedResponse
     | ForbiddenResponse
     | NotFoundResponse
+    | ConflictResponse
     | TooManyRequestsResponse
     | InternalServerErrorResponse
   >,
@@ -3217,6 +3337,7 @@ export const useRetryClaimProcessing = <
  * Requires `audits:run`. Enqueues or reuses a `reprocess` job for the latest
 claim-file document. The idempotency identity includes the carrier and
 either `X-Idempotency-Key` or the current successful audit identity.
+Archived claims return `409`.
 
  * @summary Reprocess a claim with a carrier
  */
@@ -3243,6 +3364,7 @@ export const getReprocessClaimMutationOptions = <
     | UnauthorizedResponse
     | ForbiddenResponse
     | NotFoundResponse
+    | ConflictResponse
     | TooManyRequestsResponse
     | InternalServerErrorResponse
   >,
@@ -3291,6 +3413,7 @@ export type ReprocessClaimMutationError = ErrorType<
   | UnauthorizedResponse
   | ForbiddenResponse
   | NotFoundResponse
+  | ConflictResponse
   | TooManyRequestsResponse
   | InternalServerErrorResponse
 >;
@@ -3304,6 +3427,7 @@ export const useReprocessClaim = <
     | UnauthorizedResponse
     | ForbiddenResponse
     | NotFoundResponse
+    | ConflictResponse
     | TooManyRequestsResponse
     | InternalServerErrorResponse
   >,
@@ -3329,7 +3453,7 @@ export const useReprocessClaim = <
  * Requires `audits:run`. Returns immediately with a durable `audit` job.
 Idempotency is scoped to the organization, claim, latest document, and
 either `X-Idempotency-Key` or the claim's current audit identity. Audit
-requests are limited to 10 per 15 minutes.
+requests are limited to 10 per 15 minutes. Archived claims return `409`.
 
  * @summary Enqueue a carrier audit
  */
@@ -3353,6 +3477,7 @@ export const getEnqueueClaimAuditMutationOptions = <
     | UnauthorizedResponse
     | ForbiddenResponse
     | NotFoundResponse
+    | ConflictResponse
     | TooManyRequestsResponse
     | InternalServerErrorResponse
   >,
@@ -3401,6 +3526,7 @@ export type EnqueueClaimAuditMutationError = ErrorType<
   | UnauthorizedResponse
   | ForbiddenResponse
   | NotFoundResponse
+  | ConflictResponse
   | TooManyRequestsResponse
   | InternalServerErrorResponse
 >;
@@ -3414,6 +3540,7 @@ export const useEnqueueClaimAudit = <
     | UnauthorizedResponse
     | ForbiddenResponse
     | NotFoundResponse
+    | ConflictResponse
     | TooManyRequestsResponse
     | InternalServerErrorResponse
   >,
@@ -4132,7 +4259,7 @@ export const useDeleteClaimDocument = <
 /**
  * Requires `claims:update`. Idempotency is scoped to the organization,
 claim, document, source hash, and either `X-Idempotency-Key` or the
-document's current update timestamp.
+document's current update timestamp. Archived claims return `409`.
 
  * @summary Enqueue document text extraction
  */
@@ -4160,6 +4287,7 @@ export const getExtractClaimDocumentMutationOptions = <
     | UnauthorizedResponse
     | ForbiddenResponse
     | NotFoundResponse
+    | ConflictResponse
     | TooManyRequestsResponse
     | InternalServerErrorResponse
   >,
@@ -4208,6 +4336,7 @@ export type ExtractClaimDocumentMutationError = ErrorType<
   | UnauthorizedResponse
   | ForbiddenResponse
   | NotFoundResponse
+  | ConflictResponse
   | TooManyRequestsResponse
   | InternalServerErrorResponse
 >;
@@ -4221,6 +4350,7 @@ export const useExtractClaimDocument = <
     | UnauthorizedResponse
     | ForbiddenResponse
     | NotFoundResponse
+    | ConflictResponse
     | TooManyRequestsResponse
     | InternalServerErrorResponse
   >,

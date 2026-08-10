@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, ne, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import {
   auditFindings,
@@ -208,6 +208,8 @@ async function persistTerminalRun(input: {
         and(
           eq(claims.id, input.claimId),
           eq(claims.organizationId, input.organizationId),
+          ne(claims.status, "archived"),
+          ne(claims.systemStatus, "archived"),
         ),
       )
       .limit(1);
@@ -783,6 +785,8 @@ export async function runAndSaveAudit(
         and(
           eq(claims.id, claimId),
           eq(claims.organizationId, context.organizationId),
+          ne(claims.status, "archived"),
+          ne(claims.systemStatus, "archived"),
         ),
       );
 

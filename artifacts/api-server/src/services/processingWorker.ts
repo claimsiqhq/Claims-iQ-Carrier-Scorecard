@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import {
   claimActivity,
   claims,
@@ -206,6 +206,8 @@ async function processExtractionJob(job: ClaimedJob): Promise<{
       and(
         eq(claims.id, job.claimId!),
         eq(claims.organizationId, job.organizationId),
+        ne(claims.status, "archived"),
+        ne(claims.systemStatus, "archived"),
       ),
     );
 
@@ -285,6 +287,8 @@ async function processClaimedJob(job: ClaimedJob): Promise<void> {
           and(
             eq(claims.id, job.claimId),
             eq(claims.organizationId, job.organizationId),
+            ne(claims.status, "archived"),
+            ne(claims.systemStatus, "archived"),
           ),
         );
     }
@@ -339,6 +343,8 @@ async function runLoop(workerId: string): Promise<void> {
                 and(
                   eq(claims.id, job.claimId),
                   eq(claims.organizationId, job.organizationId),
+                  ne(claims.status, "archived"),
+                  ne(claims.systemStatus, "archived"),
                 ),
               )
               .limit(1);
@@ -353,6 +359,8 @@ async function runLoop(workerId: string): Promise<void> {
                 and(
                   eq(claims.id, job.claimId),
                   eq(claims.organizationId, job.organizationId),
+                  ne(claims.status, "archived"),
+                  ne(claims.systemStatus, "archived"),
                 ),
               );
           }

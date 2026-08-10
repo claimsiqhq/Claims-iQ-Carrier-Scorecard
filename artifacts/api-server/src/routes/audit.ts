@@ -6,9 +6,10 @@ import {
   db,
   documents,
 } from "@workspace/db";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, ne } from "drizzle-orm";
 import {
   buildJobIdempotencyKey,
+  ClaimJobStateError,
   enqueueProcessingJob,
 } from "../services/jobQueue";
 import { getAuthorizedClaim } from "../lib/authorization";
@@ -89,6 +90,8 @@ router.post(
             and(
               eq(claims.id, id),
               eq(claims.organizationId, req.organization!.organizationId),
+              ne(claims.status, "archived"),
+              ne(claims.systemStatus, "archived"),
             ),
           );
         await tx.insert(claimActivity).values({
@@ -112,6 +115,10 @@ router.post(
       duplicate: !queued.created,
     });
   } catch (err) {
+    if (err instanceof ClaimJobStateError) {
+      res.status(err.status).json({ error: err.message });
+      return;
+    }
     logger.error({ err }, "Error running audit");
     res.status(500).json({ error: "Failed to run audit" });
   }

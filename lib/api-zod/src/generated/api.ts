@@ -775,6 +775,46 @@ export const GetClaimsQueueResponse = zod.object({
 });
 
 /**
+ * Atomically removes 1–100 organization-scoped claims from active work while
+retaining source records and append-only audit provenance. Claims with queued
+or running processing jobs are rejected. Requires `claims:delete`.
+
+ * @summary Archive selected claims
+ */
+export const ArchiveClaimsHeader = zod.object({
+  "X-Organization-Id": zod
+    .string()
+    .uuid()
+    .optional()
+    .describe(
+      "Organization membership to use for this request. Omit to use the\ncaller's default membership. An inaccessible value returns `403`.\n",
+    ),
+});
+
+export const archiveClaimsBodyClaimIdsMax = 100;
+
+export const ArchiveClaimsBody = zod.object({
+  claimIds: zod
+    .array(zod.string().uuid())
+    .min(1)
+    .max(archiveClaimsBodyClaimIdsMax),
+});
+
+export const archiveClaimsResponseArchivedCountMin = 0;
+
+export const archiveClaimsResponseAlreadyArchivedCountMin = 0;
+
+export const ArchiveClaimsResponse = zod.object({
+  success: zod.literal(true),
+  message: zod.string(),
+  archivedCount: zod.number().min(archiveClaimsResponseArchivedCountMin),
+  alreadyArchivedCount: zod
+    .number()
+    .min(archiveClaimsResponseAlreadyArchivedCountMin),
+  claimIds: zod.array(zod.string().uuid()),
+});
+
+/**
  * Returns organization members available for claim assignment. Requires `claims:read`.
  * @summary List available claim assignees
  */
@@ -1650,6 +1690,7 @@ export const GetClaimProcessingStatusResponse = zod.object({
  * Requires `jobs:retry`. A latest failed, degraded, or cancelled job is
 reset in place; otherwise an equivalent retry job is created or reused.
 `X-Idempotency-Key` participates when a new retry job is needed.
+Archived claims return `409`.
 
  * @summary Retry claim processing
  */
@@ -1681,6 +1722,7 @@ export const RetryClaimProcessingHeader = zod.object({
  * Requires `audits:run`. Enqueues or reuses a `reprocess` job for the latest
 claim-file document. The idempotency identity includes the carrier and
 either `X-Idempotency-Key` or the current successful audit identity.
+Archived claims return `409`.
 
  * @summary Reprocess a claim with a carrier
  */
@@ -1716,7 +1758,7 @@ export const ReprocessClaimBody = zod.object({
  * Requires `audits:run`. Returns immediately with a durable `audit` job.
 Idempotency is scoped to the organization, claim, latest document, and
 either `X-Idempotency-Key` or the claim's current audit identity. Audit
-requests are limited to 10 per 15 minutes.
+requests are limited to 10 per 15 minutes. Archived claims return `409`.
 
  * @summary Enqueue a carrier audit
  */
@@ -2070,7 +2112,7 @@ export const DeleteClaimDocumentResponse = zod.object({
 /**
  * Requires `claims:update`. Idempotency is scoped to the organization,
 claim, document, source hash, and either `X-Idempotency-Key` or the
-document's current update timestamp.
+document's current update timestamp. Archived claims return `409`.
 
  * @summary Enqueue document text extraction
  */

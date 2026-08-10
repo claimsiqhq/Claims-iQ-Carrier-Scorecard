@@ -534,6 +534,43 @@ paths:
         "500":
           $ref: "#/components/responses/InternalServerError"
 
+  /claims/archive:
+    post:
+      operationId: archiveClaims
+      tags: [Claims]
+      summary: Archive selected claims
+      description: |
+        Atomically removes 1–100 organization-scoped claims from active work while
+        retaining source records and append-only audit provenance. Claims with queued
+        or running processing jobs are rejected. Requires `claims:delete`.
+      parameters:
+        - $ref: "#/components/parameters/OrganizationId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ArchiveClaimsRequest"
+      responses:
+        "200":
+          description: Selected claims are archived or were already archived.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ArchiveClaimsResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
   /claims/assignees:
     get:
       operationId: listClaimAssignees
@@ -610,6 +647,8 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "429":
           $ref: "#/components/responses/TooManyRequests"
         "500":
@@ -954,6 +993,7 @@ paths:
         Requires `jobs:retry`. A latest failed, degraded, or cancelled job is
         reset in place; otherwise an equivalent retry job is created or reused.
         `X-Idempotency-Key` participates when a new retry job is needed.
+        Archived claims return `409`.
       parameters:
         - $ref: "#/components/parameters/ClaimId"
         - $ref: "#/components/parameters/OrganizationId"
@@ -973,6 +1013,8 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "429":
           $ref: "#/components/responses/TooManyRequests"
         "500":
@@ -987,6 +1029,7 @@ paths:
         Requires `audits:run`. Enqueues or reuses a `reprocess` job for the latest
         claim-file document. The idempotency identity includes the carrier and
         either `X-Idempotency-Key` or the current successful audit identity.
+        Archived claims return `409`.
       parameters:
         - $ref: "#/components/parameters/ClaimId"
         - $ref: "#/components/parameters/OrganizationId"
@@ -1012,6 +1055,8 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "429":
           $ref: "#/components/responses/TooManyRequests"
         "500":
@@ -1026,7 +1071,7 @@ paths:
         Requires `audits:run`. Returns immediately with a durable `audit` job.
         Idempotency is scoped to the organization, claim, latest document, and
         either `X-Idempotency-Key` or the claim's current audit identity. Audit
-        requests are limited to 10 per 15 minutes.
+        requests are limited to 10 per 15 minutes. Archived claims return `409`.
       parameters:
         - $ref: "#/components/parameters/ClaimId"
         - $ref: "#/components/parameters/OrganizationId"
@@ -1046,6 +1091,8 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "429":
           $ref: "#/components/responses/TooManyRequests"
         "500":
@@ -1253,7 +1300,7 @@ paths:
       description: |
         Requires `claims:update`. Idempotency is scoped to the organization,
         claim, document, source hash, and either `X-Idempotency-Key` or the
-        document's current update timestamp.
+        document's current update timestamp. Archived claims return `409`.
       parameters:
         - $ref: "#/components/parameters/ClaimId"
         - $ref: "#/components/parameters/DocumentId"
@@ -1274,6 +1321,8 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "429":
           $ref: "#/components/responses/TooManyRequests"
         "500":
@@ -2782,6 +2831,43 @@ components:
               items:
                 type: string
           additionalProperties: false
+      additionalProperties: false
+
+    ArchiveClaimsRequest:
+      type: object
+      required: [claimIds]
+      properties:
+        claimIds:
+          type: array
+          minItems: 1
+          maxItems: 100
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+      additionalProperties: false
+
+    ArchiveClaimsResponse:
+      type: object
+      required:
+        [success, message, archivedCount, alreadyArchivedCount, claimIds]
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        message:
+          type: string
+        archivedCount:
+          type: integer
+          minimum: 0
+        alreadyArchivedCount:
+          type: integer
+          minimum: 0
+        claimIds:
+          type: array
+          items:
+            type: string
+            format: uuid
       additionalProperties: false
 
     ClaimAssigneesResponse:

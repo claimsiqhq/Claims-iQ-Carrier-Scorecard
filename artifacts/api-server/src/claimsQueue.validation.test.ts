@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { claimsQueueQuerySchema } from "./routes/claims";
+import {
+  archiveClaimsBodySchema,
+  claimsQueueQuerySchema,
+} from "./routes/claims";
 
 test("claims queue query enforces bounded pagination and known workflow presets", () => {
   assert.equal(
@@ -36,5 +39,28 @@ test("claims queue query normalizes safe operational filters", () => {
     readiness: "all",
     preset: "mine",
     sort: "score",
+  });
+});
+
+test("bulk claim archival accepts only bounded unique UUIDs", () => {
+  const claimId = "10000000-0000-4000-8000-000000000001";
+
+  assert.equal(archiveClaimsBodySchema.safeParse({ claimIds: [] }).success, false);
+  assert.equal(
+    archiveClaimsBodySchema.safeParse({ claimIds: [claimId, claimId] }).success,
+    false,
+  );
+  assert.equal(
+    archiveClaimsBodySchema.safeParse({
+      claimIds: Array.from(
+        { length: 101 },
+        (_, index) =>
+          `10000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+      ),
+    }).success,
+    false,
+  );
+  assert.deepEqual(archiveClaimsBodySchema.parse({ claimIds: [claimId] }), {
+    claimIds: [claimId],
   });
 });

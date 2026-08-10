@@ -1,4 +1,4 @@
-import { useMemo } from "react"
+import { useMemo, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { Link } from "wouter"
 import {
@@ -9,10 +9,15 @@ import {
   Files,
   Plus,
   ShieldAlert,
+  Trash2,
   TrendingUp,
   UploadCloud,
 } from "lucide-react"
 import { UploadClaimsDialog } from "@/components/complete-iq/upload-claims-dialog"
+import {
+  ArchiveClaimsDialog,
+  type ArchiveClaimTarget,
+} from "@/features/claims/archive-claims-dialog"
 import {
   MetricTile,
   PageState,
@@ -23,6 +28,7 @@ import {
 } from "@/components/complete-iq/status"
 import { PageBody, PageHeader } from "@/components/layout/app-shell"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { api, queryKeys } from "@/lib/api"
 import { useAuth } from "@/lib/auth-context"
 import type { ClaimSummary } from "@/lib/types"
@@ -35,7 +41,10 @@ function nextAction(claim: ClaimSummary) {
 }
 
 export default function DashboardPage() {
-  const { user } = useAuth()
+  const { user, organization } = useAuth()
+  const canDelete = Boolean(organization?.permissions.includes("claims:delete"))
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const [archiveTargets, setArchiveTargets] = useState<ArchiveClaimTarget[]>([])
   const dashboard = useQuery({
     queryKey: queryKeys.dashboard,
     queryFn: api.getDashboard,
@@ -81,6 +90,13 @@ export default function DashboardPage() {
   }
 
   const { stats, recentClaims, recentActivity, approvalDistribution } = dashboard.data
+  const priorityClaims = recentClaims.slice(0, 7)
+  const selectedPriorityClaims = priorityClaims.filter((claim) =>
+    selectedIds.includes(claim.id),
+  )
+  const allPrioritySelected =
+    priorityClaims.length > 0
+    && priorityClaims.every((claim) => selectedIds.includes(claim.id))
   const reviewCount =
     approvalDistribution.REVIEW ??
     approvalDistribution.review ??
@@ -165,20 +181,43 @@ export default function DashboardPage() {
                 <h2>Priority review queue</h2>
                 <p>Most recently received claims · current server order</p>
               </div>
-              <Button variant="ghost" size="sm" asChild>
-                <Link href="/claims">
-                  Open queue
-                  <ArrowRight aria-hidden="true" />
-                </Link>
-              </Button>
+              <div className="flex flex-wrap items-center justify-end gap-1">
+                {canDelete && selectedPriorityClaims.length > 0 && (
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => setArchiveTargets(selectedPriorityClaims)}
+                  >
+                    <Trash2 aria-hidden="true" />
+                    Delete {selectedPriorityClaims.length} selected
+                  </Button>
+                )}
+                <Button variant="ghost" size="sm" asChild>
+                  <Link href="/claims">
+                    Open queue
+                    <ArrowRight aria-hidden="true" />
+                  </Link>
+                </Button>
+              </div>
             </div>
             {recentClaims.length ? (
               <>
                 <div className="ciq-desktop-table overflow-x-auto">
-                  <table className="ciq-table min-w-[720px]">
+                  <table className="ciq-table min-w-[820px]">
                     <caption>Recent claims requiring review</caption>
                     <thead>
                       <tr>
+                        {canDelete && (
+                          <th scope="col" className="w-12">
+                            <Checkbox
+                              checked={allPrioritySelected}
+                              onCheckedChange={(checked) =>
+                                setSelectedIds(checked ? priorityClaims.map((claim) => claim.id) : [])
+                              }
+                              aria-label="Select all priority claims"
+                            />
+                          </th>
+                        )}
                         <th scope="col">Claim</th>
                         <th scope="col">Insured</th>
                         <th scope="col">Carrier</th>
@@ -186,11 +225,27 @@ export default function DashboardPage() {
                         <th scope="col">AI readiness</th>
                         <th scope="col">Score</th>
                         <th scope="col">Next action</th>
+                        {canDelete && <th scope="col">Delete</th>}
                       </tr>
                     </thead>
                     <tbody>
-                      {recentClaims.slice(0, 7).map((claim) => (
+                      {priorityClaims.map((claim) => (
                         <tr key={claim.id}>
+                          {canDelete && (
+                            <td>
+                              <Checkbox
+                                checked={selectedIds.includes(claim.id)}
+                                onCheckedChange={(checked) =>
+                                  setSelectedIds((current) =>
+                                    checked
+                                      ? Array.from(new Set([...current, claim.id]))
+                                      : current.filter((claimId) => claimId !== claim.id),
+                                  )
+                                }
+                                aria-label={`Select claim ${claim.claimNumber}`}
+                              />
+                            </td>
+                          )}
                           <td>
                             <Link className="ciq-link ciq-mono" href={`/claims/${claim.id}`}>
                               {claim.claimNumber}
@@ -219,18 +274,44 @@ export default function DashboardPage() {
                               {nextAction(claim)}
                             </Link>
                           </td>
+                          {canDelete && (
+                            <td>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="text-[var(--ciq-critical)] hover:bg-[var(--ciq-critical-soft)] hover:text-[var(--ciq-critical)]"
+                                onClick={() => setArchiveTargets([claim])}
+                                aria-label={`Delete claim ${claim.claimNumber}`}
+                              >
+                                <Trash2 aria-hidden="true" />
+                              </Button>
+                            </td>
+                          )}
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
                 <div className="ciq-mobile-card-list">
-                  {recentClaims.slice(0, 7).map((claim) => (
+                  {priorityClaims.map((claim) => (
                     <article
                       key={claim.id}
                       className="rounded-md border border-[var(--ciq-border)] bg-[var(--ciq-surface)] p-3"
                     >
                       <div className="flex items-start justify-between gap-3">
+                        {canDelete && (
+                          <Checkbox
+                            checked={selectedIds.includes(claim.id)}
+                            onCheckedChange={(checked) =>
+                              setSelectedIds((current) =>
+                                checked
+                                  ? Array.from(new Set([...current, claim.id]))
+                                  : current.filter((claimId) => claimId !== claim.id),
+                              )
+                            }
+                            aria-label={`Select claim ${claim.claimNumber}`}
+                          />
+                        )}
                         <div className="min-w-0">
                           <Link className="ciq-link ciq-mono text-sm" href={`/claims/${claim.id}`}>
                             {claim.claimNumber}
@@ -248,6 +329,17 @@ export default function DashboardPage() {
                       <p className="mt-3 text-xs text-[var(--ciq-ink-muted)]">
                         {claim.carrier || "Carrier unavailable"} · {nextAction(claim)}
                       </p>
+                      {canDelete && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="mt-3 w-full border-[var(--ciq-critical)]/30 text-[var(--ciq-critical)] hover:bg-[var(--ciq-critical-soft)] hover:text-[var(--ciq-critical)]"
+                          onClick={() => setArchiveTargets([claim])}
+                        >
+                          <Trash2 aria-hidden="true" />
+                          Delete claim
+                        </Button>
+                      )}
                     </article>
                   ))}
                 </div>
@@ -389,6 +481,17 @@ export default function DashboardPage() {
           </section>
         </div>
       </PageBody>
+      <ArchiveClaimsDialog
+        open={archiveTargets.length > 0}
+        claims={archiveTargets}
+        onOpenChange={(open) => {
+          if (!open) setArchiveTargets([])
+        }}
+        onArchived={() => {
+          const archivedIds = new Set(archiveTargets.map((claim) => claim.id))
+          setSelectedIds((current) => current.filter((claimId) => !archivedIds.has(claimId)))
+        }}
+      />
     </div>
   )
 }

@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link, useLocation } from "wouter"
 import {
   AlertTriangle,
+  Archive,
   ArrowLeft,
   ArrowRight,
   CheckCircle2,
@@ -204,6 +205,7 @@ export default function ClaimWorkbench({ claimId }: { claimId: string }) {
 
   const data = claimQuery.data
   const { claim, audit, documents } = data
+  const isArchived = claim.status === "archived" || claim.systemStatus === "archived"
   const selectedDocument =
     documents.find((document) => document.id === selectedDocumentId) || documents[0]
   const readiness = audit?.readiness || audit?.approvalStatus
@@ -246,7 +248,7 @@ export default function ClaimWorkbench({ claimId }: { claimId: string }) {
       ])
       setLocation("/claims")
     } catch (error) {
-      setActionError(apiErrorMessage(error, "The claim could not be archived."))
+      setActionError(apiErrorMessage(error, "The claim could not be deleted from active work."))
       setDeleteOpen(false)
       setDeleting(false)
     }
@@ -482,7 +484,7 @@ export default function ClaimWorkbench({ claimId }: { claimId: string }) {
                 Email preview
               </Button>
             )}
-            {canRunAudit && (
+            {canRunAudit && !isArchived && (
               <Button
                 className="border-white/15 bg-white text-[var(--ciq-aubergine)] hover:bg-[#f7f3ed]"
                 onClick={() => setReprocessOpen(true)}
@@ -496,6 +498,18 @@ export default function ClaimWorkbench({ claimId }: { claimId: string }) {
       />
 
       <PageBody className="!max-w-none">
+        {isArchived && (
+          <div className="mb-4 flex items-start gap-3 rounded-md border border-[var(--ciq-border-strong)] bg-[var(--ciq-surface-subtle)] p-4">
+            <Archive className="mt-0.5 h-4 w-4 shrink-0 text-[var(--ciq-financial)]" aria-hidden="true" />
+            <div>
+              <p className="text-sm font-semibold text-[var(--ciq-ink)]">Archived claim · read only</p>
+              <p className="mt-1 text-xs leading-5 text-[var(--ciq-ink-muted)]">
+                This record is excluded from active dashboards and processing. Source evidence and
+                audit provenance remain available for compliance review.
+              </p>
+            </div>
+          </div>
+        )}
         {actionError && (
           <div
             className="mb-4 flex items-start gap-2 rounded-md border border-[#e5b3b3] bg-[var(--ciq-critical-soft)] p-3 text-sm text-[var(--ciq-critical)]"
@@ -513,7 +527,7 @@ export default function ClaimWorkbench({ claimId }: { claimId: string }) {
           <ClaimLedger
             data={data}
             className="hidden xl:block"
-            onDelete={canDelete ? () => setDeleteOpen(true) : undefined}
+            onDelete={canDelete && !isArchived ? () => setDeleteOpen(true) : undefined}
           />
 
           <section className="min-w-0">
@@ -540,7 +554,7 @@ export default function ClaimWorkbench({ claimId }: { claimId: string }) {
                 <ClaimLedger
                   data={data}
                   className="xl:hidden"
-                  onDelete={canDelete ? () => setDeleteOpen(true) : undefined}
+                  onDelete={canDelete && !isArchived ? () => setDeleteOpen(true) : undefined}
                 />
                 {audit ? (
                   <>
@@ -555,8 +569,8 @@ export default function ClaimWorkbench({ claimId }: { claimId: string }) {
                       assigneeUserId={claim.assigneeUserId}
                       currentUserId={user?.id}
                       assignees={assigneesQuery.data?.assignees || []}
-                      canAssign={canAssign}
-                      canReview={canReview}
+                      canAssign={canAssign && !isArchived}
+                      canReview={canReview && !isArchived}
                       humanReviewStatus={claim.humanReviewStatus || "unassigned"}
                       saving={workflowSaving}
                       onAssignment={updateAssignment}
@@ -593,8 +607,14 @@ export default function ClaimWorkbench({ claimId }: { claimId: string }) {
                     kind="unavailable"
                     title="No audit result is available"
                     description="The automatic workflow did not produce an audit result. A reviewer may start the existing manual audit endpoint."
-                    actionLabel={canRunAudit ? (auditRunning ? "Running audit…" : "Run carrier audit") : undefined}
-                    onAction={canRunAudit ? () => void runAudit() : undefined}
+                    actionLabel={
+                      canRunAudit && !isArchived
+                        ? auditRunning
+                          ? "Running audit…"
+                          : "Run carrier audit"
+                        : undefined
+                    }
+                    onAction={canRunAudit && !isArchived ? () => void runAudit() : undefined}
                   />
                 )}
               </TabsContent>
@@ -612,7 +632,7 @@ export default function ClaimWorkbench({ claimId }: { claimId: string }) {
                       findings={findings}
                       onEvidence={openEvidence}
                       reviewing={reviewingFinding}
-                      canReview={canReview}
+                      canReview={canReview && !isArchived}
                       onDisposition={updateFindingDisposition}
                     />
                     <ValidationLedger checks={audit.validationChecks || []} />
@@ -783,10 +803,10 @@ export default function ClaimWorkbench({ claimId }: { claimId: string }) {
       <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Archive {claim.claimNumber}?</AlertDialogTitle>
+            <AlertDialogTitle>Delete {claim.claimNumber}?</AlertDialogTitle>
             <AlertDialogDescription>
-              This removes the claim from active work while retaining source and audit provenance.
-              Archived claims cannot be reviewed from the operational queue.
+              This removes the claim from active dashboards and queue views. Complete iQ retains
+              the source record and immutable audit provenance under Archived for compliance.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -800,7 +820,7 @@ export default function ClaimWorkbench({ claimId }: { claimId: string }) {
               disabled={deleting}
             >
               <Trash2 aria-hidden="true" />
-              {deleting ? "Archiving…" : "Archive claim"}
+              {deleting ? "Deleting…" : "Delete claim"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -1013,7 +1033,7 @@ function ClaimLedger({
             onClick={onDelete}
           >
             <Trash2 aria-hidden="true" />
-            Archive claim
+            Delete claim
           </Button>
         </div>
       )}

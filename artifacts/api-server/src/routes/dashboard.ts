@@ -9,7 +9,7 @@ import {
   evidenceAnchors,
   usersTable,
 } from "@workspace/db";
-import { and, eq, sql, desc } from "drizzle-orm";
+import { and, desc, eq, ne, sql } from "drizzle-orm";
 import { requireAuth } from "../middlewares/requireAuth";
 import { requireOrganizationPermission } from "../middlewares/organizationContext";
 import logger from "../lib/logger";
@@ -38,6 +38,12 @@ function formatClaimAmount(value: string | null): string | null {
 
 router.get("/dashboard", requireAuth, requireOrganizationPermission("claims:read"), async (req, res) => {
   try {
+    const organizationId = req.organization!.organizationId;
+    const activeClaimFilter = and(
+      eq(claims.organizationId, organizationId),
+      ne(claims.status, "archived"),
+      ne(claims.systemStatus, "archived"),
+    );
     const [statsRow] = await db
       .select({
         totalClaims: sql<number>`count(*)::int`,
@@ -45,7 +51,7 @@ router.get("/dashboard", requireAuth, requireOrganizationPermission("claims:read
         pendingCount: sql<number>`count(*) filter (where ${claims.status} = 'pending')::int`,
       })
       .from(claims)
-      .where(eq(claims.organizationId, req.organization!.organizationId));
+      .where(activeClaimFilter);
 
     const [scoreRow] = await db
       .select({
@@ -53,7 +59,7 @@ router.get("/dashboard", requireAuth, requireOrganizationPermission("claims:read
       })
       .from(claims)
       .innerJoin(audits, eq(claims.currentAuditId, audits.id))
-      .where(eq(claims.organizationId, req.organization!.organizationId));
+      .where(activeClaimFilter);
 
     const [operationsRow] = await db
       .select({
@@ -77,7 +83,7 @@ router.get("/dashboard", requireAuth, requireOrganizationPermission("claims:read
       })
       .from(claims)
       .leftJoin(audits, eq(claims.currentAuditId, audits.id))
-      .where(eq(claims.organizationId, req.organization!.organizationId));
+      .where(activeClaimFilter);
 
     const riskRows = await db
       .select({
@@ -86,7 +92,7 @@ router.get("/dashboard", requireAuth, requireOrganizationPermission("claims:read
       })
       .from(claims)
       .innerJoin(audits, eq(claims.currentAuditId, audits.id))
-      .where(eq(claims.organizationId, req.organization!.organizationId))
+      .where(activeClaimFilter)
       .groupBy(audits.riskLevel);
 
     const approvalRows = await db
@@ -96,7 +102,7 @@ router.get("/dashboard", requireAuth, requireOrganizationPermission("claims:read
       })
       .from(claims)
       .innerJoin(audits, eq(claims.currentAuditId, audits.id))
-      .where(eq(claims.organizationId, req.organization!.organizationId))
+      .where(activeClaimFilter)
       .groupBy(audits.approvalStatus);
 
     const carrierRows = await db
@@ -107,7 +113,7 @@ router.get("/dashboard", requireAuth, requireOrganizationPermission("claims:read
       })
       .from(claims)
       .leftJoin(audits, eq(claims.currentAuditId, audits.id))
-      .where(eq(claims.organizationId, req.organization!.organizationId))
+      .where(activeClaimFilter)
       .groupBy(sql`coalesce(${claims.carrier}, 'Unknown')`);
 
     const findingRows = await db
@@ -124,13 +130,15 @@ router.get("/dashboard", requireAuth, requireOrganizationPermission("claims:read
         claims,
         and(
           eq(claims.currentAuditId, audits.id),
-          eq(claims.organizationId, req.organization!.organizationId),
+          eq(claims.organizationId, organizationId),
+          ne(claims.status, "archived"),
+          ne(claims.systemStatus, "archived"),
         ),
       )
       .where(
         eq(
           auditFindings.organizationId,
-          req.organization!.organizationId,
+          organizationId,
         ),
       )
       .groupBy(auditFindings.severity);
@@ -156,7 +164,7 @@ router.get("/dashboard", requireAuth, requireOrganizationPermission("claims:read
       })
       .from(claims)
       .leftJoin(audits, eq(claims.currentAuditId, audits.id))
-      .where(eq(claims.organizationId, req.organization!.organizationId))
+      .where(activeClaimFilter)
       .orderBy(desc(claims.createdAt))
       .limit(12);
 
@@ -174,11 +182,13 @@ router.get("/dashboard", requireAuth, requireOrganizationPermission("claims:read
         claims,
         and(
           eq(claims.id, claimActivity.claimId),
-          eq(claims.organizationId, req.organization!.organizationId),
+          eq(claims.organizationId, organizationId),
+          ne(claims.status, "archived"),
+          ne(claims.systemStatus, "archived"),
         ),
       )
       .where(
-        eq(claimActivity.organizationId, req.organization!.organizationId),
+        eq(claimActivity.organizationId, organizationId),
       )
       .orderBy(desc(claimActivity.createdAt))
       .limit(12);
@@ -263,6 +273,11 @@ router.get(
   requireOrganizationPermission("claims:read"),
   async (req, res) => {
     const organizationId = req.organization!.organizationId;
+    const activeClaimFilter = and(
+      eq(claims.organizationId, organizationId),
+      ne(claims.status, "archived"),
+      ne(claims.systemStatus, "archived"),
+    );
     try {
       const carrierPerformance = await db
         .select({
@@ -276,7 +291,7 @@ router.get(
         })
         .from(claims)
         .leftJoin(audits, eq(claims.currentAuditId, audits.id))
-        .where(eq(claims.organizationId, organizationId))
+        .where(activeClaimFilter)
         .groupBy(sql`coalesce(${claims.carrier}, 'Unknown')`)
         .orderBy(desc(sql`count(*)`));
 
@@ -299,7 +314,7 @@ router.get(
         .from(claims)
         .leftJoin(usersTable, eq(usersTable.id, claims.assigneeUserId))
         .leftJoin(audits, eq(claims.currentAuditId, audits.id))
-        .where(eq(claims.organizationId, organizationId))
+        .where(activeClaimFilter)
         .groupBy(
           claims.assigneeUserId,
           usersTable.firstName,
@@ -319,7 +334,7 @@ router.get(
         })
         .from(claims)
         .innerJoin(audits, eq(claims.currentAuditId, audits.id))
-        .where(eq(claims.organizationId, organizationId))
+        .where(activeClaimFilter)
         .groupBy(sql`case
           when ${audits.overallScore} >= 90 then '90–100'
           when ${audits.overallScore} >= 75 then '75–89'
@@ -344,6 +359,8 @@ router.get(
           and(
             eq(claims.currentAuditId, audits.id),
             eq(claims.organizationId, organizationId),
+            ne(claims.status, "archived"),
+            ne(claims.systemStatus, "archived"),
           ),
         )
         .where(
@@ -382,6 +399,8 @@ router.get(
           and(
             eq(claims.currentAuditId, audits.id),
             eq(claims.organizationId, organizationId),
+            ne(claims.status, "archived"),
+            ne(claims.systemStatus, "archived"),
           ),
         )
         .where(eq(auditFindings.organizationId, organizationId));
@@ -420,6 +439,8 @@ router.get(
           and(
             eq(claims.currentAuditId, audits.id),
             eq(claims.organizationId, organizationId),
+            ne(claims.status, "archived"),
+            ne(claims.systemStatus, "archived"),
           ),
         )
         .where(eq(evidenceAnchors.organizationId, organizationId));
@@ -433,7 +454,7 @@ router.get(
           )), 0)::int`,
         })
         .from(claims)
-        .where(eq(claims.organizationId, organizationId))
+        .where(activeClaimFilter)
         .groupBy(claims.humanReviewStatus);
 
       const reviewedCount = reviewAgreement.reviewedCount;

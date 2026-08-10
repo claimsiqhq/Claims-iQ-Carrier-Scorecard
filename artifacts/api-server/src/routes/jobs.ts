@@ -1,8 +1,9 @@
 import { Router, type IRouter } from "express";
-import { and, eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { claimActivity, claims, db } from "@workspace/db";
 import {
   cancelOrganizationJob,
+  ClaimJobStateError,
   getOrganizationJob,
   listClaimJobs,
   listJobAttempts,
@@ -158,6 +159,8 @@ router.post(
               and(
                 eq(claims.id, cancelled.claimId!),
                 eq(claims.organizationId, req.organization!.organizationId),
+                ne(claims.status, "archived"),
+                ne(claims.systemStatus, "archived"),
               ),
             );
           await tx.insert(claimActivity).values({
@@ -219,6 +222,8 @@ router.post(
               and(
                 eq(claims.id, retried.claimId!),
                 eq(claims.organizationId, req.organization!.organizationId),
+                ne(claims.status, "archived"),
+                ne(claims.systemStatus, "archived"),
               ),
             );
           await tx.insert(claimActivity).values({
@@ -232,6 +237,10 @@ router.post(
       }
       res.status(202).json({ job: mapJob(retried) });
     } catch (error) {
+      if (error instanceof ClaimJobStateError) {
+        res.status(error.status).json({ error: error.message });
+        return;
+      }
       logger.error({ error }, "Processing job retry failed");
       res.status(500).json({ error: "Failed to retry processing job" });
     }

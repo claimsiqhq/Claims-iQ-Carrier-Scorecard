@@ -18,6 +18,10 @@ import {
 } from "lucide-react"
 import { UploadClaimsDialog } from "@/components/complete-iq/upload-claims-dialog"
 import {
+  ArchiveClaimsDialog,
+  type ArchiveClaimTarget,
+} from "@/features/claims/archive-claims-dialog"
+import {
   PageState,
   StatusPill,
   formatDate,
@@ -91,6 +95,8 @@ export default function ClaimsPage() {
   const dashboard = useQuery({ queryKey: queryKeys.dashboard, queryFn: api.getDashboard })
   const canAssign = Boolean(organization?.permissions.includes("claims:assign"))
   const canCreate = Boolean(organization?.permissions.includes("claims:create"))
+  const canDelete = Boolean(organization?.permissions.includes("claims:delete"))
+  const canSelect = canAssign || canDelete
   const canRetry = Boolean(organization?.permissions.includes("jobs:retry"))
   const assigneesQuery = useQuery({
     queryKey: queryKeys.claimAssignees,
@@ -131,6 +137,7 @@ export default function ClaimsPage() {
   const [savingView, setSavingView] = useState(false)
   const [bulkSaving, setBulkSaving] = useState(false)
   const [queueMessage, setQueueMessage] = useState<string | null>(null)
+  const [archiveTargets, setArchiveTargets] = useState<ArchiveClaimTarget[]>([])
 
   const deferredSearch = useDeferredValue(search)
   const queueFilters = useMemo(
@@ -158,12 +165,16 @@ export default function ClaimsPage() {
   const totalPages = Math.max(1, Math.ceil(totalMatches / PER_PAGE))
   const currentPage = Math.min(page, totalPages)
   const visibleClaims = allClaims
+  const selectableClaims = visibleClaims.filter(
+    (claim) => claim.status !== "archived" && claim.systemStatus !== "archived",
+  )
   const organizationHasClaims = (dashboard.data?.stats.totalClaims || totalMatches) > 0
   useEffect(() => {
     if (page > totalPages) setPage(totalPages)
   }, [page, totalPages])
   const allVisibleSelected =
-    visibleClaims.length > 0 && visibleClaims.every((claim) => selectedIds.includes(claim.id))
+    selectableClaims.length > 0
+    && selectableClaims.every((claim) => selectedIds.includes(claim.id))
 
   const applyPreset = (next: Preset) => {
     setPreset(next)
@@ -262,6 +273,26 @@ export default function ClaimsPage() {
         : `${selectedIds.length} claim${selectedIds.length === 1 ? "" : "s"} ${
             assigneeUserId ? `assigned to ${assigneeName || "an organization member"}` : "unassigned"
           }.`,
+    )
+  }
+
+  const openBulkArchive = () => {
+    if (selectedIds.length > 100) {
+      setQueueMessage("Delete up to 100 claims at a time.")
+      return
+    }
+    setQueueMessage(null)
+    setArchiveTargets(
+      selectedIds.map((claimId) => {
+        const claim = visibleClaims.find((candidate) => candidate.id === claimId)
+        return (
+          claim || {
+            id: claimId,
+            claimNumber: claimId,
+            insuredName: "Selected on another queue page",
+          }
+        )
+      }),
     )
   }
 
@@ -594,39 +625,62 @@ export default function ClaimsPage() {
                   <strong className="ciq-mono mr-1 text-xs">
                     {selectedIds.length} selected
                   </strong>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={!user?.id || bulkSaving}
-                    onClick={() => user?.id && void bulkAssign(user.id)}
-                  >
-                    <UserRoundCheck aria-hidden="true" />
-                    Assign to me
-                  </Button>
-                  <select
-                    className="ciq-control min-w-44"
-                    defaultValue=""
-                    disabled={!canAssign || bulkSaving || assigneesQuery.isLoading}
-                    onChange={(event) => {
-                      if (event.target.value) void bulkAssign(event.target.value)
-                      event.target.value = ""
-                    }}
-                    aria-label="Assign selected claims to an organization member"
-                  >
-                    <option value="">Assign to team member…</option>
-                    {(assigneesQuery.data?.assignees || []).map((assignee) => (
-                      <option key={assignee.userId} value={assignee.userId}>
-                        {assignee.name} · {humanize(assignee.role)}
-                      </option>
-                    ))}
-                  </select>
+                  {canAssign && (
+                    <>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={!user?.id || bulkSaving}
+                        onClick={() => user?.id && void bulkAssign(user.id)}
+                      >
+                        <UserRoundCheck aria-hidden="true" />
+                        Assign to me
+                      </Button>
+                      <select
+                        className="ciq-control min-w-44"
+                        defaultValue=""
+                        disabled={bulkSaving || assigneesQuery.isLoading}
+                        onChange={(event) => {
+                          if (event.target.value) void bulkAssign(event.target.value)
+                          event.target.value = ""
+                        }}
+                        aria-label="Assign selected claims to an organization member"
+                      >
+                        <option value="">Assign to team member…</option>
+                        {(assigneesQuery.data?.assignees || []).map((assignee) => (
+                          <option key={assignee.userId} value={assignee.userId}>
+                            {assignee.name} · {humanize(assignee.role)}
+                          </option>
+                        ))}
+                      </select>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={bulkSaving}
+                        onClick={() => void bulkAssign(null)}
+                      >
+                        Clear assignment
+                      </Button>
+                    </>
+                  )}
+                  {canDelete && (
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      disabled={bulkSaving}
+                      onClick={openBulkArchive}
+                    >
+                      <Trash2 aria-hidden="true" />
+                      Delete selected
+                    </Button>
+                  )}
                   <Button
                     size="sm"
                     variant="ghost"
                     disabled={bulkSaving}
-                    onClick={() => void bulkAssign(null)}
+                    onClick={() => setSelectedIds([])}
                   >
-                    Clear assignment
+                    Clear selection
                   </Button>
                 </>
               )}
@@ -645,21 +699,22 @@ export default function ClaimsPage() {
                   <caption>Complete iQ operational claim queue</caption>
                   <thead>
                     <tr>
-                      {canAssign && (
+                      {canSelect && (
                         <th scope="col" className="w-14">
                           <Checkbox
                             checked={allVisibleSelected}
+                            disabled={selectableClaims.length === 0}
                             onCheckedChange={(checked) =>
                               setSelectedIds((current) =>
                                 checked
                                   ? Array.from(
                                       new Set([
                                         ...current,
-                                        ...visibleClaims.map((claim) => claim.id),
+                                        ...selectableClaims.map((claim) => claim.id),
                                       ]),
                                     )
                                   : current.filter(
-                                      (id) => !visibleClaims.some((claim) => claim.id === id),
+                                      (id) => !selectableClaims.some((claim) => claim.id === id),
                                     ),
                               )
                             }
@@ -676,7 +731,7 @@ export default function ClaimsPage() {
                       {visibleColumns.includes("risk") && <th scope="col">Risk</th>}
                       {visibleColumns.includes("score") && <th scope="col">Score</th>}
                       <th scope="col">Next action</th>
-                      <th scope="col">Preview</th>
+                      <th scope="col">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -689,17 +744,25 @@ export default function ClaimsPage() {
                           if (event.key === "Enter") {
                             setLocation(`/claims/${claim.id}`)
                           }
-                          if (event.key === " " && canAssign) {
+                          if (
+                            event.key === " "
+                            && canSelect
+                            && claim.status !== "archived"
+                            && claim.systemStatus !== "archived"
+                          ) {
                             event.preventDefault()
                             toggleSelected(claim.id, !selectedIds.includes(claim.id))
                           }
                         }}
                         aria-label={`${claim.claimNumber}, ${claim.insuredName}`}
                       >
-                        {canAssign && (
+                        {canSelect && (
                           <td>
                             <Checkbox
                               checked={selectedIds.includes(claim.id)}
+                              disabled={
+                                claim.status === "archived" || claim.systemStatus === "archived"
+                              }
                               onCheckedChange={(checked) => toggleSelected(claim.id, checked === true)}
                               aria-label={`Select claim ${claim.claimNumber}`}
                             />
@@ -775,14 +838,29 @@ export default function ClaimsPage() {
                           )}
                         </td>
                         <td>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => setPreviewId(claim.id)}
-                            aria-label={`Preview ${claim.claimNumber}`}
-                          >
-                            <Eye aria-hidden="true" />
-                          </Button>
+                          <div className="flex items-center gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => setPreviewId(claim.id)}
+                              aria-label={`Preview ${claim.claimNumber}`}
+                            >
+                              <Eye aria-hidden="true" />
+                            </Button>
+                            {canDelete
+                              && claim.status !== "archived"
+                              && claim.systemStatus !== "archived" && (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="text-[var(--ciq-critical)] hover:bg-[var(--ciq-critical-soft)] hover:text-[var(--ciq-critical)]"
+                                  onClick={() => setArchiveTargets([claim])}
+                                  aria-label={`Delete claim ${claim.claimNumber}`}
+                                >
+                                  <Trash2 aria-hidden="true" />
+                                </Button>
+                              )}
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -797,9 +875,10 @@ export default function ClaimsPage() {
                     className="rounded-md border border-[var(--ciq-border)] bg-[var(--ciq-surface)] p-4"
                   >
                     <div className="flex items-start justify-between gap-3">
-                      {canAssign && (
+                      {canSelect && (
                         <Checkbox
                           checked={selectedIds.includes(claim.id)}
+                          disabled={claim.status === "archived" || claim.systemStatus === "archived"}
                           onCheckedChange={(checked) => toggleSelected(claim.id, checked === true)}
                           aria-label={`Select claim ${claim.claimNumber}`}
                           className="-ml-2 -mt-2"
@@ -824,7 +903,7 @@ export default function ClaimsPage() {
                       {claim.humanReviewStatus && <StatusPill value={claim.humanReviewStatus} />}
                       {claim.riskLevel && <StatusPill value={claim.riskLevel} />}
                     </div>
-                    <div className="mt-4 flex gap-2">
+                    <div className="mt-4 flex flex-wrap gap-2">
                       <Button variant="outline" className="flex-1" onClick={() => setPreviewId(claim.id)}>
                         <Eye aria-hidden="true" />
                         Preview
@@ -835,6 +914,18 @@ export default function ClaimsPage() {
                           <ArrowRight aria-hidden="true" />
                         </Link>
                       </Button>
+                      {canDelete
+                        && claim.status !== "archived"
+                        && claim.systemStatus !== "archived" && (
+                          <Button
+                            variant="outline"
+                            className="w-full border-[var(--ciq-critical)]/30 text-[var(--ciq-critical)] hover:bg-[var(--ciq-critical-soft)] hover:text-[var(--ciq-critical)]"
+                            onClick={() => setArchiveTargets([claim])}
+                          >
+                            <Trash2 aria-hidden="true" />
+                            Delete claim
+                          </Button>
+                        )}
                     </div>
                   </article>
                 ))}
@@ -844,11 +935,15 @@ export default function ClaimsPage() {
             <div className="p-4">
               <PageState
                 kind={organizationHasClaims ? "empty" : "unavailable"}
-                title={organizationHasClaims ? "No claims match this view" : "No claim records returned"}
+                title={
+                  organizationHasClaims
+                    ? "No claims match this view"
+                    : "No active claims in the queue"
+                }
                 description={
                   organizationHasClaims
                     ? "Adjust the current filters or return to the full queue."
-                    : "Start an intake to add the first source package."
+                    : "Start an intake, or choose Archived in the Workflow filter to review retained records."
                 }
                 actionLabel={organizationHasClaims ? "Clear filters" : undefined}
                 onAction={organizationHasClaims ? () => applyPreset("all") : undefined}
@@ -921,6 +1016,18 @@ export default function ClaimsPage() {
       </Dialog>
 
       <ClaimPreview claimId={previewId} onOpenChange={(open) => !open && setPreviewId(null)} />
+      <ArchiveClaimsDialog
+        open={archiveTargets.length > 0}
+        claims={archiveTargets}
+        onOpenChange={(open) => {
+          if (!open) setArchiveTargets([])
+        }}
+        onArchived={(result) => {
+          const archivedIds = new Set(archiveTargets.map((claim) => claim.id))
+          setSelectedIds((current) => current.filter((claimId) => !archivedIds.has(claimId)))
+          setQueueMessage(result.message)
+        }}
+      />
     </div>
   )
 }

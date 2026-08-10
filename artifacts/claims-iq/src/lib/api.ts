@@ -207,6 +207,17 @@ export const api = {
   getClaimAssignees: () =>
     apiRequest<{ assignees: ClaimAssignee[] }>("/claims/assignees"),
   getClaim: (id: string) => apiRequest<ClaimDetail>(`/claims/${encodeURIComponent(id)}`),
+  archiveClaims: (claimIds: string[]) =>
+    apiRequest<{
+      success: boolean
+      message: string
+      archivedCount: number
+      alreadyArchivedCount: number
+      claimIds: string[]
+    }>("/claims/archive", {
+      method: "POST",
+      body: JSON.stringify({ claimIds }),
+    }),
   archiveClaim: (id: string) =>
     apiRequest<{ success: boolean; message?: string }>(`/claims/${encodeURIComponent(id)}`, {
       method: "DELETE",
