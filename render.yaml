@@ -14,7 +14,9 @@ services:
     maxShutdownDelaySeconds: 60
     buildCommand: corepack enable && corepack prepare pnpm@11.11.0 --activate && pnpm install --frozen-lockfile && pnpm --filter @workspace/api-server run build
     preDeployCommand: pnpm --filter @workspace/api-server run migrate
-    startCommand: pnpm --filter @workspace/api-server run start
+    # Render exposes one service-level environment to both predeploy and runtime.
+    # Strip release-only owner credentials before starting the long-running API.
+    startCommand: env -u MIGRATION_DATABASE_URL -u MIGRATION_SUPABASE_SERVICE_ROLE pnpm --filter @workspace/api-server run start
     healthCheckPath: /api/healthz
     envVars:
       - key: NODE_ENV
@@ -25,8 +27,8 @@ services:
       # Migration owner and four least-privilege runtime database planes.
       - key: MIGRATION_DATABASE_URL
         sync: false
-      # Read only by the migration bundle during predeploy. API/worker runtime
-      # modules do not import the migration service-role adapter.
+      # Read only by the migration bundle during predeploy, then removed from
+      # the environment inherited by the long-running API process.
       - key: MIGRATION_SUPABASE_SERVICE_ROLE
         sync: false
       - key: IDENTITY_DATABASE_URL
