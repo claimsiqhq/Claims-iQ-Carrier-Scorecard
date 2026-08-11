@@ -35,12 +35,24 @@ BEGIN
         'CREATE ROLE %I NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT NOREPLICATION NOBYPASSRLS',
         runtime_role
       );
+    ELSIF EXISTS (
+      SELECT 1
+      FROM pg_catalog.pg_roles
+      WHERE rolname = runtime_role
+        AND (
+          rolcanlogin
+          OR rolsuper
+          OR rolcreatedb
+          OR rolcreaterole
+          OR NOT rolinherit
+          OR rolreplication
+          OR rolbypassrls
+        )
+    ) THEN
+      RAISE EXCEPTION
+        'Existing capability role % has unsafe attributes; reconcile it before migration',
+        runtime_role;
     END IF;
-
-    EXECUTE format(
-      'ALTER ROLE %I WITH NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT NOREPLICATION NOBYPASSRLS',
-      runtime_role
-    );
   END LOOP;
 END
 $roles$;
