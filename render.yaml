@@ -22,13 +22,31 @@ services:
       - key: NODE_VERSION
         value: "24.6.0"
 
-      # Supabase. Enter these values during initial Blueprint setup.
-      - key: SUPABASE_DATABASE_URL
+      # Migration owner and four least-privilege runtime database planes.
+      - key: MIGRATION_DATABASE_URL
         sync: false
+      # Read only by the migration bundle during predeploy. API/worker runtime
+      # modules do not import the migration service-role adapter.
+      - key: MIGRATION_SUPABASE_SERVICE_ROLE
+        sync: false
+      - key: IDENTITY_DATABASE_URL
+        sync: false
+      - key: TENANT_DATABASE_URL
+        sync: false
+      - key: PLATFORM_DATABASE_URL
+        sync: false
+      - key: OPERATIONS_DATABASE_URL
+        sync: false
+      # Tenant-scoped Supabase Storage credentials. Long-running entrypoints
+      # use only publishable credentials and scoped server-minted JWTs.
       - key: SUPABASE_URL
         sync: false
-      - key: SUPABASE_SERVICE_ROLE
+      - key: SUPABASE_PUBLISHABLE_KEY
         sync: false
+      - key: SUPABASE_JWT_SECRET
+        sync: false
+      - key: SUPABASE_STORAGE_JWT_TTL_SECONDS
+        value: "60"
 
       # Google Gemini. GEMINI_MODEL is intentionally Dashboard-managed so the
       # model can change without changing or resyncing this Blueprint.
@@ -57,6 +75,8 @@ services:
         value: "60"
       - key: INVITATION_TTL_HOURS
         value: "48"
+      - key: PLATFORM_TENANT_ACCESS_TTL_MINUTES
+        value: "60"
       - key: LOG_LEVEL
         value: info
       - key: DURABLE_WORKER_ENABLED
@@ -78,21 +98,28 @@ services:
         value: production
       - key: NODE_VERSION
         value: "24.6.0"
-      - key: SUPABASE_DATABASE_URL
+      - key: OPERATIONS_DATABASE_URL
         fromService:
           name: complete-iq-carrier-audit-api
           type: web
-          envVarKey: SUPABASE_DATABASE_URL
+          envVarKey: OPERATIONS_DATABASE_URL
       - key: SUPABASE_URL
         fromService:
           name: complete-iq-carrier-audit-api
           type: web
           envVarKey: SUPABASE_URL
-      - key: SUPABASE_SERVICE_ROLE
+      - key: SUPABASE_PUBLISHABLE_KEY
         fromService:
           name: complete-iq-carrier-audit-api
           type: web
-          envVarKey: SUPABASE_SERVICE_ROLE
+          envVarKey: SUPABASE_PUBLISHABLE_KEY
+      - key: SUPABASE_JWT_SECRET
+        fromService:
+          name: complete-iq-carrier-audit-api
+          type: web
+          envVarKey: SUPABASE_JWT_SECRET
+      - key: SUPABASE_STORAGE_JWT_TTL_SECONDS
+        value: "60"
       - key: GEMINI_API_KEY
         fromService:
           name: complete-iq-carrier-audit-api

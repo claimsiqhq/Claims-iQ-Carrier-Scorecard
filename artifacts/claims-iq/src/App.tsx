@@ -8,6 +8,10 @@ import { BrandMark } from "@/components/complete-iq/brand-mark";
 import { AppShell } from "@/components/layout/app-shell";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
 import { ApiError } from "@/lib/api";
+import TenantAccessPage, {
+  NoTenantAccessPage,
+  PlatformAdminShell,
+} from "@/features/platform/tenant-access-page";
 const LoginPage = lazy(() => import("@/features/auth/login-page"));
 const ForgotPasswordPage = lazy(() => import("@/features/auth/forgot-password-page"));
 const ResetPasswordPage = lazy(() => import("@/features/auth/reset-password-page"));
@@ -50,7 +54,7 @@ function AppLoading() {
 }
 
 function AuthGate() {
-  const { user, loading } = useAuth();
+  const { user, organization, loading, isPlatformAdmin } = useAuth();
 
   if (loading) return <AppLoading />;
 
@@ -58,7 +62,11 @@ function AuthGate() {
     return <LoginPage />;
   }
 
-  return <AppLayout />;
+  if (!organization) {
+    return isPlatformAdmin ? <OutsidePlatformRoutes /> : <NoTenantAccessPage />;
+  }
+
+  return <AppLayout key={`${user.id}:${organization.id}`} />;
 }
 
 function AppRoutes() {
@@ -74,25 +82,39 @@ function AppRoutes() {
   );
 }
 
-function AdminRoute({ component: Component }: { component: React.ComponentType }) {
-  const { isAdmin } = useAuth();
+function SettingsManagerRoute({ component: Component }: { component: React.ComponentType }) {
+  const { canManageSettings } = useAuth();
   const [, setLocation] = useLocation();
   useEffect(() => {
-    if (!isAdmin) setLocation("/");
-  }, [isAdmin, setLocation]);
-  if (!isAdmin) return null;
+    if (!canManageSettings) setLocation("/");
+  }, [canManageSettings, setLocation]);
+  if (!canManageSettings) return null;
   return <Component />;
 }
 
-function GlobalAdminRoute({ component: Component }: { component: React.ComponentType }) {
-  const { user } = useAuth();
+function PlatformAdminRoute({ component: Component }: { component: React.ComponentType }) {
+  const { isPlatformAdmin } = useAuth();
   const [, setLocation] = useLocation();
-  const allowed = user?.role === "admin";
   useEffect(() => {
-    if (!allowed) setLocation("/");
-  }, [allowed, setLocation]);
-  if (!allowed) return null;
+    if (!isPlatformAdmin) setLocation("/");
+  }, [isPlatformAdmin, setLocation]);
+  if (!isPlatformAdmin) return null;
   return <Component />;
+}
+
+function OutsidePlatformRoutes() {
+  return (
+    <PlatformAdminShell>
+      <Switch>
+        <Route path="/tenant-access" component={TenantAccessPage} />
+        <Route path="/platform/carriers/:key">
+          {(params) => <CarrierEditorPage carrierKey={params.key} />}
+        </Route>
+        <Route path="/platform/carriers" component={CarriersPage} />
+        <Route>{() => <LegacyRedirect to="/tenant-access" />}</Route>
+      </Switch>
+    </PlatformAdminShell>
+  );
 }
 
 function AppLayout() {
@@ -105,9 +127,18 @@ function AppLayout() {
           <Route path="/insights" component={InsightsPage} />
           <Route path="/upload">{() => <LegacyRedirect to="/claims?upload=1" />}</Route>
           <Route path="/audit-results">{() => <LegacyRedirect to="/claims" />}</Route>
-          <Route path="/settings">{() => <AdminRoute component={SettingsPage} />}</Route>
-          <Route path="/carriers">{() => <GlobalAdminRoute component={CarriersPage} />}</Route>
-          <Route path="/carriers/:key">{(params) => <AdminCarrierEditor carrierKey={params.key} />}</Route>
+          <Route path="/settings">{() => <SettingsManagerRoute component={SettingsPage} />}</Route>
+          <Route path="/tenant-access">{() => <LegacyRedirect to="/" />}</Route>
+          <Route path="/platform/carriers/:key">
+            {(params) => <PlatformCarrierEditor carrierKey={params.key} />}
+          </Route>
+          <Route path="/platform/carriers">
+            {() => <PlatformAdminRoute component={CarriersPage} />}
+          </Route>
+          <Route path="/carriers/:key">
+            {(params) => <LegacyRedirect to={`/platform/carriers/${params.key}`} />}
+          </Route>
+          <Route path="/carriers">{() => <LegacyRedirect to="/platform/carriers" />}</Route>
           <Route component={NotFoundPage} />
         </Switch>
     </AppShell>
@@ -120,14 +151,13 @@ function LegacyRedirect({ to }: { to: string }) {
   return null;
 }
 
-function AdminCarrierEditor({ carrierKey }: { carrierKey: string }) {
-  const { user } = useAuth();
+function PlatformCarrierEditor({ carrierKey }: { carrierKey: string }) {
+  const { isPlatformAdmin } = useAuth();
   const [, setLocation] = useLocation();
-  const allowed = user?.role === "admin";
   useEffect(() => {
-    if (!allowed) setLocation("/");
-  }, [allowed, setLocation]);
-  if (!allowed) return null;
+    if (!isPlatformAdmin) setLocation("/");
+  }, [isPlatformAdmin, setLocation]);
+  if (!isPlatformAdmin) return null;
   return <CarrierEditorPage carrierKey={carrierKey} />;
 }
 

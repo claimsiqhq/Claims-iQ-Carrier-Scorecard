@@ -4,17 +4,22 @@
  * Api
  * Typed contract for the Complete iQ Carrier Audit API.
 
-Authenticated requests use the `sid` HTTP-only session cookie. The optional
-`X-Organization-Id` header selects one of the caller's organization
-memberships; otherwise the default (or earliest) membership is used.
-Organization-scoped lookups deliberately return `404` when a resource
-belongs to another tenant so that cross-tenant identifiers are not
-disclosed.
+Authenticated requests use the `sid` HTTP-only session cookie. Ordinary
+tenant context is bound by the server from exactly one organization
+membership; accounts with zero or multiple memberships cannot access
+tenant routes. Tenant-selection headers and request-body overrides are
+rejected.
+
+Platform administrators have no tenant context by default. They use the
+reason-required `/platform/tenant-access` endpoints to create or revoke a
+temporary, audited lease bound to the authenticated session. Tenant-scoped
+lookups deliberately return `404` when a resource belongs to another
+tenant so that cross-tenant identifiers are not disclosed.
 
 Job-enqueueing operations that accept `X-Idempotency-Key` scope that value
-to the selected organization and operation inputs. Repeating an equivalent
-request returns the existing durable processing job and sets `duplicate`
-to `true` when that field is present.
+to the authenticated session-bound tenant and operation inputs. Repeating
+an equivalent request returns the existing durable processing job and sets
+`duplicate` to `true` when that field is present.
 
  * OpenAPI spec version: 1.0.0
  */
@@ -40,6 +45,7 @@ import type {
   BadGatewayResponse,
   BadRequestResponse,
   CarrierDeactivationResponse,
+  CarrierEntityMutationResponse,
   CarrierOption,
   CarrierPreflightRequest,
   CarrierPreflightResult,
@@ -54,6 +60,7 @@ import type {
   ClaimDetail,
   ClaimsQueueResponse,
   ConflictResponse,
+  CreateCarrierEntityRequest,
   CreateClaimRequest,
   CreateDocumentRequest,
   CreateInvitationRequest,
@@ -74,7 +81,6 @@ import type {
   InspectPasswordReset200,
   InternalServerErrorResponse,
   InvitationPreview,
-  LegacySignedUrl,
   ListClaimActivityParams,
   ListClaimProcessingJobsParams,
   ListClaimsParams,
@@ -90,6 +96,8 @@ import type {
   OrganizationSettingsInput,
   PasswordResetDelivery,
   PayloadTooLargeResponse,
+  PlatformTenantAccessRequest,
+  PlatformTenantSummary,
   ProcessingJobDetail,
   ProcessingJobEnvelope,
   ProcessingJobPage,
@@ -110,6 +118,7 @@ import type {
   TooManyRequestsResponse,
   UnauthorizedResponse,
   UpdateAssignmentRequest,
+  UpdateCarrierEntityRequest,
   UpdateFindingRequest,
   UpdateOrganizationMemberRoleBody,
   UpdateReviewStatusRequest,
@@ -1344,7 +1353,8 @@ export function useGetInsights<
 }
 
 /**
- * Returns claims in descending creation order for the selected organization.
+ * Returns claims in descending creation order for the authenticated
+session-bound tenant.
 Requires `claims:read`. Pagination is offset-based and the response is a
 bare array; the active route does not return a total count.
 
@@ -2098,8 +2108,9 @@ export const useArchiveClaim = <
 };
 
 /**
- * Requires `claims:assign`. The assignee must be a member of the selected
-organization; a cross-tenant or unknown assignee is reported as not found.
+ * Requires `claims:assign`. The assignee must be a member of the
+authenticated session-bound tenant; a cross-tenant or unknown assignee
+is reported as not found.
 
  * @summary Assign or unassign a claim
  */
@@ -2564,7 +2575,7 @@ export function useListClaimActivity<
 }
 
 /**
- * Requires `views:manage`; results are scoped to the selected organization and current user.
+ * Requires `views:manage`; results are scoped to the authenticated session-bound tenant and current user.
  * @summary List the current user's saved views
  */
 export const getListSavedViewsUrl = (params?: ListSavedViewsParams) => {
@@ -2781,7 +2792,7 @@ export const useCreateSavedView = <
 };
 
 /**
- * Requires `views:manage`; only the owning user in the selected organization can update it.
+ * Requires `views:manage`; only the owning user in the authenticated session-bound tenant can update it.
  * @summary Update a saved view
  */
 export const getUpdateSavedViewUrl = (viewId: string) => {
@@ -2890,7 +2901,7 @@ export const useUpdateSavedView = <
 };
 
 /**
- * Requires `views:manage`; only the owning user in the selected organization can delete it.
+ * Requires `views:manage`; only the owning user in the authenticated session-bound tenant can delete it.
  * @summary Delete a saved view
  */
 export const getDeleteSavedViewUrl = (viewId: string) => {
@@ -2998,9 +3009,9 @@ export const useDeleteSavedView = <
 /**
  * Stores a file, creates a processing claim and document, and enqueues an
 `ingest` job. Requires `claims:create`. The idempotency identity includes
-the selected organization, file SHA-256, requested carrier, and optional
-caller key. Equivalent requests return the existing job with
-`duplicate: true`.
+the authenticated session-bound tenant, file SHA-256, requested
+`carrierEntityId`, and optional caller key. Equivalent requests return
+the existing job with `duplicate: true`.
 
  * @summary Upload and enqueue a claim file
  */
@@ -3014,8 +3025,8 @@ export const ingestClaimFile = async (
 ): Promise<IngestResponse> => {
   const formData = new FormData();
   formData.append(`file`, ingestRequest.file);
-  if (ingestRequest.carrier !== undefined) {
-    formData.append(`carrier`, ingestRequest.carrier);
+  if (ingestRequest.carrierEntityId !== undefined) {
+    formData.append(`carrierEntityId`, ingestRequest.carrierEntityId);
   }
 
   return customFetch<IngestResponse>(getIngestClaimFileUrl(), {
@@ -3335,8 +3346,9 @@ export const useRetryClaimProcessing = <
 
 /**
  * Requires `audits:run`. Enqueues or reuses a `reprocess` job for the latest
-claim-file document. The idempotency identity includes the carrier and
-either `X-Idempotency-Key` or the current successful audit identity.
+claim-file document. The idempotency identity includes the tenant-owned
+`carrierEntityId` and either `X-Idempotency-Key` or the current
+successful audit identity.
 Archived claims return `409`.
 
  * @summary Reprocess a claim with a carrier
@@ -3347,7 +3359,7 @@ export const getReprocessClaimUrl = (id: string) => {
 
 export const reprocessClaim = async (
   id: string,
-  reprocessClaimRequest: ReprocessClaimRequest,
+  reprocessClaimRequest?: ReprocessClaimRequest,
   options?: RequestInit,
 ): Promise<EnqueueJobResponse> => {
   return customFetch<EnqueueJobResponse>(getReprocessClaimUrl(id), {
@@ -4034,10 +4046,11 @@ export const useRetryProcessingJob = <
 };
 
 /**
- * Associates an organization-owned storage path with a claim. Upload the
-bytes through `/storage/upload` first. Requires `claims:update`.
+ * Uploads one file into tenant-isolated storage and registers its canonical
+document ID for the claim. Raw storage paths are not accepted. Requires
+`claims:update`.
 
- * @summary Register an uploaded claim document
+ * @summary Upload and register a claim document
  */
 export const getCreateClaimDocumentUrl = (id: string) => {
   return `/api/claims/${id}/documents`;
@@ -4048,11 +4061,16 @@ export const createClaimDocument = async (
   createDocumentRequest: CreateDocumentRequest,
   options?: RequestInit,
 ): Promise<CreatedDocument> => {
+  const formData = new FormData();
+  formData.append(`file`, createDocumentRequest.file);
+  if (createDocumentRequest.type !== undefined) {
+    formData.append(`type`, createDocumentRequest.type);
+  }
+
   return customFetch<CreatedDocument>(getCreateClaimDocumentUrl(id), {
     ...options,
     method: "POST",
-    headers: { "Content-Type": "application/json", ...options?.headers },
-    body: JSON.stringify(createDocumentRequest),
+    body: formData,
   });
 };
 
@@ -4062,6 +4080,7 @@ export const getCreateClaimDocumentMutationOptions = <
     | UnauthorizedResponse
     | ForbiddenResponse
     | NotFoundResponse
+    | PayloadTooLargeResponse
     | TooManyRequestsResponse
     | InternalServerErrorResponse
   >,
@@ -4110,12 +4129,13 @@ export type CreateClaimDocumentMutationError = ErrorType<
   | UnauthorizedResponse
   | ForbiddenResponse
   | NotFoundResponse
+  | PayloadTooLargeResponse
   | TooManyRequestsResponse
   | InternalServerErrorResponse
 >;
 
 /**
- * @summary Register an uploaded claim document
+ * @summary Upload and register a claim document
  */
 export const useCreateClaimDocument = <
   TError = ErrorType<
@@ -4123,6 +4143,7 @@ export const useCreateClaimDocument = <
     | UnauthorizedResponse
     | ForbiddenResponse
     | NotFoundResponse
+    | PayloadTooLargeResponse
     | TooManyRequestsResponse
     | InternalServerErrorResponse
   >,
@@ -4484,7 +4505,7 @@ export function useDownloadDocument<
 }
 
 /**
- * Requires `claims:read`; the returned URL expires after one hour.
+ * Requires `claims:read`; the returned URL expires after 120 seconds.
  * @summary Create an authorized document signed URL
  */
 export const getGetDocumentSignedUrlUrl = (documentId: string) => {
@@ -4586,242 +4607,6 @@ export function useGetDocumentSignedUrl<
   },
 ): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetDocumentSignedUrlQueryOptions(documentId, options);
-
-  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
-    queryKey: QueryKey;
-  };
-
-  return { ...query, queryKey: queryOptions.queryKey };
-}
-
-/**
- * Legacy catch-all download route. `storagePath` may contain `/` path
-separators and must match a document in the selected organization.
-Prefer the document-ID route for generated clients.
-
- * @summary Download an authorized object by storage path
- */
-export const getDownloadStorageObjectUrl = (storagePath: string) => {
-  return `/api/storage/download/${storagePath}`;
-};
-
-export const downloadStorageObject = async (
-  storagePath: string,
-  options?: RequestInit,
-): Promise<Blob> => {
-  return customFetch<Blob>(getDownloadStorageObjectUrl(storagePath), {
-    ...options,
-    method: "GET",
-  });
-};
-
-export const getDownloadStorageObjectQueryKey = (storagePath: string) => {
-  return [`/api/storage/download/${storagePath}`] as const;
-};
-
-export const getDownloadStorageObjectQueryOptions = <
-  TData = Awaited<ReturnType<typeof downloadStorageObject>>,
-  TError = ErrorType<
-    | BadRequestResponse
-    | UnauthorizedResponse
-    | ForbiddenResponse
-    | NotFoundResponse
-    | TooManyRequestsResponse
-    | InternalServerErrorResponse
-  >,
->(
-  storagePath: string,
-  options?: {
-    query?: UseQueryOptions<
-      Awaited<ReturnType<typeof downloadStorageObject>>,
-      TError,
-      TData
-    >;
-    request?: SecondParameter<typeof customFetch>;
-  },
-) => {
-  const { query: queryOptions, request: requestOptions } = options ?? {};
-
-  const queryKey =
-    queryOptions?.queryKey ?? getDownloadStorageObjectQueryKey(storagePath);
-
-  const queryFn: QueryFunction<
-    Awaited<ReturnType<typeof downloadStorageObject>>
-  > = ({ signal }) =>
-    downloadStorageObject(storagePath, { signal, ...requestOptions });
-
-  return {
-    queryKey,
-    queryFn,
-    enabled: !!storagePath,
-    ...queryOptions,
-  } as UseQueryOptions<
-    Awaited<ReturnType<typeof downloadStorageObject>>,
-    TError,
-    TData
-  > & { queryKey: QueryKey };
-};
-
-export type DownloadStorageObjectQueryResult = NonNullable<
-  Awaited<ReturnType<typeof downloadStorageObject>>
->;
-export type DownloadStorageObjectQueryError = ErrorType<
-  | BadRequestResponse
-  | UnauthorizedResponse
-  | ForbiddenResponse
-  | NotFoundResponse
-  | TooManyRequestsResponse
-  | InternalServerErrorResponse
->;
-
-/**
- * @summary Download an authorized object by storage path
- */
-
-export function useDownloadStorageObject<
-  TData = Awaited<ReturnType<typeof downloadStorageObject>>,
-  TError = ErrorType<
-    | BadRequestResponse
-    | UnauthorizedResponse
-    | ForbiddenResponse
-    | NotFoundResponse
-    | TooManyRequestsResponse
-    | InternalServerErrorResponse
-  >,
->(
-  storagePath: string,
-  options?: {
-    query?: UseQueryOptions<
-      Awaited<ReturnType<typeof downloadStorageObject>>,
-      TError,
-      TData
-    >;
-    request?: SecondParameter<typeof customFetch>;
-  },
-): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
-  const queryOptions = getDownloadStorageObjectQueryOptions(
-    storagePath,
-    options,
-  );
-
-  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
-    queryKey: QueryKey;
-  };
-
-  return { ...query, queryKey: queryOptions.queryKey };
-}
-
-/**
- * Legacy catch-all signing route. `storagePath` may contain `/` path
-separators and must match a document in the selected organization.
-
- * @summary Create a signed URL by storage path
- */
-export const getGetStorageObjectSignedUrlUrl = (storagePath: string) => {
-  return `/api/storage/signed-url/${storagePath}`;
-};
-
-export const getStorageObjectSignedUrl = async (
-  storagePath: string,
-  options?: RequestInit,
-): Promise<LegacySignedUrl> => {
-  return customFetch<LegacySignedUrl>(
-    getGetStorageObjectSignedUrlUrl(storagePath),
-    {
-      ...options,
-      method: "GET",
-    },
-  );
-};
-
-export const getGetStorageObjectSignedUrlQueryKey = (storagePath: string) => {
-  return [`/api/storage/signed-url/${storagePath}`] as const;
-};
-
-export const getGetStorageObjectSignedUrlQueryOptions = <
-  TData = Awaited<ReturnType<typeof getStorageObjectSignedUrl>>,
-  TError = ErrorType<
-    | BadRequestResponse
-    | UnauthorizedResponse
-    | ForbiddenResponse
-    | NotFoundResponse
-    | TooManyRequestsResponse
-    | InternalServerErrorResponse
-  >,
->(
-  storagePath: string,
-  options?: {
-    query?: UseQueryOptions<
-      Awaited<ReturnType<typeof getStorageObjectSignedUrl>>,
-      TError,
-      TData
-    >;
-    request?: SecondParameter<typeof customFetch>;
-  },
-) => {
-  const { query: queryOptions, request: requestOptions } = options ?? {};
-
-  const queryKey =
-    queryOptions?.queryKey ?? getGetStorageObjectSignedUrlQueryKey(storagePath);
-
-  const queryFn: QueryFunction<
-    Awaited<ReturnType<typeof getStorageObjectSignedUrl>>
-  > = ({ signal }) =>
-    getStorageObjectSignedUrl(storagePath, { signal, ...requestOptions });
-
-  return {
-    queryKey,
-    queryFn,
-    enabled: !!storagePath,
-    ...queryOptions,
-  } as UseQueryOptions<
-    Awaited<ReturnType<typeof getStorageObjectSignedUrl>>,
-    TError,
-    TData
-  > & { queryKey: QueryKey };
-};
-
-export type GetStorageObjectSignedUrlQueryResult = NonNullable<
-  Awaited<ReturnType<typeof getStorageObjectSignedUrl>>
->;
-export type GetStorageObjectSignedUrlQueryError = ErrorType<
-  | BadRequestResponse
-  | UnauthorizedResponse
-  | ForbiddenResponse
-  | NotFoundResponse
-  | TooManyRequestsResponse
-  | InternalServerErrorResponse
->;
-
-/**
- * @summary Create a signed URL by storage path
- */
-
-export function useGetStorageObjectSignedUrl<
-  TData = Awaited<ReturnType<typeof getStorageObjectSignedUrl>>,
-  TError = ErrorType<
-    | BadRequestResponse
-    | UnauthorizedResponse
-    | ForbiddenResponse
-    | NotFoundResponse
-    | TooManyRequestsResponse
-    | InternalServerErrorResponse
-  >,
->(
-  storagePath: string,
-  options?: {
-    query?: UseQueryOptions<
-      Awaited<ReturnType<typeof getStorageObjectSignedUrl>>,
-      TError,
-      TData
-    >;
-    request?: SecondParameter<typeof customFetch>;
-  },
-): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
-  const queryOptions = getGetStorageObjectSignedUrlQueryOptions(
-    storagePath,
-    options,
-  );
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;
@@ -4941,8 +4726,313 @@ export function useDownloadClaimAuditCsv<
 }
 
 /**
- * Authenticated carrier choices used by intake and reprocessing interfaces.
- * @summary List active carrier choices
+ * Requires platform administrator access. Returns organization identity
+metadata only; it does not expose tenant metrics or establish tenant
+context.
+
+ * @summary List tenants available for audited platform access
+ */
+export const getListPlatformTenantsUrl = () => {
+  return `/api/platform/tenants`;
+};
+
+export const listPlatformTenants = async (
+  options?: RequestInit,
+): Promise<PlatformTenantSummary[]> => {
+  return customFetch<PlatformTenantSummary[]>(getListPlatformTenantsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListPlatformTenantsQueryKey = () => {
+  return [`/api/platform/tenants`] as const;
+};
+
+export const getListPlatformTenantsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listPlatformTenants>>,
+  TError = ErrorType<
+    | UnauthorizedResponse
+    | ForbiddenResponse
+    | TooManyRequestsResponse
+    | InternalServerErrorResponse
+  >,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listPlatformTenants>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListPlatformTenantsQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listPlatformTenants>>
+  > = ({ signal }) => listPlatformTenants({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listPlatformTenants>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListPlatformTenantsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listPlatformTenants>>
+>;
+export type ListPlatformTenantsQueryError = ErrorType<
+  | UnauthorizedResponse
+  | ForbiddenResponse
+  | TooManyRequestsResponse
+  | InternalServerErrorResponse
+>;
+
+/**
+ * @summary List tenants available for audited platform access
+ */
+
+export function useListPlatformTenants<
+  TData = Awaited<ReturnType<typeof listPlatformTenants>>,
+  TError = ErrorType<
+    | UnauthorizedResponse
+    | ForbiddenResponse
+    | TooManyRequestsResponse
+    | InternalServerErrorResponse
+  >,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listPlatformTenants>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListPlatformTenantsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Requires platform administrator access and a specific operational
+reason. Creates a time-limited tenant-access lease and binds it to the
+authenticated session, replacing any prior lease for that session.
+
+ * @summary Start temporary audited tenant access
+ */
+export const getEnterPlatformTenantUrl = () => {
+  return `/api/platform/tenant-access`;
+};
+
+export const enterPlatformTenant = async (
+  platformTenantAccessRequest: PlatformTenantAccessRequest,
+  options?: RequestInit,
+): Promise<AuthSession> => {
+  return customFetch<AuthSession>(getEnterPlatformTenantUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(platformTenantAccessRequest),
+  });
+};
+
+export const getEnterPlatformTenantMutationOptions = <
+  TError = ErrorType<
+    | BadRequestResponse
+    | UnauthorizedResponse
+    | ForbiddenResponse
+    | TooManyRequestsResponse
+    | InternalServerErrorResponse
+  >,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof enterPlatformTenant>>,
+    TError,
+    { data: BodyType<PlatformTenantAccessRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof enterPlatformTenant>>,
+  TError,
+  { data: BodyType<PlatformTenantAccessRequest> },
+  TContext
+> => {
+  const mutationKey = ["enterPlatformTenant"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof enterPlatformTenant>>,
+    { data: BodyType<PlatformTenantAccessRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return enterPlatformTenant(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type EnterPlatformTenantMutationResult = NonNullable<
+  Awaited<ReturnType<typeof enterPlatformTenant>>
+>;
+export type EnterPlatformTenantMutationBody =
+  BodyType<PlatformTenantAccessRequest>;
+export type EnterPlatformTenantMutationError = ErrorType<
+  | BadRequestResponse
+  | UnauthorizedResponse
+  | ForbiddenResponse
+  | TooManyRequestsResponse
+  | InternalServerErrorResponse
+>;
+
+/**
+ * @summary Start temporary audited tenant access
+ */
+export const useEnterPlatformTenant = <
+  TError = ErrorType<
+    | BadRequestResponse
+    | UnauthorizedResponse
+    | ForbiddenResponse
+    | TooManyRequestsResponse
+    | InternalServerErrorResponse
+  >,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof enterPlatformTenant>>,
+    TError,
+    { data: BodyType<PlatformTenantAccessRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof enterPlatformTenant>>,
+  TError,
+  { data: BodyType<PlatformTenantAccessRequest> },
+  TContext
+> => {
+  return useMutation(getEnterPlatformTenantMutationOptions(options));
+};
+
+/**
+ * Requires platform administrator access. Revokes the current
+session-bound tenant-access lease and clears tenant context from the
+authenticated session.
+
+ * @summary End temporary audited tenant access
+ */
+export const getExitPlatformTenantUrl = () => {
+  return `/api/platform/tenant-access`;
+};
+
+export const exitPlatformTenant = async (
+  options?: RequestInit,
+): Promise<AuthSession> => {
+  return customFetch<AuthSession>(getExitPlatformTenantUrl(), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getExitPlatformTenantMutationOptions = <
+  TError = ErrorType<
+    | UnauthorizedResponse
+    | ForbiddenResponse
+    | TooManyRequestsResponse
+    | InternalServerErrorResponse
+  >,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof exitPlatformTenant>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof exitPlatformTenant>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = ["exitPlatformTenant"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof exitPlatformTenant>>,
+    void
+  > = () => {
+    return exitPlatformTenant(requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ExitPlatformTenantMutationResult = NonNullable<
+  Awaited<ReturnType<typeof exitPlatformTenant>>
+>;
+
+export type ExitPlatformTenantMutationError = ErrorType<
+  | UnauthorizedResponse
+  | ForbiddenResponse
+  | TooManyRequestsResponse
+  | InternalServerErrorResponse
+>;
+
+/**
+ * @summary End temporary audited tenant access
+ */
+export const useExitPlatformTenant = <
+  TError = ErrorType<
+    | UnauthorizedResponse
+    | ForbiddenResponse
+    | TooManyRequestsResponse
+    | InternalServerErrorResponse
+  >,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof exitPlatformTenant>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof exitPlatformTenant>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getExitPlatformTenantMutationOptions(options));
+};
+
+/**
+ * Returns only active carrier entities owned by the authenticated
+session-bound tenant and backed by its published profile.
+
+ * @summary List active tenant carrier entities
  */
 export const getListActiveCarriersUrl = () => {
   return `/api/carriers`;
@@ -4964,7 +5054,10 @@ export const getListActiveCarriersQueryKey = () => {
 export const getListActiveCarriersQueryOptions = <
   TData = Awaited<ReturnType<typeof listActiveCarriers>>,
   TError = ErrorType<
-    UnauthorizedResponse | TooManyRequestsResponse | InternalServerErrorResponse
+    | UnauthorizedResponse
+    | ForbiddenResponse
+    | TooManyRequestsResponse
+    | InternalServerErrorResponse
   >,
 >(options?: {
   query?: UseQueryOptions<
@@ -4993,17 +5086,23 @@ export type ListActiveCarriersQueryResult = NonNullable<
   Awaited<ReturnType<typeof listActiveCarriers>>
 >;
 export type ListActiveCarriersQueryError = ErrorType<
-  UnauthorizedResponse | TooManyRequestsResponse | InternalServerErrorResponse
+  | UnauthorizedResponse
+  | ForbiddenResponse
+  | TooManyRequestsResponse
+  | InternalServerErrorResponse
 >;
 
 /**
- * @summary List active carrier choices
+ * @summary List active tenant carrier entities
  */
 
 export function useListActiveCarriers<
   TData = Awaited<ReturnType<typeof listActiveCarriers>>,
   TError = ErrorType<
-    UnauthorizedResponse | TooManyRequestsResponse | InternalServerErrorResponse
+    | UnauthorizedResponse
+    | ForbiddenResponse
+    | TooManyRequestsResponse
+    | InternalServerErrorResponse
   >,
 >(options?: {
   query?: UseQueryOptions<
@@ -5023,11 +5122,13 @@ export function useListActiveCarriers<
 }
 
 /**
- * Returns active and inactive global carrier rulesets. Requires global `admin`.
- * @summary List all carrier rulesets
+ * Returns the carrier profile bound by the platform administrator's
+active tenant-access lease.
+
+ * @summary List the leased tenant's carrier profile
  */
 export const getListCarriersUrl = () => {
-  return `/api/carriers/all`;
+  return `/api/platform/carriers`;
 };
 
 export const listCarriers = async (
@@ -5040,7 +5141,7 @@ export const listCarriers = async (
 };
 
 export const getListCarriersQueryKey = () => {
-  return [`/api/carriers/all`] as const;
+  return [`/api/platform/carriers`] as const;
 };
 
 export const getListCarriersQueryOptions = <
@@ -5085,7 +5186,7 @@ export type ListCarriersQueryError = ErrorType<
 >;
 
 /**
- * @summary List all carrier rulesets
+ * @summary List the leased tenant's carrier profile
  */
 
 export function useListCarriers<
@@ -5114,11 +5215,11 @@ export function useListCarriers<
 }
 
 /**
- * Returns one global carrier ruleset. Requires global `admin`.
+ * Returns the carrier profile for the session-bound platform tenant lease.
  * @summary Get a carrier ruleset
  */
 export const getGetCarrierUrl = (key: string) => {
-  return `/api/carriers/${key}`;
+  return `/api/platform/carriers/${key}`;
 };
 
 export const getCarrier = async (
@@ -5132,7 +5233,7 @@ export const getCarrier = async (
 };
 
 export const getGetCarrierQueryKey = (key: string) => {
-  return [`/api/carriers/${key}`] as const;
+  return [`/api/platform/carriers/${key}`] as const;
 };
 
 export const getGetCarrierQueryOptions = <
@@ -5220,14 +5321,14 @@ export function useGetCarrier<
 }
 
 /**
- * Requires global `admin`. A false `active` value creates an immutable draft
+ * Requires platform administrator access and an active tenant lease. A false `active` value creates an immutable draft
 version; true creates and explicitly publishes a validated version while
 preserving the prior publication.
 
  * @summary Create a governed carrier ruleset version
  */
 export const getUpsertCarrierUrl = (key: string) => {
-  return `/api/carriers/${key}`;
+  return `/api/platform/carriers/${key}`;
 };
 
 export const upsertCarrier = async (
@@ -5329,11 +5430,11 @@ export const useUpsertCarrier = <
 };
 
 /**
- * Requires global `admin`; publication history is preserved.
+ * Requires platform administrator access and an active tenant lease; publication history is preserved.
  * @summary Deactivate a carrier ruleset
  */
 export const getDeleteCarrierUrl = (key: string) => {
-  return `/api/carriers/${key}`;
+  return `/api/platform/carriers/${key}`;
 };
 
 export const deleteCarrier = async (
@@ -5432,11 +5533,259 @@ export const useDeleteCarrier = <
 };
 
 /**
- * Requires global `admin`.
+ * Requires platform administrator access and an active tenant lease.
+The entity is created only in the session-bound tenant; request bodies
+cannot override organization ownership.
+
+ * @summary Create a tenant-owned carrier entity
+ */
+export const getCreateCarrierEntityUrl = (key: string) => {
+  return `/api/platform/carriers/${key}/entities`;
+};
+
+export const createCarrierEntity = async (
+  key: string,
+  createCarrierEntityRequest: CreateCarrierEntityRequest,
+  options?: RequestInit,
+): Promise<CarrierEntityMutationResponse> => {
+  return customFetch<CarrierEntityMutationResponse>(
+    getCreateCarrierEntityUrl(key),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(createCarrierEntityRequest),
+    },
+  );
+};
+
+export const getCreateCarrierEntityMutationOptions = <
+  TError = ErrorType<
+    | BadRequestResponse
+    | UnauthorizedResponse
+    | ForbiddenResponse
+    | ConflictResponse
+    | TooManyRequestsResponse
+    | InternalServerErrorResponse
+  >,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createCarrierEntity>>,
+    TError,
+    { key: string; data: BodyType<CreateCarrierEntityRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createCarrierEntity>>,
+  TError,
+  { key: string; data: BodyType<CreateCarrierEntityRequest> },
+  TContext
+> => {
+  const mutationKey = ["createCarrierEntity"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createCarrierEntity>>,
+    { key: string; data: BodyType<CreateCarrierEntityRequest> }
+  > = (props) => {
+    const { key, data } = props ?? {};
+
+    return createCarrierEntity(key, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateCarrierEntityMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createCarrierEntity>>
+>;
+export type CreateCarrierEntityMutationBody =
+  BodyType<CreateCarrierEntityRequest>;
+export type CreateCarrierEntityMutationError = ErrorType<
+  | BadRequestResponse
+  | UnauthorizedResponse
+  | ForbiddenResponse
+  | ConflictResponse
+  | TooManyRequestsResponse
+  | InternalServerErrorResponse
+>;
+
+/**
+ * @summary Create a tenant-owned carrier entity
+ */
+export const useCreateCarrierEntity = <
+  TError = ErrorType<
+    | BadRequestResponse
+    | UnauthorizedResponse
+    | ForbiddenResponse
+    | ConflictResponse
+    | TooManyRequestsResponse
+    | InternalServerErrorResponse
+  >,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createCarrierEntity>>,
+    TError,
+    { key: string; data: BodyType<CreateCarrierEntityRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createCarrierEntity>>,
+  TError,
+  { key: string; data: BodyType<CreateCarrierEntityRequest> },
+  TContext
+> => {
+  return useMutation(getCreateCarrierEntityMutationOptions(options));
+};
+
+/**
+ * Requires platform administrator access and an active tenant lease.
+The entity ID must belong to the carrier profile in the session-bound
+tenant.
+
+ * @summary Update a tenant-owned carrier entity
+ */
+export const getUpdateCarrierEntityUrl = (key: string, entityId: string) => {
+  return `/api/platform/carriers/${key}/entities/${entityId}`;
+};
+
+export const updateCarrierEntity = async (
+  key: string,
+  entityId: string,
+  updateCarrierEntityRequest: UpdateCarrierEntityRequest,
+  options?: RequestInit,
+): Promise<CarrierEntityMutationResponse> => {
+  return customFetch<CarrierEntityMutationResponse>(
+    getUpdateCarrierEntityUrl(key, entityId),
+    {
+      ...options,
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(updateCarrierEntityRequest),
+    },
+  );
+};
+
+export const getUpdateCarrierEntityMutationOptions = <
+  TError = ErrorType<
+    | BadRequestResponse
+    | UnauthorizedResponse
+    | ForbiddenResponse
+    | NotFoundResponse
+    | ConflictResponse
+    | TooManyRequestsResponse
+    | InternalServerErrorResponse
+  >,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateCarrierEntity>>,
+    TError,
+    {
+      key: string;
+      entityId: string;
+      data: BodyType<UpdateCarrierEntityRequest>;
+    },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateCarrierEntity>>,
+  TError,
+  { key: string; entityId: string; data: BodyType<UpdateCarrierEntityRequest> },
+  TContext
+> => {
+  const mutationKey = ["updateCarrierEntity"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateCarrierEntity>>,
+    {
+      key: string;
+      entityId: string;
+      data: BodyType<UpdateCarrierEntityRequest>;
+    }
+  > = (props) => {
+    const { key, entityId, data } = props ?? {};
+
+    return updateCarrierEntity(key, entityId, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateCarrierEntityMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateCarrierEntity>>
+>;
+export type UpdateCarrierEntityMutationBody =
+  BodyType<UpdateCarrierEntityRequest>;
+export type UpdateCarrierEntityMutationError = ErrorType<
+  | BadRequestResponse
+  | UnauthorizedResponse
+  | ForbiddenResponse
+  | NotFoundResponse
+  | ConflictResponse
+  | TooManyRequestsResponse
+  | InternalServerErrorResponse
+>;
+
+/**
+ * @summary Update a tenant-owned carrier entity
+ */
+export const useUpdateCarrierEntity = <
+  TError = ErrorType<
+    | BadRequestResponse
+    | UnauthorizedResponse
+    | ForbiddenResponse
+    | NotFoundResponse
+    | ConflictResponse
+    | TooManyRequestsResponse
+    | InternalServerErrorResponse
+  >,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateCarrierEntity>>,
+    TError,
+    {
+      key: string;
+      entityId: string;
+      data: BodyType<UpdateCarrierEntityRequest>;
+    },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateCarrierEntity>>,
+  TError,
+  { key: string; entityId: string; data: BodyType<UpdateCarrierEntityRequest> },
+  TContext
+> => {
+  return useMutation(getUpdateCarrierEntityMutationOptions(options));
+};
+
+/**
+ * Requires platform administrator access and an active tenant lease.
  * @summary List immutable carrier ruleset versions
  */
 export const getListCarrierVersionsUrl = (key: string) => {
-  return `/api/carriers/${key}/versions`;
+  return `/api/platform/carriers/${key}/versions`;
 };
 
 export const listCarrierVersions = async (
@@ -5450,7 +5799,7 @@ export const listCarrierVersions = async (
 };
 
 export const getListCarrierVersionsQueryKey = (key: string) => {
-  return [`/api/carriers/${key}/versions`] as const;
+  return [`/api/platform/carriers/${key}/versions`] as const;
 };
 
 export const getListCarrierVersionsQueryOptions = <
@@ -5527,11 +5876,11 @@ export function useListCarrierVersions<
 }
 
 /**
- * Requires global `admin`; validates the persisted draft before publication.
+ * Requires platform administrator access and an active tenant lease; validates the persisted draft before publication.
  * @summary Approve and publish a draft ruleset version
  */
 export const getPublishCarrierVersionUrl = (key: string, versionId: string) => {
-  return `/api/carriers/${key}/versions/${versionId}/publish`;
+  return `/api/platform/carriers/${key}/versions/${versionId}/publish`;
 };
 
 export const publishCarrierVersion = async (
@@ -5634,14 +5983,14 @@ export const usePublishCarrierVersion = <
 };
 
 /**
- * Requires global `admin`; prior versions remain immutable.
+ * Requires platform administrator access and an active tenant lease; prior versions remain immutable.
  * @summary Restore a historical publication as a new version
  */
 export const getRollbackCarrierVersionUrl = (
   key: string,
   versionId: string,
 ) => {
-  return `/api/carriers/${key}/versions/${versionId}/rollback`;
+  return `/api/platform/carriers/${key}/versions/${versionId}/rollback`;
 };
 
 export const rollbackCarrierVersion = async (
@@ -5741,13 +6090,13 @@ export const useRollbackCarrierVersion = <
 };
 
 /**
- * Requires global `admin` and `claims:read`. This does not call the AI
+ * Requires platform administrator access and an active tenant lease. This does not call the AI
 provider and does not mutate the representative claim.
 
  * @summary Run deterministic representative-claim ruleset preflight
  */
 export const getTestCarrierVersionUrl = (key: string) => {
-  return `/api/carriers/${key}/test`;
+  return `/api/platform/carriers/${key}/test`;
 };
 
 export const testCarrierVersion = async (
@@ -5849,7 +6198,7 @@ export const useTestCarrierVersion = <
 };
 
 /**
- * Requires `settings:manage` in the selected organization.
+ * Requires `settings:manage` in the authenticated session-bound tenant.
  * @summary Get organization administration overview
  */
 export const getGetSettingsOverviewUrl = () => {

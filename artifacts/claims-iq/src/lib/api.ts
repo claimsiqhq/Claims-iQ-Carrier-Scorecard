@@ -22,31 +22,16 @@ import type {
   SettingsOverview,
   OrganizationSettingsInput,
   InvitationPreview,
+  PlatformTenantSummary,
 } from "@/lib/types"
 
 export const API_BASE_URL = (import.meta.env.VITE_API_URL || "/api").replace(/\/$/, "")
 export const SESSION_EXPIRED_EVENT = "complete-iq:session-expired"
-const SELECTED_ORGANIZATION_KEY = "complete-iq:selected-organization"
-
-export function getSelectedOrganizationId(): string | null {
-  try {
-    return window.localStorage.getItem(SELECTED_ORGANIZATION_KEY)
-  } catch {
-    return null
-  }
+let authenticatedQueryScope = {
+  userId: "anonymous",
+  organizationId: "no-organization",
 }
-
-export function setSelectedOrganizationId(organizationId: string | null): void {
-  try {
-    if (organizationId) {
-      window.localStorage.setItem(SELECTED_ORGANIZATION_KEY, organizationId)
-    } else {
-      window.localStorage.removeItem(SELECTED_ORGANIZATION_KEY)
-    }
-  } catch {
-    // The server will fall back to the user's default membership.
-  }
-}
+let authenticatedQueryVersion = 0
 
 export class ApiError extends Error {
   status: number
@@ -65,15 +50,12 @@ function endpoint(path: string) {
 }
 
 export async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const requestQueryVersion = authenticatedQueryVersion
   const headers = new Headers(init.headers)
   if (init.body && !(init.body instanceof FormData) && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json")
   }
-  const selectedOrganizationId =
-    typeof window !== "undefined" ? getSelectedOrganizationId() : null
-  if (selectedOrganizationId && !headers.has("X-Organization-Id")) {
-    headers.set("X-Organization-Id", selectedOrganizationId)
-  }
+  headers.delete("X-Organization-Id")
 
   let response: Response
   try {
@@ -88,6 +70,10 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
       0,
       error,
     )
+  }
+
+  if (requestQueryVersion !== authenticatedQueryVersion) {
+    throw new ApiError("The tenant context changed before this request completed.", 409)
   }
 
   if (response.status === 204) return undefined as T
@@ -116,26 +102,74 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
     throw new ApiError(message, response.status, body)
   }
 
+  if (requestQueryVersion !== authenticatedQueryVersion) {
+    throw new ApiError("The tenant context changed before this request completed.", 409)
+  }
+
   return body as T
 }
 
+export function setAuthenticatedQueryScope(
+  userId: string | null | undefined,
+  organizationId: string | null | undefined,
+): void {
+  const nextScope = {
+    userId: userId || "anonymous",
+    organizationId: organizationId || "no-organization",
+  }
+  if (
+    nextScope.userId !== authenticatedQueryScope.userId
+    || nextScope.organizationId !== authenticatedQueryScope.organizationId
+  ) {
+    authenticatedQueryVersion += 1
+  }
+  authenticatedQueryScope = nextScope
+}
+
+function scopedQueryKey(...parts: unknown[]) {
+  return [
+    "complete-iq",
+    "session",
+    authenticatedQueryScope.userId,
+    authenticatedQueryScope.organizationId,
+    ...parts,
+  ] as const
+}
+
 export const queryKeys = {
-  dashboard: ["complete-iq", "dashboard"] as const,
-  insights: ["complete-iq", "insights"] as const,
-  claims: ["complete-iq", "claims"] as const,
+  get dashboard() {
+    return scopedQueryKey("dashboard")
+  },
+  get insights() {
+    return scopedQueryKey("insights")
+  },
+  get claims() {
+    return scopedQueryKey("claims")
+  },
   claimsQueue: (filters: Record<string, string | number>) =>
-    ["complete-iq", "claims", "queue", filters] as const,
-  claimAssignees: ["complete-iq", "claims", "assignees"] as const,
-  claim: (id: string) => ["complete-iq", "claim", id] as const,
-  claimActivity: (id: string) => ["complete-iq", "claim", id, "activity"] as const,
-  claimJobs: (id: string) => ["complete-iq", "claim", id, "jobs"] as const,
+    scopedQueryKey("claims", "queue", filters),
+  get claimAssignees() {
+    return scopedQueryKey("claims", "assignees")
+  },
+  claim: (id: string) => scopedQueryKey("claim", id),
+  claimActivity: (id: string) => scopedQueryKey("claim", id, "activity"),
+  claimJobs: (id: string) => scopedQueryKey("claim", id, "jobs"),
   savedViews: (resourceType = "claims") =>
-    ["complete-iq", "saved-views", resourceType] as const,
-  carriers: ["complete-iq", "carriers"] as const,
-  carrier: (key: string) => ["complete-iq", "carrier", key] as const,
-  carrierVersions: (key: string) => ["complete-iq", "carrier", key, "versions"] as const,
-  prompts: ["complete-iq", "settings", "prompts"] as const,
-  settingsOverview: ["complete-iq", "settings", "overview"] as const,
+    scopedQueryKey("saved-views", resourceType),
+  get carriers() {
+    return scopedQueryKey("carriers")
+  },
+  carrier: (key: string) => scopedQueryKey("carrier", key),
+  carrierVersions: (key: string) => scopedQueryKey("carrier", key, "versions"),
+  get prompts() {
+    return scopedQueryKey("settings", "prompts")
+  },
+  get settingsOverview() {
+    return scopedQueryKey("settings", "overview")
+  },
+  get platformTenants() {
+    return scopedQueryKey("platform", "tenants")
+  },
 }
 
 export const api = {
@@ -146,6 +180,17 @@ export const api = {
       body: JSON.stringify({ email, password }),
     }),
   logout: () => apiRequest<void>("/auth/logout", { method: "POST" }),
+  getPlatformTenants: () =>
+    apiRequest<PlatformTenantSummary[]>("/platform/tenants"),
+  enterPlatformTenant: (organizationId: string, reason: string) =>
+    apiRequest<AuthSession>("/platform/tenant-access", {
+      method: "POST",
+      body: JSON.stringify({ organizationId, reason }),
+    }),
+  exitPlatformTenant: () =>
+    apiRequest<AuthSession | undefined>("/platform/tenant-access", {
+      method: "DELETE",
+    }),
   forgotPassword: (email: string) =>
     apiRequest<{ message: string }>("/auth/password/forgot", {
       method: "POST",
@@ -231,12 +276,12 @@ export const api = {
     apiRequest<{ job: ProcessingJob; duplicate?: boolean }>(`/claims/${encodeURIComponent(id)}/retry`, {
       method: "POST",
     }),
-  reprocessClaim: (id: string, carrier: string) =>
+  reprocessClaim: (id: string, carrierEntityId: string) =>
     apiRequest<{ job: ProcessingJob; duplicate?: boolean }>(
       `/claims/${encodeURIComponent(id)}/reprocess`,
       {
         method: "POST",
-        body: JSON.stringify({ carrier }),
+        body: JSON.stringify({ carrierEntityId }),
       },
     ),
   getProcessingStatus: (id: string) =>
@@ -308,10 +353,10 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify(input),
     }),
-  ingest: (file: File, carrier?: string) => {
+  ingest: (file: File, carrierEntityId?: string) => {
     const body = new FormData()
     body.append("file", file)
-    if (carrier) body.append("carrier", carrier)
+    if (carrierEntityId) body.append("carrierEntityId", carrierEntityId)
     return apiRequest<IngestResponse>("/ingest", { method: "POST", body })
   },
   getEmailPreview: (id: string) =>
@@ -324,9 +369,9 @@ export const api = {
   reportUrl: (id: string) => endpoint(`/claims/${encodeURIComponent(id)}/download`),
 
   getCarrierOptions: () => apiRequest<CarrierOption[]>("/carriers"),
-  getCarriers: () => apiRequest<CarrierProfile[]>("/carriers/all"),
+  getCarriers: () => apiRequest<CarrierProfile[]>("/platform/carriers"),
   getCarrier: (key: string) =>
-    apiRequest<CarrierProfile>(`/carriers/${encodeURIComponent(key)}`),
+    apiRequest<CarrierProfile>(`/platform/carriers/${encodeURIComponent(key)}`),
   saveCarrier: (
     key: string,
     input: Pick<
@@ -335,7 +380,7 @@ export const api = {
     >,
   ) =>
     apiRequest<{ success: boolean; version: CarrierRulesetVersion }>(
-      `/carriers/${encodeURIComponent(key)}`,
+      `/platform/carriers/${encodeURIComponent(key)}`,
       {
       method: "PUT",
       body: JSON.stringify(input),
@@ -343,25 +388,25 @@ export const api = {
     ),
   getCarrierVersions: (key: string) =>
     apiRequest<{ versions: CarrierRulesetVersion[]; affectedClaimCount: number }>(
-      `/carriers/${encodeURIComponent(key)}/versions`,
+      `/platform/carriers/${encodeURIComponent(key)}/versions`,
     ),
   publishCarrierVersion: (key: string, versionId: string) =>
     apiRequest<{ version: CarrierRulesetVersion }>(
-      `/carriers/${encodeURIComponent(key)}/versions/${encodeURIComponent(versionId)}/publish`,
+      `/platform/carriers/${encodeURIComponent(key)}/versions/${encodeURIComponent(versionId)}/publish`,
       { method: "POST" },
     ),
   rollbackCarrierVersion: (key: string, versionId: string) =>
     apiRequest<{ version: CarrierRulesetVersion }>(
-      `/carriers/${encodeURIComponent(key)}/versions/${encodeURIComponent(versionId)}/rollback`,
+      `/platform/carriers/${encodeURIComponent(key)}/versions/${encodeURIComponent(versionId)}/rollback`,
       { method: "POST" },
     ),
   testCarrierVersion: (key: string, claimId: string, versionId?: string) =>
-    apiRequest<CarrierPreflightResult>(`/carriers/${encodeURIComponent(key)}/test`, {
+    apiRequest<CarrierPreflightResult>(`/platform/carriers/${encodeURIComponent(key)}/test`, {
       method: "POST",
       body: JSON.stringify({ claimId, versionId }),
     }),
   deleteCarrier: (key: string) =>
-    apiRequest<{ success: boolean }>(`/carriers/${encodeURIComponent(key)}`, {
+    apiRequest<{ success: boolean }>(`/platform/carriers/${encodeURIComponent(key)}`, {
       method: "DELETE",
     }),
 

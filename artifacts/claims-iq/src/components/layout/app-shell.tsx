@@ -15,6 +15,7 @@ import {
   Plus,
   Search,
   Settings,
+  ShieldAlert,
   ShieldCheck,
 } from "lucide-react"
 import { BrandMark } from "@/components/complete-iq/brand-mark"
@@ -57,16 +58,21 @@ interface NavItem {
   href: string
   label: string
   icon: typeof LayoutDashboard
-  admin?: boolean
-  globalAdmin?: boolean
+  settingsManager?: boolean
+  platformAdmin?: boolean
 }
 
 const navItems: NavItem[] = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/claims", label: "Claims", icon: Files },
   { href: "/insights", label: "Insights", icon: BarChart3 },
-  { href: "/carriers", label: "Carriers", icon: Building2, globalAdmin: true },
-  { href: "/settings", label: "Settings", icon: Settings, admin: true },
+  {
+    href: "/platform/carriers",
+    label: "Platform administration",
+    icon: Building2,
+    platformAdmin: true,
+  },
+  { href: "/settings", label: "Settings", icon: Settings, settingsManager: true },
 ]
 
 function isActive(location: string, href: string) {
@@ -82,7 +88,7 @@ export function PrimaryNav({
   collapsible?: boolean
 }) {
   const [location] = useLocation()
-  const { isAdmin, user } = useAuth()
+  const { isPlatformAdmin, canManageSettings } = useAuth()
   const [collapsed, setCollapsed] = useState(() => {
     try {
       return localStorage.getItem(NAV_COLLAPSED_KEY) === "true"
@@ -94,8 +100,8 @@ export function PrimaryNav({
 
   const visibleItems = navItems.filter(
     (item) =>
-      (!item.admin || isAdmin)
-      && (!item.globalAdmin || user?.role === "admin"),
+      (!item.settingsManager || canManageSettings)
+      && (!item.platformAdmin || isPlatformAdmin),
   )
 
   const toggle = () => {
@@ -166,11 +172,11 @@ export function PrimaryNav({
 
 export function MobileNav() {
   const [location] = useLocation()
-  const { isAdmin, user } = useAuth()
+  const { isPlatformAdmin, canManageSettings } = useAuth()
   const items = navItems.filter(
     (item) =>
-      (!item.admin || isAdmin)
-      && (!item.globalAdmin || user?.role === "admin"),
+      (!item.settingsManager || canManageSettings)
+      && (!item.platformAdmin || isPlatformAdmin),
   )
 
   return (
@@ -198,22 +204,29 @@ function pageName(location: string) {
   if (location.startsWith("/claims/")) return "Claim workbench"
   if (location.startsWith("/claims")) return "Claims queue"
   if (location.startsWith("/insights")) return "Insights"
-  if (location.startsWith("/carriers/")) return "Carrier profile"
-  if (location.startsWith("/carriers")) return "Carrier administration"
+  if (location.startsWith("/platform/carriers/")) return "Carrier ruleset"
+  if (location.startsWith("/platform/carriers")) return "Platform administration"
   if (location.startsWith("/settings")) return "Settings"
   return "Audit command center"
 }
 
 export function UtilityBar() {
   const [location, setLocation] = useLocation()
-  const { user, organization, isAdmin, logout } = useAuth()
+  const {
+    user,
+    organization,
+    isPlatformAdmin,
+    canManageSettings,
+    canCreateClaims,
+    logout,
+  } = useAuth()
   const [commandOpen, setCommandOpen] = useState(false)
   const [passwordOpen, setPasswordOpen] = useState(false)
   const initials = `${user?.firstName?.[0] ?? ""}${user?.lastName?.[0] ?? ""}` || "U"
   const visibleItems = navItems.filter(
     (item) =>
-      (!item.admin || isAdmin)
-      && (!item.globalAdmin || user?.role === "admin"),
+      (!item.settingsManager || canManageSettings)
+      && (!item.platformAdmin || isPlatformAdmin),
   )
 
   useEffect(() => {
@@ -261,7 +274,7 @@ export function UtilityBar() {
             <Building2 aria-hidden="true" />
             <span>{organization?.name || "Complete iQ tenant"}</span>
           </span>
-          {!location.startsWith("/claims/") && (
+          {canCreateClaims && !location.startsWith("/claims/") && (
             <Button
               size="sm"
               className="hidden sm:inline-flex"
@@ -292,7 +305,7 @@ export function UtilityBar() {
                 </span>
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
-              {isAdmin && (
+              {canManageSettings && (
                 <DropdownMenuItem onSelect={() => setLocation("/settings")}>
                   <Settings aria-hidden="true" />
                   Tenant settings
@@ -337,20 +350,73 @@ export function UtilityBar() {
               )
             })}
           </CommandGroup>
-          <CommandGroup heading="Actions">
-            <CommandItem
-              value="new intake upload claim"
-              onSelect={() => navigateFromCommand("/claims?upload=1")}
-            >
-              <Plus aria-hidden="true" />
-              <span>Start new intake</span>
-              <CommandShortcut>Upload</CommandShortcut>
-            </CommandItem>
-          </CommandGroup>
+          {canCreateClaims && (
+            <CommandGroup heading="Actions">
+              <CommandItem
+                value="new intake upload claim"
+                onSelect={() => navigateFromCommand("/claims?upload=1")}
+              >
+                <Plus aria-hidden="true" />
+                <span>Start new intake</span>
+                <CommandShortcut>Upload</CommandShortcut>
+              </CommandItem>
+            </CommandGroup>
+          )}
         </CommandList>
       </CommandDialog>
       <ChangePasswordDialog open={passwordOpen} onOpenChange={setPasswordOpen} />
     </>
+  )
+}
+
+function PlatformAccessBanner() {
+  const { organization, isPlatformAccessActive, exitTenant } = useAuth()
+  const [, setLocation] = useLocation()
+  const [exiting, setExiting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  if (!isPlatformAccessActive || !organization) return null
+
+  const expiresAt = organization.accessExpiresAt
+    ? formatAccessExpiration(organization.accessExpiresAt)
+    : null
+
+  const leaveTenant = async () => {
+    setExiting(true)
+    setError(null)
+    try {
+      await exitTenant()
+      setLocation("/tenant-access", { replace: true })
+    } catch (exitError) {
+      setError(exitError instanceof Error ? exitError.message : "Tenant access could not be exited.")
+      setExiting(false)
+    }
+  }
+
+  return (
+    <section
+      className="flex flex-wrap items-center gap-3 border-b border-[#d0a64f] bg-[var(--ciq-warning-soft)] px-4 py-2.5 text-[var(--ciq-ink)] sm:px-5"
+      aria-label="Active platform tenant access"
+    >
+      <ShieldAlert className="h-5 w-5 shrink-0 text-[var(--ciq-warning)]" aria-hidden="true" />
+      <div className="min-w-0 flex-1">
+        <strong className="block text-sm">
+          Viewing {organization.name} as platform administrator
+        </strong>
+        <span className="block text-xs text-[var(--ciq-ink-muted)]">
+          {expiresAt ? `Temporary access expires ${expiresAt}` : "Temporary audited access is active"}
+        </span>
+        {error && (
+          <span className="mt-1 block text-xs font-semibold text-[var(--ciq-critical)]" role="alert">
+            {error}
+          </span>
+        )}
+      </div>
+      <Button variant="outline" size="sm" onClick={() => void leaveTenant()} disabled={exiting}>
+        <LogOut aria-hidden="true" />
+        {exiting ? "Exiting…" : "Exit tenant"}
+      </Button>
+    </section>
   )
 }
 
@@ -375,6 +441,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <PrimaryNav />
       <div className="ciq-app-shell__workspace">
         <UtilityBar />
+        <PlatformAccessBanner />
         <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
           <SheetTrigger asChild>
             <button
@@ -400,6 +467,15 @@ export function AppShell({ children }: { children: ReactNode }) {
       <MobileNav />
     </div>
   )
+}
+
+function formatAccessExpiration(value: string) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date)
 }
 
 export function PageHeader({

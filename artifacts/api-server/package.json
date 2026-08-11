@@ -4,16 +4,21 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "NODE_ENV=development tsx ./src/index.ts",
+    "dev": "NODE_ENV=development DATABASE_RUNTIME_MODE=api tsx ./src/index.ts",
     "build": "tsx ./build.ts",
-    "start": "node --enable-source-maps ./dist/index.cjs",
-    "start:worker": "node --enable-source-maps ./dist/worker.cjs",
-    "migrate": "node --enable-source-maps ./dist/migrate.cjs",
+    "start": "DATABASE_RUNTIME_MODE=api node --enable-source-maps ./dist/index.cjs",
+    "start:worker": "DATABASE_RUNTIME_MODE=worker node --enable-source-maps ./dist/worker.cjs",
+    "migrate": "DATABASE_RUNTIME_MODE=migration node --enable-source-maps ./dist/migrate.cjs",
+    "migrate:storage:preflight": "DATABASE_RUNTIME_MODE=migration node --enable-source-maps ./dist/migrate-carrier-tenant-storage.cjs preflight",
+    "migrate:storage:copy": "DATABASE_RUNTIME_MODE=migration node --enable-source-maps ./dist/migrate-carrier-tenant-storage.cjs copy",
+    "migrate:storage:delete-legacy": "DATABASE_RUNTIME_MODE=migration node --enable-source-maps ./dist/migrate-carrier-tenant-storage.cjs delete-legacy",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "SUPABASE_DATABASE_URL=${SUPABASE_DATABASE_URL:-postgresql://postgres:postgres@127.0.0.1:5432/complete_iq_test} tsx --test src/**/*.test.ts"
+    "test": "NODE_ENV=test ALLOW_UNRESTRICTED_DATABASE_URL_FALLBACK=true SUPABASE_DATABASE_URL=${SUPABASE_DATABASE_URL:-postgresql://postgres:postgres@127.0.0.1:5432/complete_iq_test} tsx --test src/*.test.ts src/**/*.test.ts",
+    "test:tenant-integration": "tsx --test src/tenantHttp.integration.test.ts"
   },
   "dependencies": {
     "@napi-rs/canvas": "^0.1.97",
+    "@sendgrid/eventwebhook": "^8.0.0",
     "@sendgrid/mail": "^8.1.6",
     "@supabase/supabase-js": "^2.112.2",
     "@workspace/api-zod": "workspace:*",
@@ -26,6 +31,7 @@
     "express": "^5.2.1",
     "express-rate-limit": "^8.6.2",
     "helmet": "^8.1.0",
+    "jose": "^6.2.8",
     "multer": "^2.2.0",
     "pdfjs-dist": "^5.5.207",
     "pino": "^10.3.1",
@@ -38,8 +44,10 @@
     "@types/express": "^5.0.6",
     "@types/multer": "^2.1.0",
     "@types/node": "catalog:",
+    "@types/pg": "^8.18.0",
     "@types/supertest": "^7.2.0",
     "esbuild": "^0.27.3",
+    "pg": "^8.20.0",
     "supertest": "^7.2.2",
     "tsx": "catalog:"
   }

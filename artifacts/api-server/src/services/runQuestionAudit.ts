@@ -5,8 +5,7 @@ import {
   type Answer,
 } from "./questionBank";
 import {
-  getCarrierRuleset,
-  normalizeCarrierKey,
+  getOrganizationCarrierPolicy,
 } from "./carrierRulesetService";
 import type { CarrierRulesetConfig } from "./carrierRulesetTypes";
 import {
@@ -46,15 +45,14 @@ export class QuestionAuditResponseError extends Error {
 }
 
 export async function resolveQuestionAuditConfiguration(
-  carrier: string,
-  organizationId?: string,
+  organizationId: string,
 ): Promise<QuestionAuditConfiguration> {
-  const ruleset = await getCarrierRuleset(carrier, { allowDefault: false });
-  const carrierKey = normalizeCarrierKey(carrier);
+  const policy = await getOrganizationCarrierPolicy(organizationId);
+  const { ruleset, carrierKey } = policy;
   const prompts = await getAuditPromptSnapshot(
     carrierKey,
-    ruleset.system_prompt_override,
     organizationId,
+    ruleset.system_prompt_override,
   );
   return { carrierKey, ruleset, prompts };
 }
@@ -549,12 +547,9 @@ ${JSON.stringify(
 
 export async function runQuestionAudit(
   reportText: string,
-  carrier: string,
-  configuration?: QuestionAuditConfiguration,
+  configuration: QuestionAuditConfiguration,
 ): Promise<QuestionAuditOutput> {
-  const resolved =
-    configuration ?? (await resolveQuestionAuditConfiguration(carrier));
-  const { ruleset, prompts, carrierKey } = resolved;
+  const { ruleset, prompts, carrierKey } = configuration;
   const daQuestions = ruleset.da_questions;
   const faQuestions = ruleset.fa_questions;
   const systemPrompt = prompts.systemPrompt;

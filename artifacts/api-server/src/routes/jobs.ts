@@ -19,6 +19,20 @@ const router: IRouter = Router();
 const firstParam = (value: string | string[] | undefined): string =>
   Array.isArray(value) ? (value[0] ?? "") : (value ?? "");
 
+function hasJobScopeOverride(body: unknown): boolean {
+  return Boolean(
+    body &&
+      typeof body === "object" &&
+      [
+        "organizationId",
+        "tenantId",
+        "carrier",
+        "carrierKey",
+        "carrierEntityId",
+      ].some((key) => key in body),
+  );
+}
+
 function mapJob(job: Awaited<ReturnType<typeof getOrganizationJob>>) {
   if (!job) return null;
   return {
@@ -121,6 +135,12 @@ router.post(
   requireOrganizationPermission("jobs:cancel"),
   async (req, res) => {
     try {
+      if (hasJobScopeOverride(req.body)) {
+        res.status(400).json({
+          error: "Processing job scope is derived from the authenticated tenant.",
+        });
+        return;
+      }
       const jobId = firstParam(req.params.jobId);
       if (!UUID_RE.test(jobId)) {
         res.status(400).json({ error: "Invalid job ID format" });
@@ -186,6 +206,12 @@ router.post(
   requireOrganizationPermission("jobs:retry"),
   async (req, res) => {
     try {
+      if (hasJobScopeOverride(req.body)) {
+        res.status(400).json({
+          error: "Processing job scope is derived from the authenticated tenant.",
+        });
+        return;
+      }
       const jobId = firstParam(req.params.jobId);
       if (!UUID_RE.test(jobId)) {
         res.status(400).json({ error: "Invalid job ID format" });

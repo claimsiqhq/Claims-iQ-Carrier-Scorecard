@@ -1,4 +1,6 @@
 import { Router, type IRouter } from "express";
+import { randomUUID } from "node:crypto";
+import multer from "multer";
 import { and, eq } from "drizzle-orm";
 import {
   claimActivity,
@@ -11,8 +13,8 @@ import {
   enqueueProcessingJob,
 } from "../services/jobQueue";
 import {
-  deleteFile,
-  isOrganizationStoragePath,
+  createTenantStorageCapability,
+  type CanonicalDocumentReference,
 } from "../lib/supabaseStorage";
 import {
   getAuthorizedClaim,
@@ -23,15 +25,66 @@ import { requireOrganizationPermission } from "../middlewares/organizationContex
 import logger from "../lib/logger";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const MAX_DOCUMENT_SIZE = 100 * 1024 * 1024;
 const router: IRouter = Router();
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_DOCUMENT_SIZE, files: 1 },
+});
 const firstParam = (value: string | string[] | undefined): string =>
   Array.isArray(value) ? (value[0] ?? "") : (value ?? "");
+
+function storageForRequest(req: Express.Request) {
+  if (!req.user || !req.organization || !req.databaseSessionId) {
+    throw new Error("An authenticated tenant session is required");
+  }
+  return createTenantStorageCapability({
+    organizationId: req.organization.organizationId,
+    userId: req.user.id,
+    sessionId: req.databaseSessionId,
+    maxExpiresAt: req.organization.accessExpiresAt,
+  });
+}
+
+function exactDocumentReference(document: {
+  id: string;
+  organizationId: string;
+  claimId: string | null;
+  fileUrl: string | null;
+  metadata: unknown;
+}): CanonicalDocumentReference | null {
+  if (
+    !document.claimId
+    || !document.fileUrl
+    || !document.metadata
+    || typeof document.metadata !== "object"
+    || Array.isArray(document.metadata)
+  ) {
+    return null;
+  }
+  const metadata = document.metadata as Record<string, unknown>;
+  if (
+    metadata.organizationId !== document.organizationId
+    || metadata.claimId !== document.claimId
+    || metadata.documentId !== document.id
+    || metadata.storagePath !== document.fileUrl
+  ) {
+    return null;
+  }
+  return {
+    claimId: document.claimId,
+    documentId: document.id,
+    storagePath: document.fileUrl,
+  };
+}
 
 router.post(
   "/claims/:id/documents",
   requireAuth,
   requireOrganizationPermission("claims:update"),
+  upload.single("file"),
   async (req, res) => {
+    let uploadedReference: CanonicalDocumentReference | null = null;
     try {
       const claimId = firstParam(req.params.id);
       if (!UUID_RE.test(claimId)) {
@@ -47,51 +100,70 @@ router.post(
         return;
       }
 
-      const { type, storagePath, fileName, contentType } = req.body;
-      if (
-        typeof storagePath !== "string"
-        || !storagePath
-        || typeof fileName !== "string"
-        || !fileName
-      ) {
-        res.status(400).json({ error: "storagePath and fileName are required" });
+      const file = req.file;
+      if (!file) {
+        res.status(400).json({
+          error: "A file upload is required; raw storage paths are not accepted",
+        });
         return;
       }
-      if (
-        !isOrganizationStoragePath(
-          storagePath,
-          req.organization!.organizationId,
-        )
-      ) {
-        res.status(400).json({ error: "Invalid organization storage path" });
+      if (file.buffer.length > MAX_DOCUMENT_SIZE) {
+        res.status(413).json({ error: "Document exceeds the upload limit" });
         return;
       }
 
-      const [document] = await db
-        .insert(documents)
-        .values({
+      const organizationId = req.organization!.organizationId;
+      const documentId = randomUUID();
+      const storage = storageForRequest(req);
+      const storagePath = await storage.uploadDocument({
+        claimId,
+        documentId,
+        fileName: file.originalname,
+        contentType: file.mimetype || "application/octet-stream",
+        body: file.buffer,
+      });
+      uploadedReference = { claimId, documentId, storagePath };
+      if (!(await storage.documentExists(uploadedReference))) {
+        throw new Error("Uploaded storage object could not be verified");
+      }
+
+      const document = await db.transaction(async (tx) => {
+        const [registeredDocument] = await tx
+          .insert(documents)
+          .values({
+            id: documentId,
+            organizationId,
+            claimId,
+            uploadedByUserId: req.user!.id,
+            type:
+              typeof req.body?.type === "string" && req.body.type.trim()
+                ? req.body.type.trim()
+                : "claim_file",
+            fileUrl: storagePath,
+            metadata: {
+              organizationId,
+              claimId,
+              documentId,
+              fileName: file.originalname,
+              contentType: file.mimetype || "application/octet-stream",
+              storagePath,
+              size: file.size,
+            },
+          })
+          .returning();
+        await tx.insert(claimActivity).values({
           organizationId: req.organization!.organizationId,
           claimId,
-          uploadedByUserId: req.user!.id,
-          type: typeof type === "string" && type ? type : "claim_file",
-          fileUrl: storagePath,
+          actorUserId: req.user!.id,
+          activityType: "document_added",
           metadata: {
-            fileName,
-            contentType:
-              typeof contentType === "string"
-                ? contentType
-                : "application/octet-stream",
-            storagePath,
+            documentId: registeredDocument.id,
+            type: registeredDocument.type,
           },
-        })
-        .returning();
-      await db.insert(claimActivity).values({
-        organizationId: req.organization!.organizationId,
-        claimId,
-        actorUserId: req.user!.id,
-        activityType: "document_added",
-        metadata: { documentId: document.id, type: document.type },
+        });
+        return registeredDocument;
       });
+      uploadedReference = null;
       res.status(201).json({
         id: document.id,
         claimId: document.claimId,
@@ -99,6 +171,21 @@ router.post(
         createdAt: document.createdAt?.toISOString(),
       });
     } catch (error) {
+      if (uploadedReference) {
+        try {
+          await storageForRequest(req).deleteDocument(uploadedReference);
+        } catch (cleanupError) {
+          logger.error(
+            {
+              errorName:
+                cleanupError instanceof Error
+                  ? cleanupError.name
+                  : "UnknownError",
+            },
+            "Failed to clean up unregistered document object",
+          );
+        }
+      }
       logger.error({ error }, "Document creation failed");
       res.status(500).json({ error: "Failed to create document" });
     }
@@ -123,6 +210,21 @@ router.delete(
         claimId,
       );
       if (!document) {
+        res.status(404).json({ error: "Document not found" });
+        return;
+      }
+      const storage = storageForRequest(req);
+      const storageReference = document.fileUrl
+        ? exactDocumentReference(document)
+        : null;
+      if (
+        document.fileUrl
+        && (
+          !storageReference
+          || !storage.ownsReference(storageReference)
+          || !(await storage.documentExists(storageReference))
+        )
+      ) {
         res.status(404).json({ error: "Document not found" });
         return;
       }
@@ -159,14 +261,8 @@ router.delete(
         return;
       }
 
-      if (
-        document.fileUrl
-        && isOrganizationStoragePath(
-          document.fileUrl,
-          req.organization!.organizationId,
-        )
-      ) {
-        await deleteFile(document.fileUrl);
+      if (storageReference) {
+        await storage.deleteDocument(storageReference);
       }
       res.json({ success: true, message: "Document deleted" });
     } catch (error) {

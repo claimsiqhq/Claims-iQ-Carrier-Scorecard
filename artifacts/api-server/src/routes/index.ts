@@ -15,12 +15,16 @@ import carriersRouter from "./carriers";
 import downloadRouter from "./download";
 import jobsRouter from "./jobs";
 import workflowRouter from "./workflow";
+import platformTenantAccessRouter from "./platformTenantAccess";
+import platformCarriersRouter from "./platformCarriers";
 
 const router: IRouter = Router();
 
 router.use(healthRouter);
 router.use(accountAuthRouter);
 router.use(authRouter);
+router.use(platformTenantAccessRouter);
+router.use(platformCarriersRouter);
 router.use(accountAdminRouter);
 router.use(dashboardRouter);
 router.use(claimsRouter);

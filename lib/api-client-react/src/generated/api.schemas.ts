@@ -4,17 +4,22 @@
  * Api
  * Typed contract for the Complete iQ Carrier Audit API.
 
-Authenticated requests use the `sid` HTTP-only session cookie. The optional
-`X-Organization-Id` header selects one of the caller's organization
-memberships; otherwise the default (or earliest) membership is used.
-Organization-scoped lookups deliberately return `404` when a resource
-belongs to another tenant so that cross-tenant identifiers are not
-disclosed.
+Authenticated requests use the `sid` HTTP-only session cookie. Ordinary
+tenant context is bound by the server from exactly one organization
+membership; accounts with zero or multiple memberships cannot access
+tenant routes. Tenant-selection headers and request-body overrides are
+rejected.
+
+Platform administrators have no tenant context by default. They use the
+reason-required `/platform/tenant-access` endpoints to create or revoke a
+temporary, audited lease bound to the authenticated session. Tenant-scoped
+lookups deliberately return `404` when a resource belongs to another
+tenant so that cross-tenant identifiers are not disclosed.
 
 Job-enqueueing operations that accept `X-Idempotency-Key` scope that value
-to the selected organization and operation inputs. Repeating an equivalent
-request returns the existing durable processing job and sets `duplicate`
-to `true` when that field is present.
+to the authenticated session-bound tenant and operation inputs. Repeating
+an equivalent request returns the existing durable processing job and sets
+`duplicate` to `true` when that field is present.
 
  * OpenAPI spec version: 1.0.0
  */
@@ -173,6 +178,13 @@ export interface AcceptInvitationResponse {
   user: AcceptInvitationResponseUser;
 }
 
+export type PlatformRole = (typeof PlatformRole)[keyof typeof PlatformRole];
+
+export const PlatformRole = {
+  none: "none",
+  admin: "admin",
+} as const;
+
 export interface AuthUser {
   id: string;
   /** @nullable */
@@ -184,7 +196,29 @@ export interface AuthUser {
   /** @nullable */
   profileImageUrl: string | null;
   role: string;
+  platformRole: PlatformRole;
 }
+
+export type AuthOrganizationRole =
+  (typeof AuthOrganizationRole)[keyof typeof AuthOrganizationRole];
+
+export const AuthOrganizationRole = {
+  owner: "owner",
+  admin: "admin",
+  auditor: "auditor",
+  reviewer: "reviewer",
+  member: "member",
+  viewer: "viewer",
+  platform_admin: "platform_admin",
+} as const;
+
+export type TenantAccessMode =
+  (typeof TenantAccessMode)[keyof typeof TenantAccessMode];
+
+export const TenantAccessMode = {
+  membership: "membership",
+  platform_lease: "platform_lease",
+} as const;
 
 export type OrganizationPermission =
   (typeof OrganizationPermission)[keyof typeof OrganizationPermission];
@@ -205,16 +239,51 @@ export const OrganizationPermission = {
   "email:send": "email:send",
 } as const;
 
+/**
+ * Tenant context bound to the authenticated session. Membership mode is
+resolved server-side from exactly one organization membership;
+platform-lease mode is established only through the reason-required
+tenant-access endpoints.
+
+ */
 export interface AuthOrganization {
   id: string;
   name: string;
-  role: OrganizationRole;
+  role: AuthOrganizationRole;
   permissions: OrganizationPermission[];
+  accessMode: TenantAccessMode;
+  /**
+   * Lease expiration for platform access; null for membership-bound sessions.
+   * @nullable
+   */
+  accessExpiresAt: string | null;
 }
 
 export interface AuthSession {
   user: AuthUser | null;
-  organization?: AuthOrganization | null;
+  organization: AuthOrganization | null;
+}
+
+/**
+ * Organization identity metadata available before a platform tenant lease is created.
+ */
+export interface PlatformTenantSummary {
+  id: string;
+  name: string;
+  /** @nullable */
+  slug: string | null;
+}
+
+/**
+ * Explicit, reasoned request by a platform administrator for temporary audited tenant access.
+ */
+export interface PlatformTenantAccessRequest {
+  organizationId: string;
+  /**
+   * @minLength 1
+   * @maxLength 500
+   */
+  reason: string;
 }
 
 export interface LoginResponse {
@@ -330,6 +399,11 @@ export const ProcessingAttemptStatus = {
 
 export interface Claim {
   id: string;
+  /**
+   * Authoritative tenant-owned carrier entity; `carrier` is only a source/display snapshot.
+   * @nullable
+   */
+  carrierEntityId?: string | null;
   claimNumber: string;
   insuredName: string;
   /** @nullable */
@@ -419,8 +493,11 @@ export interface CreateClaimRequest {
   claimNumber: string;
   /** @minLength 1 */
   insuredName: string;
-  /** @nullable */
-  carrier?: string | null;
+  /**
+   * Optional only when the authenticated session-bound tenant has exactly one active carrier entity.
+   * @nullable
+   */
+  carrierEntityId?: string | null;
   /** @nullable */
   dateOfLoss?: string | null;
 }
@@ -1025,7 +1102,8 @@ export interface ProcessingStatus {
 
 export interface IngestRequest {
   file: Blob;
-  carrier?: string;
+  /** Optional only when the authenticated session-bound tenant has exactly one active carrier entity. */
+  carrierEntityId?: string;
 }
 
 export interface IngestClaim {
@@ -1047,17 +1125,13 @@ export interface IngestResponse {
 }
 
 export interface ReprocessClaimRequest {
-  /** @minLength 1 */
-  carrier: string;
+  /** Optional only when the authenticated session-bound tenant has exactly one active carrier entity. */
+  carrierEntityId?: string;
 }
 
 export interface CreateDocumentRequest {
+  file: Blob;
   type?: string;
-  /** @minLength 1 */
-  storagePath: string;
-  /** @minLength 1 */
-  fileName: string;
-  contentType?: string;
 }
 
 export interface CreatedDocument {
@@ -1076,13 +1150,17 @@ export interface SignedUrl {
   expiresIn: number;
 }
 
-export interface LegacySignedUrl {
-  url: string;
-}
-
 export interface CarrierOption {
+  id: string;
   key: string;
+  entityKey: string;
+  carrierKey: string;
+  organizationId: string;
   displayName: string;
+  /** @nullable */
+  legalName?: string | null;
+  isPrimary: boolean;
+  active: boolean;
   /** @nullable */
   logoUrl: string | null;
 }
@@ -1147,6 +1225,18 @@ export interface CarrierRuleset {
   carrier_scorecard_prompt_override?: string;
 }
 
+export interface CarrierEntity {
+  id: string;
+  organizationId: string;
+  entityKey: string;
+  displayName: string;
+  /** @nullable */
+  legalName: string | null;
+  isPrimary: boolean;
+  active: boolean;
+  [key: string]: unknown;
+}
+
 export interface CarrierSourceReference {
   /** @minLength 1 */
   label: string;
@@ -1196,12 +1286,14 @@ export interface CarrierRulesetVersion {
 
 export interface CarrierProfile {
   id: string;
+  organizationId: string;
   carrierKey: string;
   displayName: string;
   /** @nullable */
   logoUrl: string | null;
   active: boolean;
-  ruleset: CarrierRuleset;
+  ruleset: CarrierRuleset | null;
+  entities: CarrierEntity[];
   sourceReferences?: CarrierSourceReference[];
   /** @nullable */
   changeSummary?: string | null;
@@ -1212,6 +1304,36 @@ export interface CarrierProfile {
   createdAt: string | null;
   /** @nullable */
   updatedAt: string | null;
+}
+
+export interface CreateCarrierEntityRequest {
+  /** @pattern ^[a-z0-9]+(?:-[a-z0-9]+)*$ */
+  entityKey: string;
+  /** @minLength 1 */
+  displayName: string;
+  /** @nullable */
+  legalName?: string | null;
+  isPrimary?: boolean;
+  active?: boolean;
+  /** @minLength 1 */
+  changeReason: string;
+}
+
+export interface UpdateCarrierEntityRequest {
+  /** @pattern ^[a-z0-9]+(?:-[a-z0-9]+)*$ */
+  entityKey: string;
+  /** @minLength 1 */
+  displayName: string;
+  /** @nullable */
+  legalName?: string | null;
+  isPrimary: boolean;
+  active: boolean;
+  /** @minLength 1 */
+  changeReason: string;
+}
+
+export interface CarrierEntityMutationResponse {
+  id: string;
 }
 
 export interface UpsertCarrierRequest {
@@ -1504,18 +1626,18 @@ export interface InboundEmailRequest {
 export type BadRequestResponse = Error;
 
 /**
- * A valid session or organization membership is required.
+ * A valid authenticated session is required.
  */
 export type UnauthorizedResponse = Error;
 
 /**
- * The caller lacks the selected organization or required permission.
+ * The session lacks a valid tenant context or the required permission.
  */
 export type ForbiddenResponse = Error;
 
 /**
- * Resource not found in the selected organization. Organization-scoped
-routes use this response for cross-tenant identifiers.
+ * Resource not found in the authenticated session-bound tenant.
+Tenant-scoped routes use this response for cross-tenant identifiers.
 
  */
 export type NotFoundResponse = Error;
@@ -1556,15 +1678,9 @@ export type BadGatewayResponse = Error;
 export type ServiceUnavailableResponse = Error;
 
 /**
- * Organization membership to use for this request. Omit to use the
-caller's default membership. An inaccessible value returns `403`.
-
- */
-export type OrganizationIdParameter = string;
-
-/**
- * Caller-provided idempotency key. It is combined with organization and
-operation-specific inputs; equivalent requests reuse the durable job.
+ * Caller-provided idempotency key. It is combined with the authenticated
+session-bound tenant and operation-specific inputs; equivalent requests
+reuse the durable job.
 
  */
 export type IdempotencyKeyParameter = string;

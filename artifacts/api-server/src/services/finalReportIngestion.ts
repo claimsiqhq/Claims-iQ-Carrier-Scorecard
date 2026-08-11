@@ -1,5 +1,11 @@
 import path from "node:path";
-import { uploadFile } from "../lib/supabaseStorage";
+import {
+  TenantStorageCapability,
+} from "../lib/supabaseStorage";
+import {
+  documents,
+  type ScopedDatabaseLease,
+} from "@workspace/db";
 import logger from "../lib/logger";
 import { env } from "../env";
 import { z } from "zod";
@@ -33,8 +39,6 @@ function releaseExtractionSlot(): void {
 export interface PersistedReportInput {
   source: SourceKind;
   requestId: string;
-  organizationId: string;
-  uploaderUserId?: string;
   senderEmail?: string;
   file?: Express.Multer.File;
   reportText?: string;
@@ -45,6 +49,126 @@ export interface PersistedReportResult {
   documentId?: string;
   storagePath?: string;
   extractionMethod: "gemini_vision_pages" | "plain_text";
+}
+
+interface PersistedExtraction {
+  source: SourceKind;
+  requestId: string;
+  senderEmail?: string;
+  fileName?: string;
+  contentType?: string;
+  storagePath?: string;
+  extractedText: string;
+  extractionMethod: "gemini_vision_pages" | "plain_text";
+  extractionMeta?: Record<string, unknown>;
+}
+
+export interface FinalReportIngestionCapability {
+  storeSource(input: {
+    fileName: string;
+    contentType: string;
+    body: Buffer;
+  }): Promise<string>;
+  persistReport(input: PersistedExtraction): Promise<string>;
+}
+
+export function createFinalReportIngestionCapability(input: {
+  databaseLease: ScopedDatabaseLease;
+  storage: TenantStorageCapability;
+  claimId: string;
+  documentId: string;
+  uploaderUserId: string;
+}): FinalReportIngestionCapability {
+  if (
+    input.databaseLease.isReleased
+    || input.databaseLease.settings.organizationId
+      !== input.storage.organizationId
+    || !(input.storage instanceof TenantStorageCapability)
+  ) {
+    throw new Error(
+      "Final report ingestion requires matching live database and storage scopes",
+    );
+  }
+  const settings = input.databaseLease.settings;
+  const matchingTenantSession = Boolean(
+    settings.userId
+    && settings.sessionId
+    && settings.userId === input.uploaderUserId
+    && settings.userId === input.storage.userId
+    && settings.sessionId === input.storage.sessionId,
+  );
+  const leasedWorkerJob = Boolean(settings.jobId && settings.workerId);
+  if (!matchingTenantSession && !leasedWorkerJob) {
+    throw new Error(
+      "Final report ingestion requires a tenant session or leased worker job",
+    );
+  }
+  const database = input.databaseLease.database;
+  const referenceFor = (storagePath: string) => ({
+    claimId: input.claimId,
+    documentId: input.documentId,
+    storagePath,
+  });
+
+  return Object.freeze({
+    async storeSource(source: {
+      fileName: string;
+      contentType: string;
+      body: Buffer;
+    }) {
+      return input.storage.uploadDocument({
+        claimId: input.claimId,
+        documentId: input.documentId,
+        fileName: source.fileName,
+        contentType: source.contentType,
+        body: source.body,
+      });
+    },
+    async persistReport(report: PersistedExtraction) {
+      if (
+        report.storagePath
+        && !input.storage.ownsReference(referenceFor(report.storagePath))
+      ) {
+        throw new Error(
+          "Persisted report storage path is outside the scoped document tuple",
+        );
+      }
+      const metadata = {
+        organizationId: input.storage.organizationId,
+        claimId: input.claimId,
+        documentId: input.documentId,
+        source: report.source,
+        requestId: report.requestId,
+        uploaderUserId: input.uploaderUserId,
+        senderEmail: report.senderEmail ?? null,
+        fileName: report.fileName ?? null,
+        contentType: report.contentType ?? null,
+        storagePath: report.storagePath ?? null,
+        extractionMethod: report.extractionMethod,
+        extractionMeta: report.extractionMeta ?? {},
+      };
+      const [saved] = await database
+        .insert(documents)
+        .values({
+          id: input.documentId,
+          organizationId: input.storage.organizationId,
+          claimId: input.claimId,
+          uploadedByUserId: input.uploaderUserId,
+          type:
+            report.source === "sendgrid_inbound"
+              ? "inbound_report"
+              : "final_report",
+          fileUrl: report.storagePath ?? null,
+          extractedText: report.extractedText,
+          metadata,
+        })
+        .returning({ id: documents.id });
+      if (!saved?.id) {
+        throw new Error("Scoped final report persistence returned no document");
+      }
+      return saved.id;
+    },
+  });
 }
 
 function safeFileName(originalName: string): string {
@@ -506,69 +630,27 @@ async function _extractPdfTextWithVisionPagesInner(params: {
   };
 }
 
-async function persistDocumentRecord(params: {
-  source: SourceKind;
-  requestId: string;
-  organizationId: string;
-  uploaderUserId?: string;
-  senderEmail?: string;
-  fileName?: string;
-  contentType?: string;
-  storagePath?: string;
-  extractedText: string;
-  extractionMethod: "gemini_vision_pages" | "plain_text";
-  extractionMeta?: Record<string, unknown>;
-}): Promise<string | undefined> {
-  try {
-    const { db, documents } = await import("@workspace/db");
-    const [saved] = await db
-      .insert(documents)
-      .values({
-        organizationId: params.organizationId,
-        claimId: null,
-        type:
-          params.source === "sendgrid_inbound"
-            ? "standalone_inbound_report"
-            : "standalone_final_report",
-        fileUrl: params.storagePath ?? null,
-        extractedText: params.extractedText,
-        metadata: {
-          source: params.source,
-          requestId: params.requestId,
-          uploaderUserId: params.uploaderUserId ?? null,
-          senderEmail: params.senderEmail ?? null,
-          fileName: params.fileName ?? null,
-          contentType: params.contentType ?? null,
-          storagePath: params.storagePath ?? null,
-          extractionMethod: params.extractionMethod,
-          extractionMeta: params.extractionMeta ?? {},
-        },
-      })
-      .returning({ id: documents.id });
-
-    logger.info(
-      {
-        requestId: params.requestId,
-        documentId: saved?.id,
-        source: params.source,
-        extraction_method: params.extractionMethod,
-        has_storage_path: Boolean(params.storagePath),
-        extracted_chars: params.extractedText.length,
-      },
-      "Standalone extraction record persisted",
-    );
-
-    return saved?.id;
-  } catch (err) {
-    logger.error(
-      { err, requestId: params.requestId },
-      "Failed to persist standalone extraction record",
-    );
-    return undefined;
-  }
+async function persistDocumentRecord(
+  capability: FinalReportIngestionCapability,
+  params: PersistedExtraction,
+): Promise<string> {
+  const documentId = await capability.persistReport(params);
+  logger.info(
+    {
+      requestId: params.requestId,
+      documentId,
+      source: params.source,
+      extraction_method: params.extractionMethod,
+      has_storage_path: Boolean(params.storagePath),
+      extracted_chars: params.extractedText.length,
+    },
+    "Scoped extraction record persisted",
+  );
+  return documentId;
 }
 
 export async function extractAndPersistFinalReport(
+  capability: FinalReportIngestionCapability,
   input: PersistedReportInput,
 ): Promise<PersistedReportResult> {
   const reportTextBody =
@@ -593,11 +675,9 @@ export async function extractAndPersistFinalReport(
       "Using pasted/plain text input",
     );
 
-    const documentId = await persistDocumentRecord({
+    const documentId = await persistDocumentRecord(capability, {
       source: input.source,
       requestId: input.requestId,
-      organizationId: input.organizationId,
-      uploaderUserId: input.uploaderUserId,
       senderEmail: input.senderEmail,
       extractedText: reportTextBody,
       extractionMethod: "plain_text",
@@ -623,12 +703,11 @@ export async function extractAndPersistFinalReport(
     "Received uploaded file for standalone processing",
   );
 
-  const storagePath = await uploadFile(
-    file.buffer,
+  const storagePath = await capability.storeSource({
+    body: file.buffer,
     fileName,
     contentType,
-    input.organizationId,
-  );
+  });
   logger.info(
     {
       requestId: input.requestId,
@@ -654,11 +733,9 @@ export async function extractAndPersistFinalReport(
     );
 
     const text = file.buffer.toString("utf-8").trim();
-    const documentId = await persistDocumentRecord({
+    const documentId = await persistDocumentRecord(capability, {
       source: input.source,
       requestId: input.requestId,
-      organizationId: input.organizationId,
-      uploaderUserId: input.uploaderUserId,
       senderEmail: input.senderEmail,
       fileName,
       contentType,
@@ -681,11 +758,9 @@ export async function extractAndPersistFinalReport(
     requestId: input.requestId,
   });
 
-  const documentId = await persistDocumentRecord({
+  const documentId = await persistDocumentRecord(capability, {
     source: input.source,
     requestId: input.requestId,
-    organizationId: input.organizationId,
-    uploaderUserId: input.uploaderUserId,
     senderEmail: input.senderEmail,
     fileName,
     contentType,

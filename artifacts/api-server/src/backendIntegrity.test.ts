@@ -34,7 +34,7 @@ test("duplicate job requests produce the same organization-scoped key", () => {
     type: "reprocess",
     claimId: "claim-1",
     documentId: "document-1",
-    requestedCarrier: "  Example Carrier ",
+    carrierEntityId: "carrier-entity-1",
     callerKey: "request-123",
   });
   const duplicate = buildJobIdempotencyKey({
@@ -42,7 +42,7 @@ test("duplicate job requests produce the same organization-scoped key", () => {
     type: "reprocess",
     claimId: "claim-1",
     documentId: "document-1",
-    requestedCarrier: "example carrier",
+    carrierEntityId: "carrier-entity-1",
     callerKey: "request-123",
   });
   const otherTenant = buildJobIdempotencyKey({
@@ -50,7 +50,7 @@ test("duplicate job requests produce the same organization-scoped key", () => {
     type: "reprocess",
     claimId: "claim-1",
     documentId: "document-1",
-    requestedCarrier: "example carrier",
+    carrierEntityId: "carrier-entity-1",
     callerKey: "request-123",
   });
 

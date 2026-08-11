@@ -31,6 +31,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { api, apiErrorMessage, queryKeys } from "@/lib/api"
+import { useAuth } from "@/lib/auth-context"
 import type {
   CarrierCategory,
   CarrierPreflightResult,
@@ -117,6 +118,7 @@ function validateProfile(profile: CarrierProfile): ValidationSummary {
 export default function CarrierEditorPage({ carrierKey }: { carrierKey: string }) {
   const isNew = carrierKey === "new"
   const queryClient = useQueryClient()
+  const { organization } = useAuth()
   const [, setLocation] = useLocation()
   const initializedRef = useRef(false)
   const [profile, setProfile] = useState<CarrierProfile>(emptyProfile)
@@ -150,6 +152,7 @@ export default function CarrierEditorPage({ carrierKey }: { carrierKey: string }
   const claimsQuery = useQuery({
     queryKey: [...queryKeys.claims, "carrier-test"],
     queryFn: () => api.getClaims(100, 0),
+    enabled: Boolean(organization),
   })
 
   useEffect(() => {
@@ -223,7 +226,7 @@ export default function CarrierEditorPage({ carrierKey }: { carrierKey: string }
       setMessage("Draft carrier version saved. Publish it explicitly after review.")
       await queryClient.invalidateQueries({ queryKey: queryKeys.carriers })
       await queryClient.invalidateQueries({ queryKey: queryKeys.carrierVersions(key) })
-      if (isNew) setLocation(`/carriers/${key}`, { replace: true })
+      if (isNew) setLocation(`/platform/carriers/${key}`, { replace: true })
     } catch (saveError) {
       setError(apiErrorMessage(saveError, "The carrier profile could not be saved."))
     } finally {
@@ -236,7 +239,7 @@ export default function CarrierEditorPage({ carrierKey }: { carrierKey: string }
     try {
       await api.deleteCarrier(profile.carrierKey)
       await queryClient.invalidateQueries({ queryKey: queryKeys.carriers })
-      setLocation("/carriers")
+      setLocation("/platform/carriers")
     } catch (deleteError) {
       setError(apiErrorMessage(deleteError, "The carrier profile could not be deactivated."))
       setDeleteOpen(false)
@@ -326,7 +329,7 @@ export default function CarrierEditorPage({ carrierKey }: { carrierKey: string }
 
   const navigateBack = () => {
     if (dirty) setLeaveOpen(true)
-    else setLocation("/carriers")
+    else setLocation("/platform/carriers")
   }
 
   const switchMode = (next: string) => {
@@ -364,8 +367,8 @@ export default function CarrierEditorPage({ carrierKey }: { carrierKey: string }
           kind="error"
           title="Carrier profile unavailable"
           description={apiErrorMessage(carrierQuery.error)}
-          actionLabel="Return to carriers"
-          onAction={() => setLocation("/carriers")}
+          actionLabel="Return to platform rulesets"
+          onAction={() => setLocation("/platform/carriers")}
         />
       </div>
     )
@@ -383,7 +386,11 @@ export default function CarrierEditorPage({ carrierKey }: { carrierKey: string }
     <div className="ciq-page">
       <PageHeader
         compact
-        eyebrow={isNew ? "New carrier draft" : `Carrier profile · ${profile.carrierKey}`}
+        eyebrow={
+          isNew
+            ? "Platform administration · New carrier draft"
+            : `Platform administration · ${profile.carrierKey}`
+        }
         title={profile.displayName || "Untitled carrier"}
         description="Author a validated draft, inspect policy impact, test representative claim coverage, and publish through an explicit approval step."
         meta={
@@ -417,7 +424,7 @@ export default function CarrierEditorPage({ carrierKey }: { carrierKey: string }
               onClick={navigateBack}
             >
               <ArrowLeft aria-hidden="true" />
-              Carriers
+              Rulesets
             </Button>
             {!isNew && (
               <Button
@@ -670,10 +677,7 @@ export default function CarrierEditorPage({ carrierKey }: { carrierKey: string }
 
           <aside className="space-y-4 xl:sticky xl:top-0 xl:self-start">
             <ValidationPanel validation={validation} />
-            <VersionDiffPanel
-              diff={versionDiff}
-              affectedClaimCount={versionsQuery.data?.affectedClaimCount ?? 0}
-            />
+            <VersionDiffPanel diff={versionDiff} />
             <RulesetTestPanel
               claims={claimsQuery.data || []}
               selectedClaimId={selectedClaimId}
@@ -682,6 +686,7 @@ export default function CarrierEditorPage({ carrierKey }: { carrierKey: string }
               testing={testing}
               result={testResult}
               disabled={!testVersion || dirty}
+              tenantAccessAvailable={Boolean(organization)}
             />
             <VersionHistoryPanel
               versions={versions}
@@ -707,7 +712,7 @@ export default function CarrierEditorPage({ carrierKey }: { carrierKey: string }
               className="bg-[var(--ciq-critical)] text-white"
               onClick={() => {
                 setDirty(false)
-                setLocation("/carriers")
+                setLocation("/platform/carriers")
               }}
             >
               Discard changes
@@ -1206,13 +1211,7 @@ function compareRulesets(current: CarrierRuleset, published?: CarrierRuleset): R
   }
 }
 
-function VersionDiffPanel({
-  diff,
-  affectedClaimCount,
-}: {
-  diff: RulesetDiff
-  affectedClaimCount: number
-}) {
+function VersionDiffPanel({ diff }: { diff: RulesetDiff }) {
   return (
     <section className="ciq-panel ciq-panel--flush">
       <div className="ciq-panel__header">
@@ -1229,7 +1228,6 @@ function VersionDiffPanel({
           ["Questions changed", diff.changed],
           ["Point delta", diff.pointsDelta > 0 ? `+${diff.pointsDelta}` : diff.pointsDelta],
           ["Category delta", diff.categoryDelta > 0 ? `+${diff.categoryDelta}` : diff.categoryDelta],
-          ["Claims in scope", affectedClaimCount],
         ].map(([label, value]) => (
           <div key={label} className="bg-[var(--ciq-surface)] p-3">
             <dt className="text-[0.65rem] font-bold uppercase tracking-wide text-[var(--ciq-ink-muted)]">
@@ -1251,6 +1249,7 @@ function RulesetTestPanel({
   testing,
   result,
   disabled,
+  tenantAccessAvailable,
 }: {
   claims: ClaimSummary[]
   selectedClaimId: string
@@ -1259,13 +1258,18 @@ function RulesetTestPanel({
   testing: boolean
   result: CarrierPreflightResult | null
   disabled: boolean
+  tenantAccessAvailable: boolean
 }) {
   return (
     <section className="ciq-panel">
       <div className="ciq-panel__header">
         <div>
           <h2>Representative claim test</h2>
-          <p>Deterministic, zero-provider-cost preflight</p>
+          <p>
+            {tenantAccessAvailable
+              ? "Deterministic, zero-provider-cost preflight"
+              : "Temporary tenant access is required to select a claim"}
+          </p>
         </div>
         <FlaskConical className="h-4 w-4 text-[var(--ciq-info)]" aria-hidden="true" />
       </div>
@@ -1278,6 +1282,7 @@ function RulesetTestPanel({
           className="ciq-control"
           value={selectedClaimId}
           onChange={(event) => onClaimChange(event.target.value)}
+          disabled={!tenantAccessAvailable}
         >
           <option value="">Select claim…</option>
           {claims.map((claim) => (
@@ -1286,13 +1291,22 @@ function RulesetTestPanel({
             </option>
           ))}
         </select>
-        <Button className="w-full" onClick={onRun} disabled={disabled || testing || !selectedClaimId}>
+        <Button
+          className="w-full"
+          onClick={onRun}
+          disabled={disabled || testing || !selectedClaimId || !tenantAccessAvailable}
+        >
           <Play aria-hidden="true" />
           {testing ? "Running preflight…" : "Run compatibility preflight"}
         </Button>
         {disabled && (
           <p className="text-xs text-[var(--ciq-ink-muted)]">
             Save the current draft before testing its persisted version.
+          </p>
+        )}
+        {!tenantAccessAvailable && (
+          <p className="text-xs text-[var(--ciq-ink-muted)]">
+            Start audited access from Tenant access before loading representative claims.
           </p>
         )}
         {result && (

@@ -170,10 +170,17 @@ export async function runFinalAudit(
     }
   }
 
+  if (!options?.questionAuditConfiguration) {
+    throw new AuditOperationalError({
+      message:
+        "A server-resolved organization carrier policy is required for auditing.",
+      code: "organization_carrier_policy_required",
+      outcome: "failed",
+    });
+  }
   const qResult = await runQuestionAudit(
     reportText,
-    claimMeta?.carrier_name ?? "",
-    options?.questionAuditConfiguration,
+    options.questionAuditConfiguration,
   );
   const scoring = computeScore(
     qResult.da_results,

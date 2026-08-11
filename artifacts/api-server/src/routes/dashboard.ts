@@ -15,6 +15,14 @@ import { requireOrganizationPermission } from "../middlewares/organizationContex
 import logger from "../lib/logger";
 
 const router: IRouter = Router();
+const claimAuditJoin = and(
+  eq(claims.currentAuditId, audits.id),
+  eq(claims.organizationId, audits.organizationId),
+);
+const findingAuditJoin = and(
+  eq(audits.id, auditFindings.auditId),
+  eq(audits.organizationId, auditFindings.organizationId),
+);
 
 const numericClaimAmount = sql<number | null>`case
   when nullif(
@@ -58,7 +66,7 @@ router.get("/dashboard", requireAuth, requireOrganizationPermission("claims:read
         avgScore: sql<number>`round(avg(${audits.overallScore}::numeric))::int`,
       })
       .from(claims)
-      .innerJoin(audits, eq(claims.currentAuditId, audits.id))
+      .innerJoin(audits, claimAuditJoin)
       .where(activeClaimFilter);
 
     const [operationsRow] = await db
@@ -82,7 +90,7 @@ router.get("/dashboard", requireAuth, requireOrganizationPermission("claims:read
         )::int`,
       })
       .from(claims)
-      .leftJoin(audits, eq(claims.currentAuditId, audits.id))
+      .leftJoin(audits, claimAuditJoin)
       .where(activeClaimFilter);
 
     const riskRows = await db
@@ -91,7 +99,7 @@ router.get("/dashboard", requireAuth, requireOrganizationPermission("claims:read
         count: sql<number>`count(*)::int`,
       })
       .from(claims)
-      .innerJoin(audits, eq(claims.currentAuditId, audits.id))
+      .innerJoin(audits, claimAuditJoin)
       .where(activeClaimFilter)
       .groupBy(audits.riskLevel);
 
@@ -101,7 +109,7 @@ router.get("/dashboard", requireAuth, requireOrganizationPermission("claims:read
         count: sql<number>`count(*)::int`,
       })
       .from(claims)
-      .innerJoin(audits, eq(claims.currentAuditId, audits.id))
+      .innerJoin(audits, claimAuditJoin)
       .where(activeClaimFilter)
       .groupBy(audits.approvalStatus);
 
@@ -112,7 +120,7 @@ router.get("/dashboard", requireAuth, requireOrganizationPermission("claims:read
         avgScore: sql<number>`round(avg(${audits.overallScore}::numeric))::int`,
       })
       .from(claims)
-      .leftJoin(audits, eq(claims.currentAuditId, audits.id))
+      .leftJoin(audits, claimAuditJoin)
       .where(activeClaimFilter)
       .groupBy(sql`coalesce(${claims.carrier}, 'Unknown')`);
 
@@ -125,11 +133,12 @@ router.get("/dashboard", requireAuth, requireOrganizationPermission("claims:read
         )::int`,
       })
       .from(auditFindings)
-      .innerJoin(audits, eq(audits.id, auditFindings.auditId))
+      .innerJoin(audits, findingAuditJoin)
       .innerJoin(
         claims,
         and(
           eq(claims.currentAuditId, audits.id),
+          eq(claims.organizationId, audits.organizationId),
           eq(claims.organizationId, organizationId),
           ne(claims.status, "archived"),
           ne(claims.systemStatus, "archived"),
@@ -163,7 +172,7 @@ router.get("/dashboard", requireAuth, requireOrganizationPermission("claims:read
         approvalStatus: audits.approvalStatus,
       })
       .from(claims)
-      .leftJoin(audits, eq(claims.currentAuditId, audits.id))
+      .leftJoin(audits, claimAuditJoin)
       .where(activeClaimFilter)
       .orderBy(desc(claims.createdAt))
       .limit(12);
@@ -182,6 +191,7 @@ router.get("/dashboard", requireAuth, requireOrganizationPermission("claims:read
         claims,
         and(
           eq(claims.id, claimActivity.claimId),
+          eq(claims.organizationId, claimActivity.organizationId),
           eq(claims.organizationId, organizationId),
           ne(claims.status, "archived"),
           ne(claims.systemStatus, "archived"),
@@ -290,7 +300,7 @@ router.get(
           ), 2), 0)::text`,
         })
         .from(claims)
-        .leftJoin(audits, eq(claims.currentAuditId, audits.id))
+        .leftJoin(audits, claimAuditJoin)
         .where(activeClaimFilter)
         .groupBy(sql`coalesce(${claims.carrier}, 'Unknown')`)
         .orderBy(desc(sql`count(*)`));
@@ -313,7 +323,7 @@ router.get(
         })
         .from(claims)
         .leftJoin(usersTable, eq(usersTable.id, claims.assigneeUserId))
-        .leftJoin(audits, eq(claims.currentAuditId, audits.id))
+        .leftJoin(audits, claimAuditJoin)
         .where(activeClaimFilter)
         .groupBy(
           claims.assigneeUserId,
@@ -333,7 +343,7 @@ router.get(
           count: sql<number>`count(*)::int`,
         })
         .from(claims)
-        .innerJoin(audits, eq(claims.currentAuditId, audits.id))
+        .innerJoin(audits, claimAuditJoin)
         .where(activeClaimFilter)
         .groupBy(sql`case
           when ${audits.overallScore} >= 90 then '90–100'
@@ -353,11 +363,12 @@ router.get(
           count: sql<number>`count(*)::int`,
         })
         .from(auditFindings)
-        .innerJoin(audits, eq(audits.id, auditFindings.auditId))
+        .innerJoin(audits, findingAuditJoin)
         .innerJoin(
           claims,
           and(
             eq(claims.currentAuditId, audits.id),
+            eq(claims.organizationId, audits.organizationId),
             eq(claims.organizationId, organizationId),
             ne(claims.status, "archived"),
             ne(claims.systemStatus, "archived"),
@@ -393,11 +404,12 @@ router.get(
           )::int`,
         })
         .from(auditFindings)
-        .innerJoin(audits, eq(audits.id, auditFindings.auditId))
+        .innerJoin(audits, findingAuditJoin)
         .innerJoin(
           claims,
           and(
             eq(claims.currentAuditId, audits.id),
+            eq(claims.organizationId, audits.organizationId),
             eq(claims.organizationId, organizationId),
             ne(claims.status, "archived"),
             ne(claims.systemStatus, "archived"),
@@ -432,12 +444,22 @@ router.get(
           )::int`,
         })
         .from(evidenceAnchors)
-        .innerJoin(auditFindings, eq(auditFindings.id, evidenceAnchors.findingId))
-        .innerJoin(audits, eq(audits.id, auditFindings.auditId))
+        .innerJoin(
+          auditFindings,
+          and(
+            eq(auditFindings.id, evidenceAnchors.findingId),
+            eq(
+              auditFindings.organizationId,
+              evidenceAnchors.organizationId,
+            ),
+          ),
+        )
+        .innerJoin(audits, findingAuditJoin)
         .innerJoin(
           claims,
           and(
             eq(claims.currentAuditId, audits.id),
+            eq(claims.organizationId, audits.organizationId),
             eq(claims.organizationId, organizationId),
             ne(claims.status, "archived"),
             ne(claims.systemStatus, "archived"),

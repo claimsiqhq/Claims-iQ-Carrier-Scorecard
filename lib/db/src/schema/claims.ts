@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   boolean,
   date,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -16,7 +17,8 @@ import {
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { usersTable } from "./auth";
-import { organizations } from "./organizations";
+import { carrierEntities } from "./carrierEntities";
+import { organizationMemberships, organizations } from "./organizations";
 
 export const systemWorkflowStateEnum = pgEnum("system_workflow_state", [
   "uploaded",
@@ -96,55 +98,106 @@ export const processingAttemptStateEnum = pgEnum("processing_attempt_state", [
   "lease_expired",
 ]);
 
-export const claims = pgTable("claims", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  organizationId: uuid("organization_id")
-    .notNull()
-    .references(() => organizations.id, { onDelete: "restrict" }),
-  claimNumber: text("claim_number").notNull(), /* PII: claim identifier */
-  insuredName: text("insured_name").notNull(), /* PII: personal name — subject to GDPR right-to-erasure */
-  carrier: text("carrier"),
-  jobType: text("job_type"),
-  dateOfLoss: date("date_of_loss"),
-  status: text("status").notNull().default("pending"),
-  policyNumber: text("policy_number"), /* PII: policy identifier */
-  lossType: text("loss_type"),
-  propertyAddress: text("property_address"), /* PII: physical address — subject to GDPR right-to-erasure */
-  adjuster: text("adjuster"), /* PII: adjuster name */
-  totalClaimAmount: text("total_claim_amount"), /* PII: financial data */
-  deductible: text("deductible"), /* PII: financial data */
-  summary: text("summary"), /* may contain PII extracted from claim documents */
-  ownerUserId: varchar("owner_user_id").references(() => usersTable.id, {
-    onDelete: "set null",
-  }),
-  assigneeUserId: varchar("assignee_user_id").references(() => usersTable.id, {
-    onDelete: "set null",
-  }),
-  systemStatus: systemWorkflowStateEnum("system_status").notNull().default("uploaded"),
-  aiStatus: aiWorkflowStateEnum("ai_status").notNull().default("not_started"),
-  humanReviewStatus: humanReviewStateEnum("human_review_status")
-    .notNull()
-    .default("unassigned"),
-  currentAuditId: uuid("current_audit_id"),
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true })
-    .notNull()
-    .defaultNow()
-    .$onUpdate(() => new Date()),
-}, (table) => [
-  index("idx_claims_claim_number").on(table.claimNumber),
-  index("idx_claims_org_created").on(table.organizationId, table.createdAt),
-  index("idx_claims_org_workflow").on(
-    table.organizationId,
-    table.systemStatus,
-    table.aiStatus,
-  ),
-  index("idx_claims_org_assignee_review").on(
-    table.organizationId,
-    table.assigneeUserId,
-    table.humanReviewStatus,
-  ),
-]);
+export const claims = pgTable(
+  "claims",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "restrict" }),
+    claimNumber: text("claim_number").notNull() /* PII: claim identifier */,
+    insuredName:
+      text(
+        "insured_name",
+      ).notNull() /* PII: personal name — subject to GDPR right-to-erasure */,
+    carrierEntityId: uuid("carrier_entity_id"),
+    // Historical/source display snapshot; carrierEntityId is authoritative.
+    carrier: text("carrier"),
+    jobType: text("job_type"),
+    dateOfLoss: date("date_of_loss"),
+    status: text("status").notNull().default("pending"),
+    policyNumber: text("policy_number") /* PII: policy identifier */,
+    lossType: text("loss_type"),
+    propertyAddress:
+      text(
+        "property_address",
+      ) /* PII: physical address — subject to GDPR right-to-erasure */,
+    adjuster: text("adjuster") /* PII: adjuster name */,
+    totalClaimAmount: text("total_claim_amount") /* PII: financial data */,
+    deductible: text("deductible") /* PII: financial data */,
+    summary:
+      text("summary") /* may contain PII extracted from claim documents */,
+    ownerUserId: varchar("owner_user_id").references(() => usersTable.id, {
+      onDelete: "set null",
+    }),
+    assigneeUserId: varchar("assignee_user_id").references(
+      () => usersTable.id,
+      {
+        onDelete: "set null",
+      },
+    ),
+    systemStatus: systemWorkflowStateEnum("system_status")
+      .notNull()
+      .default("uploaded"),
+    aiStatus: aiWorkflowStateEnum("ai_status").notNull().default("not_started"),
+    humanReviewStatus: humanReviewStateEnum("human_review_status")
+      .notNull()
+      .default("unassigned"),
+    // The migration adds the cyclic (organization_id, id, current_audit_id)
+    // foreign key; Drizzle cannot express that cycle without losing inference.
+    currentAuditId: uuid("current_audit_id"),
+    createdAt: timestamp("created_at").defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    unique("uq_claims_org_id").on(table.organizationId, table.id),
+    index("idx_claims_claim_number").on(table.claimNumber),
+    index("idx_claims_org_created").on(table.organizationId, table.createdAt),
+    index("idx_claims_org_carrier_entity").on(
+      table.organizationId,
+      table.carrierEntityId,
+    ),
+    index("idx_claims_org_owner").on(table.organizationId, table.ownerUserId),
+    index("idx_claims_org_current_audit").on(
+      table.organizationId,
+      table.currentAuditId,
+    ),
+    index("idx_claims_org_workflow").on(
+      table.organizationId,
+      table.systemStatus,
+      table.aiStatus,
+    ),
+    index("idx_claims_org_assignee_review").on(
+      table.organizationId,
+      table.assigneeUserId,
+      table.humanReviewStatus,
+    ),
+    foreignKey({
+      columns: [table.organizationId, table.carrierEntityId],
+      foreignColumns: [carrierEntities.organizationId, carrierEntities.id],
+      name: "fk_claims_carrier_entity_tenant",
+    }),
+    foreignKey({
+      columns: [table.organizationId, table.ownerUserId],
+      foreignColumns: [
+        organizationMemberships.organizationId,
+        organizationMemberships.userId,
+      ],
+      name: "fk_claims_owner_membership_tenant",
+    }),
+    foreignKey({
+      columns: [table.organizationId, table.assigneeUserId],
+      foreignColumns: [
+        organizationMemberships.organizationId,
+        organizationMemberships.userId,
+      ],
+      name: "fk_claims_assignee_membership_tenant",
+    }),
+  ],
+);
 
 export const claimsRelations = relations(claims, ({ many }) => ({
   documents: many(documents),
@@ -153,31 +206,54 @@ export const claimsRelations = relations(claims, ({ many }) => ({
 
 export type Claim = typeof claims.$inferSelect;
 
-export const documents = pgTable("documents", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  organizationId: uuid("organization_id")
-    .notNull()
-    .references(() => organizations.id, { onDelete: "restrict" }),
-  claimId: uuid("claim_id").references(() => claims.id, { onDelete: "cascade" }),
-  uploadedByUserId: varchar("uploaded_by_user_id").references(() => usersTable.id, {
-    onDelete: "set null",
-  }),
-  type: text("type"),
-  fileUrl: text("file_url"), /* storage path — may indirectly identify claim */
-  sourceSha256: text("source_sha256"),
-  pageCount: integer("page_count"),
-  extractedText: text("extracted_text"), /* PII: may contain personal data extracted from claim PDF */
-  metadata: jsonb("metadata"), /* PII: may contain fileName, parsed claim data */
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true })
-    .notNull()
-    .defaultNow()
-    .$onUpdate(() => new Date()),
-}, (table) => [
-  index("idx_documents_claim_id").on(table.claimId),
-  index("idx_documents_org_claim").on(table.organizationId, table.claimId),
-  index("idx_documents_org_storage_path").on(table.organizationId, table.fileUrl),
-]);
+export const documents = pgTable(
+  "documents",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "restrict" }),
+    claimId: uuid("claim_id").references(() => claims.id, {
+      onDelete: "cascade",
+    }),
+    uploadedByUserId: varchar("uploaded_by_user_id").references(
+      () => usersTable.id,
+      {
+        onDelete: "set null",
+      },
+    ),
+    type: text("type"),
+    fileUrl:
+      text("file_url") /* storage path — may indirectly identify claim */,
+    sourceSha256: text("source_sha256"),
+    pageCount: integer("page_count"),
+    extractedText:
+      text(
+        "extracted_text",
+      ) /* PII: may contain personal data extracted from claim PDF */,
+    metadata:
+      jsonb("metadata") /* PII: may contain fileName, parsed claim data */,
+    createdAt: timestamp("created_at").defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    unique("uq_documents_org_id").on(table.organizationId, table.id),
+    index("idx_documents_claim_id").on(table.claimId),
+    index("idx_documents_org_claim").on(table.organizationId, table.claimId),
+    index("idx_documents_org_storage_path").on(
+      table.organizationId,
+      table.fileUrl,
+    ),
+    foreignKey({
+      columns: [table.organizationId, table.claimId],
+      foreignColumns: [claims.organizationId, claims.id],
+      name: "fk_documents_claim_tenant",
+    }).onDelete("cascade"),
+  ],
+);
 
 export const documentsRelations = relations(documents, ({ one }) => ({
   claim: one(claims, { fields: [documents.claimId], references: [claims.id] }),
@@ -185,56 +261,96 @@ export const documentsRelations = relations(documents, ({ one }) => ({
 
 export type Document = typeof documents.$inferSelect;
 
-export const audits = pgTable("audits", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  organizationId: uuid("organization_id")
-    .notNull()
-    .references(() => organizations.id, { onDelete: "restrict" }),
-  claimId: uuid("claim_id").references(() => claims.id, { onDelete: "cascade" }),
-  auditRunId: uuid("audit_run_id").notNull(),
-  versionNumber: integer("version_number").notNull(),
-  supersedesAuditId: uuid("supersedes_audit_id"),
-  overallScore: numeric("overall_score"),
-  technicalScore: numeric("technical_score"),
-  presentationScore: numeric("presentation_score"),
-  riskLevel: text("risk_level"),
-  approvalStatus: text("approval_status"),
-  executiveSummary: text("executive_summary"),
-  rawResponse: jsonb("raw_response"),
-  visionAnalysis: jsonb("vision_analysis"),
-  rulesetVersion: text("ruleset_version").notNull().default("unknown"),
-  rulesetHash: text("ruleset_hash"),
-  promptIdentifier: text("prompt_identifier").notNull().default("carrier-audit"),
-  promptHash: text("prompt_hash"),
-  modelIdentifier: text("model_identifier").notNull().default("unknown"),
-  sourceDocumentHashes: jsonb("source_document_hashes")
-    .$type<Array<{ documentId: string; sha256: string | null }>>()
-    .notNull()
-    .default(sql`'[]'::jsonb`),
-  actorUserId: varchar("actor_user_id").references(() => usersTable.id, {
-    onDelete: "set null",
-  }),
-  processingJobId: uuid("processing_job_id"),
-  fallbackUsed: boolean("fallback_used").notNull().default(false),
-  degraded: boolean("degraded").notNull().default(false),
-  startedAt: timestamp("started_at", { withTimezone: true }),
-  completedAt: timestamp("completed_at", { withTimezone: true }),
-  createdAt: timestamp("created_at").defaultNow(),
-}, (table) => [
-  index("idx_audits_claim_id").on(table.claimId),
-  unique("uq_audits_run_id").on(table.auditRunId),
-  unique("uq_audits_org_claim_version").on(
-    table.organizationId,
-    table.claimId,
-    table.versionNumber,
-  ),
-  index("idx_audits_org_claim_version").on(
-    table.organizationId,
-    table.claimId,
-    table.versionNumber,
-  ),
-  index("idx_audits_job").on(table.processingJobId),
-]);
+export const audits = pgTable(
+  "audits",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "restrict" }),
+    claimId: uuid("claim_id").references(() => claims.id, {
+      onDelete: "cascade",
+    }),
+    auditRunId: uuid("audit_run_id").notNull(),
+    versionNumber: integer("version_number").notNull(),
+    supersedesAuditId: uuid("supersedes_audit_id"),
+    overallScore: numeric("overall_score"),
+    technicalScore: numeric("technical_score"),
+    presentationScore: numeric("presentation_score"),
+    riskLevel: text("risk_level"),
+    approvalStatus: text("approval_status"),
+    executiveSummary: text("executive_summary"),
+    rawResponse: jsonb("raw_response"),
+    visionAnalysis: jsonb("vision_analysis"),
+    rulesetVersion: text("ruleset_version").notNull().default("unknown"),
+    rulesetHash: text("ruleset_hash"),
+    promptIdentifier: text("prompt_identifier")
+      .notNull()
+      .default("carrier-audit"),
+    promptHash: text("prompt_hash"),
+    modelIdentifier: text("model_identifier").notNull().default("unknown"),
+    sourceDocumentHashes: jsonb("source_document_hashes")
+      .$type<Array<{ documentId: string; sha256: string | null }>>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    actorUserId: varchar("actor_user_id").references(() => usersTable.id, {
+      onDelete: "set null",
+    }),
+    processingJobId: uuid("processing_job_id"),
+    fallbackUsed: boolean("fallback_used").notNull().default(false),
+    degraded: boolean("degraded").notNull().default(false),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (table) => [
+    index("idx_audits_claim_id").on(table.claimId),
+    unique("uq_audits_org_id").on(table.organizationId, table.id),
+    unique("uq_audits_org_claim_id").on(
+      table.organizationId,
+      table.claimId,
+      table.id,
+    ),
+    unique("uq_audits_run_id").on(table.auditRunId),
+    unique("uq_audits_org_claim_version").on(
+      table.organizationId,
+      table.claimId,
+      table.versionNumber,
+    ),
+    index("idx_audits_org_claim_version").on(
+      table.organizationId,
+      table.claimId,
+      table.versionNumber,
+    ),
+    index("idx_audits_job").on(table.processingJobId),
+    index("idx_audits_org_run").on(table.organizationId, table.auditRunId),
+    index("idx_audits_org_supersedes").on(
+      table.organizationId,
+      table.supersedesAuditId,
+    ),
+    index("idx_audits_org_job").on(table.organizationId, table.processingJobId),
+    foreignKey({
+      columns: [table.organizationId, table.claimId],
+      foreignColumns: [claims.organizationId, claims.id],
+      name: "fk_audits_claim_tenant",
+    }).onDelete("cascade"),
+    foreignKey({
+      columns: [table.organizationId, table.auditRunId],
+      foreignColumns: [auditRuns.organizationId, auditRuns.id],
+      name: "fk_audits_run_tenant",
+    }),
+    foreignKey({
+      columns: [table.organizationId, table.supersedesAuditId],
+      foreignColumns: [table.organizationId, table.id],
+      name: "fk_audits_supersedes_tenant",
+    }),
+    foreignKey({
+      columns: [table.organizationId, table.processingJobId],
+      foreignColumns: [processingJobs.organizationId, processingJobs.id],
+      name: "fk_audits_processing_job_tenant",
+    }),
+  ],
+);
 
 export const auditsRelations = relations(audits, ({ one, many }) => ({
   claim: one(claims, { fields: [audits.claimId], references: [claims.id] }),
@@ -245,305 +361,518 @@ export const auditsRelations = relations(audits, ({ one, many }) => ({
 
 export type Audit = typeof audits.$inferSelect;
 
-export const auditSections = pgTable("audit_sections", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  organizationId: uuid("organization_id")
-    .notNull()
-    .references(() => organizations.id, { onDelete: "restrict" }),
-  auditId: uuid("audit_id").references(() => audits.id, { onDelete: "cascade" }),
-  section: text("section"),
-  score: numeric("score"),
-  reasoning: text("reasoning"),
-  createdAt: timestamp("created_at").defaultNow(),
-}, (table) => [
-  index("idx_sections_audit_id").on(table.auditId),
-  index("idx_sections_org_audit").on(table.organizationId, table.auditId),
-]);
+export const auditSections = pgTable(
+  "audit_sections",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "restrict" }),
+    auditId: uuid("audit_id").references(() => audits.id, {
+      onDelete: "cascade",
+    }),
+    section: text("section"),
+    score: numeric("score"),
+    reasoning: text("reasoning"),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (table) => [
+    unique("uq_audit_sections_org_id").on(table.organizationId, table.id),
+    index("idx_sections_audit_id").on(table.auditId),
+    index("idx_sections_org_audit").on(table.organizationId, table.auditId),
+    foreignKey({
+      columns: [table.organizationId, table.auditId],
+      foreignColumns: [audits.organizationId, audits.id],
+      name: "fk_audit_sections_audit_tenant",
+    }).onDelete("cascade"),
+  ],
+);
 
 export const auditSectionsRelations = relations(auditSections, ({ one }) => ({
-  audit: one(audits, { fields: [auditSections.auditId], references: [audits.id] }),
+  audit: one(audits, {
+    fields: [auditSections.auditId],
+    references: [audits.id],
+  }),
 }));
 
 export type AuditSection = typeof auditSections.$inferSelect;
 
-export const auditFindings = pgTable("audit_findings", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  organizationId: uuid("organization_id")
-    .notNull()
-    .references(() => organizations.id, { onDelete: "restrict" }),
-  auditId: uuid("audit_id").references(() => audits.id, { onDelete: "cascade" }),
-  type: text("type"),
-  severity: text("severity"),
-  title: text("title"),
-  description: text("description"),
-  sourceDocumentId: uuid("source_document_id").references(() => documents.id),
-  disposition: findingDispositionEnum("disposition").notNull().default("open"),
-  overrideReason: text("override_reason"),
-  reviewNotes: text("review_notes"),
-  reviewedByUserId: varchar("reviewed_by_user_id").references(() => usersTable.id, {
-    onDelete: "set null",
-  }),
-  reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
-  metadata: jsonb("metadata"),
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true })
-    .notNull()
-    .defaultNow()
-    .$onUpdate(() => new Date()),
-}, (table) => [
-  index("idx_findings_audit_id").on(table.auditId),
-  index("idx_findings_org_audit").on(table.organizationId, table.auditId),
-  index("idx_findings_org_disposition").on(
-    table.organizationId,
-    table.disposition,
-  ),
-]);
+export const auditFindings = pgTable(
+  "audit_findings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "restrict" }),
+    auditId: uuid("audit_id").references(() => audits.id, {
+      onDelete: "cascade",
+    }),
+    type: text("type"),
+    severity: text("severity"),
+    title: text("title"),
+    description: text("description"),
+    sourceDocumentId: uuid("source_document_id").references(() => documents.id),
+    disposition: findingDispositionEnum("disposition")
+      .notNull()
+      .default("open"),
+    overrideReason: text("override_reason"),
+    reviewNotes: text("review_notes"),
+    reviewedByUserId: varchar("reviewed_by_user_id").references(
+      () => usersTable.id,
+      {
+        onDelete: "set null",
+      },
+    ),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    metadata: jsonb("metadata"),
+    createdAt: timestamp("created_at").defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    unique("uq_audit_findings_org_id").on(table.organizationId, table.id),
+    index("idx_findings_audit_id").on(table.auditId),
+    index("idx_findings_org_audit").on(table.organizationId, table.auditId),
+    index("idx_findings_org_disposition").on(
+      table.organizationId,
+      table.disposition,
+    ),
+    index("idx_findings_org_source_document").on(
+      table.organizationId,
+      table.sourceDocumentId,
+    ),
+    foreignKey({
+      columns: [table.organizationId, table.auditId],
+      foreignColumns: [audits.organizationId, audits.id],
+      name: "fk_audit_findings_audit_tenant",
+    }).onDelete("cascade"),
+    foreignKey({
+      columns: [table.organizationId, table.sourceDocumentId],
+      foreignColumns: [documents.organizationId, documents.id],
+      name: "fk_audit_findings_source_document_tenant",
+    }),
+  ],
+);
 
 export const auditFindingsRelations = relations(auditFindings, ({ one }) => ({
-  audit: one(audits, { fields: [auditFindings.auditId], references: [audits.id] }),
-  sourceDocument: one(documents, { fields: [auditFindings.sourceDocumentId], references: [documents.id] }),
+  audit: one(audits, {
+    fields: [auditFindings.auditId],
+    references: [audits.id],
+  }),
+  sourceDocument: one(documents, {
+    fields: [auditFindings.sourceDocumentId],
+    references: [documents.id],
+  }),
 }));
 
 export type AuditFinding = typeof auditFindings.$inferSelect;
 
-export const auditStructured = pgTable("audit_structured", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  organizationId: uuid("organization_id")
-    .notNull()
-    .references(() => organizations.id, { onDelete: "restrict" }),
-  auditId: uuid("audit_id").references(() => audits.id, { onDelete: "cascade" }),
-  deferredItems: jsonb("deferred_items"),
-  invoiceAdjustments: jsonb("invoice_adjustments"),
-  scopeDeviations: jsonb("scope_deviations"),
-  unknowns: jsonb("unknowns"),
-  carrierQuestions: jsonb("carrier_questions"),
-  createdAt: timestamp("created_at").defaultNow(),
-}, (table) => [
-  index("idx_audit_structured_org_audit").on(
-    table.organizationId,
-    table.auditId,
-  ),
-]);
+export const auditStructured = pgTable(
+  "audit_structured",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "restrict" }),
+    auditId: uuid("audit_id").references(() => audits.id, {
+      onDelete: "cascade",
+    }),
+    deferredItems: jsonb("deferred_items"),
+    invoiceAdjustments: jsonb("invoice_adjustments"),
+    scopeDeviations: jsonb("scope_deviations"),
+    unknowns: jsonb("unknowns"),
+    carrierQuestions: jsonb("carrier_questions"),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (table) => [
+    unique("uq_audit_structured_org_id").on(table.organizationId, table.id),
+    index("idx_audit_structured_org_audit").on(
+      table.organizationId,
+      table.auditId,
+    ),
+    foreignKey({
+      columns: [table.organizationId, table.auditId],
+      foreignColumns: [audits.organizationId, audits.id],
+      name: "fk_audit_structured_audit_tenant",
+    }).onDelete("cascade"),
+  ],
+);
 
-export const auditStructuredRelations = relations(auditStructured, ({ one }) => ({
-  audit: one(audits, { fields: [auditStructured.auditId], references: [audits.id] }),
-}));
+export const auditStructuredRelations = relations(
+  auditStructured,
+  ({ one }) => ({
+    audit: one(audits, {
+      fields: [auditStructured.auditId],
+      references: [audits.id],
+    }),
+  }),
+);
 
 export type AuditStructured = typeof auditStructured.$inferSelect;
 
-export const auditVersions = pgTable("audit_versions", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  organizationId: uuid("organization_id")
-    .notNull()
-    .references(() => organizations.id, { onDelete: "restrict" }),
-  claimId: uuid("claim_id").references(() => claims.id, { onDelete: "cascade" }),
-  auditId: uuid("audit_id").references(() => audits.id, { onDelete: "cascade" }),
-  auditRunId: uuid("audit_run_id").notNull(),
-  versionNumber: integer("version_number").notNull(),
-  supersedesAuditId: uuid("supersedes_audit_id"),
-  createdAt: timestamp("created_at").defaultNow(),
-}, (table) => [
-  unique("uq_audit_versions_org_claim_version").on(
-    table.organizationId,
-    table.claimId,
-    table.versionNumber,
-  ),
-  unique("uq_audit_versions_audit").on(table.auditId),
-  index("idx_audit_versions_org_claim").on(
-    table.organizationId,
-    table.claimId,
-    table.versionNumber,
-  ),
-]);
+export const auditVersions = pgTable(
+  "audit_versions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "restrict" }),
+    claimId: uuid("claim_id").references(() => claims.id, {
+      onDelete: "cascade",
+    }),
+    auditId: uuid("audit_id").references(() => audits.id, {
+      onDelete: "cascade",
+    }),
+    auditRunId: uuid("audit_run_id").notNull(),
+    versionNumber: integer("version_number").notNull(),
+    supersedesAuditId: uuid("supersedes_audit_id"),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (table) => [
+    unique("uq_audit_versions_org_id").on(table.organizationId, table.id),
+    unique("uq_audit_versions_org_claim_version").on(
+      table.organizationId,
+      table.claimId,
+      table.versionNumber,
+    ),
+    unique("uq_audit_versions_audit").on(table.auditId),
+    index("idx_audit_versions_org_claim").on(
+      table.organizationId,
+      table.claimId,
+      table.versionNumber,
+    ),
+    index("idx_audit_versions_org_run").on(
+      table.organizationId,
+      table.auditRunId,
+    ),
+    index("idx_audit_versions_org_supersedes").on(
+      table.organizationId,
+      table.supersedesAuditId,
+    ),
+    foreignKey({
+      columns: [table.organizationId, table.claimId],
+      foreignColumns: [claims.organizationId, claims.id],
+      name: "fk_audit_versions_claim_tenant",
+    }).onDelete("cascade"),
+    foreignKey({
+      columns: [table.organizationId, table.auditId],
+      foreignColumns: [audits.organizationId, audits.id],
+      name: "fk_audit_versions_audit_tenant",
+    }).onDelete("cascade"),
+    foreignKey({
+      columns: [table.organizationId, table.auditRunId],
+      foreignColumns: [auditRuns.organizationId, auditRuns.id],
+      name: "fk_audit_versions_run_tenant",
+    }),
+    foreignKey({
+      columns: [table.organizationId, table.supersedesAuditId],
+      foreignColumns: [audits.organizationId, audits.id],
+      name: "fk_audit_versions_supersedes_tenant",
+    }),
+  ],
+);
 
 export type AuditVersion = typeof auditVersions.$inferSelect;
 
-export const processingJobs = pgTable("processing_jobs", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  organizationId: uuid("organization_id")
-    .notNull()
-    .references(() => organizations.id, { onDelete: "restrict" }),
-  claimId: uuid("claim_id").references(() => claims.id, { onDelete: "cascade" }),
-  documentId: uuid("document_id").references(() => documents.id, {
-    onDelete: "set null",
-  }),
-  requestedByUserId: varchar("requested_by_user_id").references(() => usersTable.id, {
-    onDelete: "set null",
-  }),
-  type: processingJobTypeEnum("type").notNull(),
-  status: processingJobStateEnum("status").notNull().default("queued"),
-  stage: processingJobStageEnum("stage").notNull().default("uploaded"),
-  progress: integer("progress").notNull().default(0),
-  priority: integer("priority").notNull().default(100),
-  idempotencyKey: text("idempotency_key").notNull(),
-  payload: jsonb("payload")
-    .$type<Record<string, unknown>>()
-    .notNull()
-    .default(sql`'{}'::jsonb`),
-  attemptCount: integer("attempt_count").notNull().default(0),
-  maxAttempts: integer("max_attempts").notNull().default(3),
-  leaseOwner: text("lease_owner"),
-  leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
-  heartbeatAt: timestamp("heartbeat_at", { withTimezone: true }),
-  availableAt: timestamp("available_at", { withTimezone: true }).notNull().defaultNow(),
-  startedAt: timestamp("started_at", { withTimezone: true }),
-  completedAt: timestamp("completed_at", { withTimezone: true }),
-  cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
-  errorCode: text("error_code"),
-  errorMessage: text("error_message"),
-  errorMetadata: jsonb("error_metadata").$type<Record<string, unknown>>(),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true })
-    .notNull()
-    .defaultNow()
-    .$onUpdate(() => new Date()),
-}, (table) => [
-  unique("uq_processing_jobs_org_idempotency").on(
-    table.organizationId,
-    table.idempotencyKey,
-  ),
-  index("idx_processing_jobs_claim").on(
-    table.organizationId,
-    table.claimId,
-    table.createdAt,
-  ),
-  index("idx_processing_jobs_ready").on(
-    table.status,
-    table.availableAt,
-    table.priority,
-    table.createdAt,
-  ),
-  index("idx_processing_jobs_expired_lease").on(
-    table.status,
-    table.leaseExpiresAt,
-  ),
-]);
+export const processingJobs = pgTable(
+  "processing_jobs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "restrict" }),
+    claimId: uuid("claim_id").references(() => claims.id, {
+      onDelete: "cascade",
+    }),
+    documentId: uuid("document_id").references(() => documents.id, {
+      onDelete: "set null",
+    }),
+    requestedByUserId: varchar("requested_by_user_id").references(
+      () => usersTable.id,
+      {
+        onDelete: "set null",
+      },
+    ),
+    type: processingJobTypeEnum("type").notNull(),
+    status: processingJobStateEnum("status").notNull().default("queued"),
+    stage: processingJobStageEnum("stage").notNull().default("uploaded"),
+    progress: integer("progress").notNull().default(0),
+    priority: integer("priority").notNull().default(100),
+    idempotencyKey: text("idempotency_key").notNull(),
+    payload: jsonb("payload")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    maxAttempts: integer("max_attempts").notNull().default(3),
+    leaseOwner: text("lease_owner"),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    heartbeatAt: timestamp("heartbeat_at", { withTimezone: true }),
+    availableAt: timestamp("available_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+    errorCode: text("error_code"),
+    errorMessage: text("error_message"),
+    errorMetadata: jsonb("error_metadata").$type<Record<string, unknown>>(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    unique("uq_processing_jobs_org_id").on(table.organizationId, table.id),
+    unique("uq_processing_jobs_org_idempotency").on(
+      table.organizationId,
+      table.idempotencyKey,
+    ),
+    index("idx_processing_jobs_claim").on(
+      table.organizationId,
+      table.claimId,
+      table.createdAt,
+    ),
+    index("idx_processing_jobs_ready").on(
+      table.status,
+      table.availableAt,
+      table.priority,
+      table.createdAt,
+    ),
+    index("idx_processing_jobs_expired_lease").on(
+      table.status,
+      table.leaseExpiresAt,
+    ),
+    index("idx_processing_jobs_org_document").on(
+      table.organizationId,
+      table.documentId,
+    ),
+    foreignKey({
+      columns: [table.organizationId, table.claimId],
+      foreignColumns: [claims.organizationId, claims.id],
+      name: "fk_processing_jobs_claim_tenant",
+    }).onDelete("cascade"),
+    foreignKey({
+      columns: [table.organizationId, table.documentId],
+      foreignColumns: [documents.organizationId, documents.id],
+      name: "fk_processing_jobs_document_tenant",
+    }),
+  ],
+);
 
-export const processingJobAttempts = pgTable("processing_job_attempts", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  organizationId: uuid("organization_id")
-    .notNull()
-    .references(() => organizations.id, { onDelete: "restrict" }),
-  jobId: uuid("job_id")
-    .notNull()
-    .references(() => processingJobs.id, { onDelete: "cascade" }),
-  attemptNumber: integer("attempt_number").notNull(),
-  workerId: text("worker_id").notNull(),
-  status: processingAttemptStateEnum("status").notNull().default("running"),
-  startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
-  completedAt: timestamp("completed_at", { withTimezone: true }),
-  errorCode: text("error_code"),
-  errorMessage: text("error_message"),
-  errorMetadata: jsonb("error_metadata").$type<Record<string, unknown>>(),
-}, (table) => [
-  unique("uq_processing_job_attempt_number").on(table.jobId, table.attemptNumber),
-  index("idx_processing_job_attempts_org_job").on(
-    table.organizationId,
-    table.jobId,
-  ),
-]);
+export const processingJobAttempts = pgTable(
+  "processing_job_attempts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "restrict" }),
+    jobId: uuid("job_id")
+      .notNull()
+      .references(() => processingJobs.id, { onDelete: "cascade" }),
+    attemptNumber: integer("attempt_number").notNull(),
+    workerId: text("worker_id").notNull(),
+    status: processingAttemptStateEnum("status").notNull().default("running"),
+    startedAt: timestamp("started_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    errorCode: text("error_code"),
+    errorMessage: text("error_message"),
+    errorMetadata: jsonb("error_metadata").$type<Record<string, unknown>>(),
+  },
+  (table) => [
+    unique("uq_processing_job_attempts_org_id").on(
+      table.organizationId,
+      table.id,
+    ),
+    unique("uq_processing_job_attempt_number").on(
+      table.jobId,
+      table.attemptNumber,
+    ),
+    index("idx_processing_job_attempts_org_job").on(
+      table.organizationId,
+      table.jobId,
+    ),
+    foreignKey({
+      columns: [table.organizationId, table.jobId],
+      foreignColumns: [processingJobs.organizationId, processingJobs.id],
+      name: "fk_processing_job_attempts_job_tenant",
+    }).onDelete("cascade"),
+  ],
+);
 
-export const auditRuns = pgTable("audit_runs", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  organizationId: uuid("organization_id")
-    .notNull()
-    .references(() => organizations.id, { onDelete: "restrict" }),
-  claimId: uuid("claim_id").references(() => claims.id, { onDelete: "cascade" }),
-  processingJobId: uuid("processing_job_id").references(() => processingJobs.id, {
-    onDelete: "set null",
-  }),
-  actorUserId: varchar("actor_user_id").references(() => usersTable.id, {
-    onDelete: "set null",
-  }),
-  status: auditRunStateEnum("status").notNull(),
-  rulesetVersion: text("ruleset_version").notNull(),
-  rulesetHash: text("ruleset_hash"),
-  rulesetSnapshot: jsonb("ruleset_snapshot").$type<Record<string, unknown>>(),
-  promptIdentifier: text("prompt_identifier").notNull(),
-  promptHash: text("prompt_hash"),
-  promptSnapshot: jsonb("prompt_snapshot").$type<Record<string, unknown>>(),
-  modelIdentifier: text("model_identifier").notNull(),
-  sourceDocumentHashes: jsonb("source_document_hashes")
-    .$type<Array<{ documentId: string; sha256: string | null }>>()
-    .notNull()
-    .default(sql`'[]'::jsonb`),
-  providerRequestIds: jsonb("provider_request_ids")
-    .$type<string[]>()
-    .notNull()
-    .default(sql`'[]'::jsonb`),
-  fallbackUsed: boolean("fallback_used").notNull().default(false),
-  degraded: boolean("degraded").notNull().default(false),
-  errorCode: text("error_code"),
-  errorMessage: text("error_message"),
-  errorMetadata: jsonb("error_metadata").$type<Record<string, unknown>>(),
-  startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
-  completedAt: timestamp("completed_at", { withTimezone: true }).notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [
-  index("idx_audit_runs_org_claim_created").on(
-    table.organizationId,
-    table.claimId,
-    table.createdAt,
-  ),
-  index("idx_audit_runs_job").on(table.processingJobId),
-  index("idx_audit_runs_org_status").on(table.organizationId, table.status),
-]);
+export const auditRuns = pgTable(
+  "audit_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "restrict" }),
+    claimId: uuid("claim_id").references(() => claims.id, {
+      onDelete: "cascade",
+    }),
+    processingJobId: uuid("processing_job_id").references(
+      () => processingJobs.id,
+      {
+        onDelete: "set null",
+      },
+    ),
+    actorUserId: varchar("actor_user_id").references(() => usersTable.id, {
+      onDelete: "set null",
+    }),
+    status: auditRunStateEnum("status").notNull(),
+    rulesetVersion: text("ruleset_version").notNull(),
+    rulesetHash: text("ruleset_hash"),
+    rulesetSnapshot: jsonb("ruleset_snapshot").$type<Record<string, unknown>>(),
+    promptIdentifier: text("prompt_identifier").notNull(),
+    promptHash: text("prompt_hash"),
+    promptSnapshot: jsonb("prompt_snapshot").$type<Record<string, unknown>>(),
+    modelIdentifier: text("model_identifier").notNull(),
+    sourceDocumentHashes: jsonb("source_document_hashes")
+      .$type<Array<{ documentId: string; sha256: string | null }>>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    providerRequestIds: jsonb("provider_request_ids")
+      .$type<string[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    fallbackUsed: boolean("fallback_used").notNull().default(false),
+    degraded: boolean("degraded").notNull().default(false),
+    errorCode: text("error_code"),
+    errorMessage: text("error_message"),
+    errorMetadata: jsonb("error_metadata").$type<Record<string, unknown>>(),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+    completedAt: timestamp("completed_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    unique("uq_audit_runs_org_id").on(table.organizationId, table.id),
+    index("idx_audit_runs_org_claim_created").on(
+      table.organizationId,
+      table.claimId,
+      table.createdAt,
+    ),
+    index("idx_audit_runs_job").on(table.processingJobId),
+    index("idx_audit_runs_org_job").on(
+      table.organizationId,
+      table.processingJobId,
+    ),
+    index("idx_audit_runs_org_status").on(table.organizationId, table.status),
+    foreignKey({
+      columns: [table.organizationId, table.claimId],
+      foreignColumns: [claims.organizationId, claims.id],
+      name: "fk_audit_runs_claim_tenant",
+    }).onDelete("cascade"),
+    foreignKey({
+      columns: [table.organizationId, table.processingJobId],
+      foreignColumns: [processingJobs.organizationId, processingJobs.id],
+      name: "fk_audit_runs_processing_job_tenant",
+    }),
+  ],
+);
 
-export const evidenceAnchors = pgTable("evidence_anchors", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  organizationId: uuid("organization_id")
-    .notNull()
-    .references(() => organizations.id, { onDelete: "restrict" }),
-  findingId: uuid("finding_id")
-    .notNull()
-    .references(() => auditFindings.id, { onDelete: "cascade" }),
-  sourceDocumentId: uuid("source_document_id").references(() => documents.id, {
-    onDelete: "set null",
-  }),
-  isMapped: boolean("is_mapped").notNull().default(false),
-  pageNumber: integer("page_number"),
-  rawLocation: text("raw_location"),
-  quote: text("quote"),
-  anchorData: jsonb("anchor_data").$type<Record<string, unknown>>(),
-  mappingMethod: text("mapping_method").notNull().default("unmapped"),
-  confidence: numeric("confidence"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [
-  index("idx_evidence_anchors_org_finding").on(
-    table.organizationId,
-    table.findingId,
-  ),
-  index("idx_evidence_anchors_document_page").on(
-    table.sourceDocumentId,
-    table.pageNumber,
-  ),
-]);
+export const evidenceAnchors = pgTable(
+  "evidence_anchors",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "restrict" }),
+    findingId: uuid("finding_id")
+      .notNull()
+      .references(() => auditFindings.id, { onDelete: "cascade" }),
+    sourceDocumentId: uuid("source_document_id").references(
+      () => documents.id,
+      {
+        onDelete: "set null",
+      },
+    ),
+    isMapped: boolean("is_mapped").notNull().default(false),
+    pageNumber: integer("page_number"),
+    rawLocation: text("raw_location"),
+    quote: text("quote"),
+    anchorData: jsonb("anchor_data").$type<Record<string, unknown>>(),
+    mappingMethod: text("mapping_method").notNull().default("unmapped"),
+    confidence: numeric("confidence"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    unique("uq_evidence_anchors_org_id").on(table.organizationId, table.id),
+    index("idx_evidence_anchors_org_finding").on(
+      table.organizationId,
+      table.findingId,
+    ),
+    index("idx_evidence_anchors_document_page").on(
+      table.sourceDocumentId,
+      table.pageNumber,
+    ),
+    index("idx_evidence_anchors_org_source_document").on(
+      table.organizationId,
+      table.sourceDocumentId,
+    ),
+    foreignKey({
+      columns: [table.organizationId, table.findingId],
+      foreignColumns: [auditFindings.organizationId, auditFindings.id],
+      name: "fk_evidence_anchors_finding_tenant",
+    }).onDelete("cascade"),
+    foreignKey({
+      columns: [table.organizationId, table.sourceDocumentId],
+      foreignColumns: [documents.organizationId, documents.id],
+      name: "fk_evidence_anchors_source_document_tenant",
+    }),
+  ],
+);
 
-export const claimActivity = pgTable("claim_activity", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  organizationId: uuid("organization_id")
-    .notNull()
-    .references(() => organizations.id, { onDelete: "restrict" }),
-  claimId: uuid("claim_id")
-    .notNull()
-    .references(() => claims.id, { onDelete: "cascade" }),
-  actorUserId: varchar("actor_user_id").references(() => usersTable.id, {
-    onDelete: "set null",
-  }),
-  activityType: text("activity_type").notNull(),
-  metadata: jsonb("metadata")
-    .$type<Record<string, unknown>>()
-    .notNull()
-    .default(sql`'{}'::jsonb`),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [
-  index("idx_claim_activity_org_claim_created").on(
-    table.organizationId,
-    table.claimId,
-    table.createdAt,
-  ),
-  index("idx_claim_activity_actor").on(table.organizationId, table.actorUserId),
-]);
+export const claimActivity = pgTable(
+  "claim_activity",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "restrict" }),
+    claimId: uuid("claim_id")
+      .notNull()
+      .references(() => claims.id, { onDelete: "cascade" }),
+    actorUserId: varchar("actor_user_id").references(() => usersTable.id, {
+      onDelete: "set null",
+    }),
+    activityType: text("activity_type").notNull(),
+    metadata: jsonb("metadata")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    unique("uq_claim_activity_org_id").on(table.organizationId, table.id),
+    index("idx_claim_activity_org_claim_created").on(
+      table.organizationId,
+      table.claimId,
+      table.createdAt,
+    ),
+    index("idx_claim_activity_actor").on(
+      table.organizationId,
+      table.actorUserId,
+    ),
+    foreignKey({
+      columns: [table.organizationId, table.claimId],
+      foreignColumns: [claims.organizationId, claims.id],
+      name: "fk_claim_activity_claim_tenant",
+    }).onDelete("cascade"),
+  ],
+);
 
 export type ProcessingJob = typeof processingJobs.$inferSelect;
 export type ProcessingJobAttempt = typeof processingJobAttempts.$inferSelect;

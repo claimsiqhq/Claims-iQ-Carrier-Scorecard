@@ -35,26 +35,29 @@ export interface AuditPromptSnapshot {
 
 export async function getAuditPromptSnapshot(
   carrierKey: string,
+  organizationId: string,
   carrierSystemPrompt?: string,
-  organizationId?: string,
 ): Promise<AuditPromptSnapshot> {
-  const rows = organizationId
-    ? await db
-        .select({
-          key: promptSettings.key,
-          value: promptSettings.value,
-        })
-        .from(promptSettings)
-        .where(
-          and(
-            eq(promptSettings.organizationId, organizationId),
-            inArray(promptSettings.key, [
-              "system_prompt",
-              "user_prompt_template",
-            ]),
-          ),
-        )
-    : [];
+  if (!organizationId) {
+    throw new AuditPromptConfigurationError(
+      "An authenticated organization is required to resolve audit prompts.",
+    );
+  }
+  const rows = await db
+    .select({
+      key: promptSettings.key,
+      value: promptSettings.value,
+    })
+    .from(promptSettings)
+    .where(
+      and(
+        eq(promptSettings.organizationId, organizationId),
+        inArray(promptSettings.key, [
+          "system_prompt",
+          "user_prompt_template",
+        ]),
+      ),
+    );
   const configured = new Map(rows.map((row) => [row.key, row.value]));
   const baseSystemPrompt = (
     configured.get("system_prompt") ?? SYSTEM_PROMPT

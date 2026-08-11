@@ -23,8 +23,10 @@ import {
 } from "./audit";
 import { InsufficientAuditEvidenceError } from "./scoringEngine";
 import {
+  CarrierEntitySelectionError,
   CarrierRulesetUnavailableError,
-  normalizeCarrierKey,
+  listActiveCarrierEntities,
+  selectRequestedCarrierEntity,
 } from "./carrierRulesetService";
 import {
   resolveQuestionAuditConfiguration,
@@ -32,12 +34,13 @@ import {
 } from "./runQuestionAudit";
 import { AuditPromptConfigurationError } from "./auditPromptService";
 import { env } from "../env";
-import { downloadFile } from "../lib/supabaseStorage";
+import { TenantStorageCapability } from "../lib/supabaseStorage";
 import logger from "../lib/logger";
 import { nextAuditVersion } from "./auditVersioning";
 
 export interface AuditRunRequestContext {
   organizationId: string;
+  storage: TenantStorageCapability;
   actorUserId?: string | null;
   processingJobId?: string | null;
 }
@@ -165,6 +168,8 @@ async function persistTerminalRun(input: {
       ? input.error.code
       : input.error instanceof CarrierRulesetUnavailableError
         ? input.error.code
+        : input.error instanceof CarrierEntitySelectionError
+          ? input.error.code
         : input.error instanceof AuditPromptConfigurationError
           ? input.error.code
           : "audit_execution_failed");
@@ -248,6 +253,14 @@ export async function runAndSaveAudit(
   claimId: string,
   context: AuditRunRequestContext,
 ): Promise<AuditSaveResult> {
+  if (
+    !(context.storage instanceof TenantStorageCapability)
+    || context.storage.organizationId !== context.organizationId
+  ) {
+    throw new Error(
+      "Audit execution requires a matching tenant storage capability",
+    );
+  }
   const startedAt = new Date();
   const [claim] = await db
     .select()
@@ -291,7 +304,7 @@ export async function runAndSaveAudit(
   }
   const reportText = reportParts.join("\n");
 
-  const carrierKey = normalizeCarrierKey(claim.carrier || "unidentified-carrier");
+  let carrierKey = "organization-profile";
   let questionAuditConfiguration: QuestionAuditConfiguration | undefined;
   let rulesetVersion = "unavailable";
   let rulesetHash: string | null = null;
@@ -313,7 +326,11 @@ export async function runAndSaveAudit(
   );
   if (pdfDocument?.fileUrl) {
     try {
-      pdfBuffer = await downloadFile(pdfDocument.fileUrl);
+      pdfBuffer = await context.storage.downloadDocument({
+        claimId,
+        documentId: pdfDocument.id,
+        storagePath: pdfDocument.fileUrl,
+      });
       if (!pdfDocument.sourceSha256) {
         const sourceSha256 = sha256(pdfBuffer);
         await db
@@ -341,10 +358,18 @@ export async function runAndSaveAudit(
 
   let auditResult: AuditResponse;
   try {
-    questionAuditConfiguration = await resolveQuestionAuditConfiguration(
-      claim.carrier ?? "",
+    const activeCarrierEntities = await listActiveCarrierEntities(
       context.organizationId,
     );
+    selectRequestedCarrierEntity(
+      context.organizationId,
+      activeCarrierEntities,
+      claim.carrierEntityId,
+    );
+    questionAuditConfiguration = await resolveQuestionAuditConfiguration(
+      context.organizationId,
+    );
+    carrierKey = questionAuditConfiguration.carrierKey;
     rulesetVersion = questionAuditConfiguration.ruleset.version || "unknown";
     rulesetHash = sha256(stableJson(questionAuditConfiguration.ruleset));
     rulesetSnapshot = questionAuditConfiguration.ruleset as unknown as Record<

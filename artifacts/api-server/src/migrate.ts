@@ -1,10 +1,20 @@
 import { createHash } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
-import { pool } from "@workspace/db";
+import { getMigrationPool } from "@workspace/db";
 import logger from "./lib/logger";
+import {
+  runCarrierTenantStorageCutover,
+  type MigrationDatabaseClient,
+} from "./migrations/carrierTenantStorageCutover";
+import {
+  isMigrationFilename,
+  removeOuterTransaction,
+} from "./migrations/migrationFiles";
 
 const MIGRATION_LOCK = "complete_iq_schema_migrations";
+const CARRIER_TENANT_CUTOVER_MIGRATION =
+  "20260810232004_carrier_tenant_data_cutover.sql";
 // pnpm runs filtered scripts from the package directory, while the migrations
 // live at the repository root. The production CJS bundle is emitted to dist/,
 // so resolve from the bundle directory instead of the working directory.
@@ -12,32 +22,20 @@ const MIGRATION_DIRECTORY = path.resolve(
   __dirname,
   "../../../lib/db/migrations",
 );
-const MIGRATION_FILE_PATTERN = /^\d{4}_.+\.sql$/;
+let migrationPool: ReturnType<typeof getMigrationPool> | undefined;
 
 function checksum(contents: string): string {
   return createHash("sha256").update(contents).digest("hex");
 }
 
-function removeOuterTransaction(contents: string): string {
-  const normalized = contents.replace(/^\uFEFF/, "");
-  if (
-    /^\s*BEGIN;\s*/i.test(normalized)
-    && /\s*COMMIT;\s*$/i.test(normalized)
-  ) {
-    return normalized
-      .replace(/^\s*BEGIN;\s*/i, "")
-      .replace(/\s*COMMIT;\s*$/i, "");
-  }
-  return normalized;
-}
-
 async function migrate(): Promise<void> {
-  if (!process.env.SUPABASE_DATABASE_URL && !process.env.DATABASE_URL) {
-    throw new Error("SUPABASE_DATABASE_URL or DATABASE_URL must be set.");
-  }
+  const pool = getMigrationPool();
+  migrationPool = pool;
 
   const migrationFiles = (await readdir(MIGRATION_DIRECTORY))
-    .filter((name) => MIGRATION_FILE_PATTERN.test(name))
+    // Keep the original ordered migrations and accept Supabase CLI timestamped
+    // migrations. Directories and helper SQL names do not match.
+    .filter(isMigrationFilename)
     .sort();
 
   if (migrationFiles.length === 0) {
@@ -46,7 +44,9 @@ async function migrate(): Promise<void> {
 
   const client = await pool.connect();
   try {
-    await client.query("SELECT pg_advisory_lock(hashtext($1))", [MIGRATION_LOCK]);
+    await client.query("SELECT pg_advisory_lock(hashtext($1))", [
+      MIGRATION_LOCK,
+    ]);
     await client.query(`
       CREATE TABLE IF NOT EXISTS public.complete_iq_schema_migrations (
         filename text PRIMARY KEY,
@@ -89,6 +89,17 @@ async function migrate(): Promise<void> {
         continue;
       }
 
+      if (filename === CARRIER_TENANT_CUTOVER_MIGRATION) {
+        const storageResult = await runCarrierTenantStorageCutover(
+          client as unknown as MigrationDatabaseClient,
+          { mode: "copy" },
+        );
+        logger.info(
+          storageResult,
+          "Carrier tenant storage copy verified before SQL cutover",
+        );
+      }
+
       await client.query("BEGIN");
       try {
         await client.query(removeOuterTransaction(contents));
@@ -117,10 +128,10 @@ async function migrate(): Promise<void> {
 migrate()
   .then(async () => {
     logger.info("Database schema is current");
-    await pool.end();
+    await migrationPool?.end();
   })
   .catch(async (error) => {
     logger.error({ error }, "Database migration failed");
-    await pool.end().catch(() => undefined);
+    await migrationPool?.end().catch(() => undefined);
     process.exitCode = 1;
   });

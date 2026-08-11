@@ -1,10 +1,7 @@
 import logger from "./lib/logger";
-import { env } from "./env";
+import { env, validateStorageEnvironment } from "./env";
 
 const requiredEnvVars = [
-  "SUPABASE_DATABASE_URL",
-  "SUPABASE_URL",
-  "SUPABASE_SERVICE_ROLE",
   "GEMINI_API_KEY",
 ] as const;
 
@@ -15,8 +12,9 @@ async function main(): Promise<void> {
       `Missing required environment variables: ${missing.join(", ")}`,
     );
   }
+  validateStorageEnvironment();
 
-  const [{ pool }, { startDurableWorker, stopDurableWorker }] =
+  const [{ closeRuntimePools }, { startDurableWorker, stopDurableWorker }] =
     await Promise.all([
       import("@workspace/db"),
       import("./services/processingWorker"),
@@ -36,7 +34,7 @@ async function main(): Promise<void> {
 
     try {
       await stopDurableWorker();
-      await pool.end();
+      await closeRuntimePools();
       logger.info("Complete iQ processing worker stopped");
       process.exit(0);
     } catch (err) {

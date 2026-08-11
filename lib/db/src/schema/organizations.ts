@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import {
   boolean,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -31,10 +32,15 @@ export const organizations = pgTable(
     name: text("name").notNull(),
     slug: text("slug").notNull(),
     isDefault: boolean("is_default").notNull().default(false),
-    createdByUserId: varchar("created_by_user_id").references(() => usersTable.id, {
-      onDelete: "set null",
-    }),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    createdByUserId: varchar("created_by_user_id").references(
+      () => usersTable.id,
+      {
+        onDelete: "set null",
+      },
+    ),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
       .defaultNow()
@@ -62,13 +68,19 @@ export const organizationMemberships = pgTable(
       .notNull()
       .default(sql`'[]'::jsonb`),
     isDefault: boolean("is_default").notNull().default(false),
-    joinedAt: timestamp("joined_at", { withTimezone: true }).notNull().defaultNow(),
+    joinedAt: timestamp("joined_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
       .defaultNow()
       .$onUpdate(() => new Date()),
   },
   (table) => [
+    unique("uq_organization_memberships_org_id").on(
+      table.organizationId,
+      table.id,
+    ),
     unique("uq_organization_memberships_org_user").on(
       table.organizationId,
       table.userId,
@@ -107,13 +119,19 @@ export const organizationInvitations = pgTable(
     sendCount: integer("send_count").notNull().default(1),
     acceptedAt: timestamp("accepted_at", { withTimezone: true }),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
       .defaultNow()
       .$onUpdate(() => new Date()),
   },
   (table) => [
+    unique("uq_organization_invitations_org_id").on(
+      table.organizationId,
+      table.id,
+    ),
     unique("uq_organization_invitations_token_hash").on(table.tokenHash),
     uniqueIndex("uq_organization_invitations_pending_email")
       .on(table.organizationId, table.email)
@@ -137,15 +155,16 @@ export const passwordResetTokens = pgTable(
       () => usersTable.id,
       { onDelete: "set null" },
     ),
-    requestedForOrganizationId: uuid("requested_for_organization_id").references(
-      () => organizations.id,
-      { onDelete: "set null" },
-    ),
+    requestedForOrganizationId: uuid(
+      "requested_for_organization_id",
+    ).references(() => organizations.id, { onDelete: "set null" }),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     authVersion: integer("auth_version").notNull().default(0),
     usedAt: timestamp("used_at", { withTimezone: true }),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
   },
   (table) => [
     unique("uq_password_reset_tokens_token_hash").on(table.tokenHash),
@@ -181,19 +200,30 @@ export const savedViews = pgTable(
       .default(sql`'{}'::jsonb`),
     columns: jsonb("columns").$type<string[]>(),
     isDefault: boolean("is_default").notNull().default(false),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
       .defaultNow()
       .$onUpdate(() => new Date()),
   },
   (table) => [
+    unique("uq_saved_views_org_id").on(table.organizationId, table.id),
     unique("uq_saved_views_user_name").on(
       table.organizationId,
       table.userId,
       table.name,
     ),
     index("idx_saved_views_org_user").on(table.organizationId, table.userId),
+    foreignKey({
+      columns: [table.organizationId, table.userId],
+      foreignColumns: [
+        organizationMemberships.organizationId,
+        organizationMemberships.userId,
+      ],
+      name: "fk_saved_views_membership_tenant",
+    }).onDelete("cascade"),
   ],
 );
 
@@ -214,9 +244,15 @@ export const organizationAuditEvents = pgTable(
       .$type<Record<string, unknown>>()
       .notNull()
       .default(sql`'{}'::jsonb`),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
   },
   (table) => [
+    unique("uq_organization_audit_events_org_id").on(
+      table.organizationId,
+      table.id,
+    ),
     index("idx_organization_audit_events_org_created").on(
       table.organizationId,
       table.createdAt,
@@ -236,9 +272,12 @@ export const organizationSettings = pgTable("organization_settings", {
     .default(false),
   retentionDays: integer("retention_days"),
   purgeMode: text("purge_mode").notNull().default("manual"),
-  updatedByUserId: varchar("updated_by_user_id").references(() => usersTable.id, {
-    onDelete: "set null",
-  }),
+  updatedByUserId: varchar("updated_by_user_id").references(
+    () => usersTable.id,
+    {
+      onDelete: "set null",
+    },
+  ),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
     .defaultNow()
@@ -246,10 +285,13 @@ export const organizationSettings = pgTable("organization_settings", {
 });
 
 export type Organization = typeof organizations.$inferSelect;
-export type OrganizationMembership = typeof organizationMemberships.$inferSelect;
+export type OrganizationMembership =
+  typeof organizationMemberships.$inferSelect;
 export type OrganizationRole = OrganizationMembership["role"];
-export type OrganizationInvitation = typeof organizationInvitations.$inferSelect;
+export type OrganizationInvitation =
+  typeof organizationInvitations.$inferSelect;
 export type PasswordResetToken = typeof passwordResetTokens.$inferSelect;
 export type SavedView = typeof savedViews.$inferSelect;
-export type OrganizationAuditEvent = typeof organizationAuditEvents.$inferSelect;
+export type OrganizationAuditEvent =
+  typeof organizationAuditEvents.$inferSelect;
 export type OrganizationSettings = typeof organizationSettings.$inferSelect;

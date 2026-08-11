@@ -4,6 +4,7 @@ import cookieParser from "cookie-parser";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import { authMiddleware } from "./middlewares/authMiddleware";
+import { databaseContextMiddleware } from "./middlewares/databaseContext";
 import { organizationContextMiddleware } from "./middlewares/organizationContext";
 import { auditLog } from "./middlewares/auditLog";
 import { requestMetrics } from "./middlewares/requestMetrics";
@@ -91,6 +92,7 @@ app.use(generalLimiter);
 app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: true, limit: "256kb" }));
 
+app.use(databaseContextMiddleware);
 app.use(authMiddleware);
 app.use(organizationContextMiddleware);
 app.use(requestMetrics);

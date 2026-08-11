@@ -1,5 +1,5 @@
 import {
-  db,
+  identityDb as db,
   passwordResetTokens,
   usersTable,
 } from "@workspace/db";

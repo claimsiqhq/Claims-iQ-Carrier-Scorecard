@@ -3,7 +3,7 @@ import { ArrowLeft, LockKeyhole, UserRound } from "lucide-react"
 import { Link } from "wouter"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { api, apiErrorMessage, setSelectedOrganizationId } from "@/lib/api"
+import { api, apiErrorMessage } from "@/lib/api"
 import { useAuth } from "@/lib/auth-context"
 import { validateNewPassword } from "@/lib/password-policy"
 import type { InvitationPreview } from "@/lib/types"
@@ -56,13 +56,12 @@ export default function AcceptInvitationPage() {
     }
     setSubmitting(true)
     try {
-      const result = await api.acceptInvitation(token, {
+      await api.acceptInvitation(token, {
         password,
         firstName: preview.accountExists ? undefined : firstName,
         lastName: preview.accountExists ? undefined : lastName,
       })
       await logout()
-      setSelectedOrganizationId(result.organizationId)
       clearToken()
       setComplete(true)
       setPreview(null)

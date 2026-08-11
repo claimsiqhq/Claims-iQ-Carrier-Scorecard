@@ -9,6 +9,7 @@
     "typecheck:libs": "tsc --build",
     "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck",
     "test": "pnpm -r --if-present test",
+    "test:tenant-integration": "pnpm --filter @workspace/scripts run test:tenant-integration",
     "audit": "pnpm audit --production",
     "validate": "pnpm run test && pnpm run build && pnpm run audit"
   },

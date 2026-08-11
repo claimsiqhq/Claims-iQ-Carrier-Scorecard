@@ -4,22 +4,27 @@
  * Api
  * Typed contract for the Complete iQ Carrier Audit API.
 
-Authenticated requests use the `sid` HTTP-only session cookie. The optional
-`X-Organization-Id` header selects one of the caller's organization
-memberships; otherwise the default (or earliest) membership is used.
-Organization-scoped lookups deliberately return `404` when a resource
-belongs to another tenant so that cross-tenant identifiers are not
-disclosed.
+Authenticated requests use the `sid` HTTP-only session cookie. Ordinary
+tenant context is bound by the server from exactly one organization
+membership; accounts with zero or multiple memberships cannot access
+tenant routes. Tenant-selection headers and request-body overrides are
+rejected.
+
+Platform administrators have no tenant context by default. They use the
+reason-required `/platform/tenant-access` endpoints to create or revoke a
+temporary, audited lease bound to the authenticated session. Tenant-scoped
+lookups deliberately return `404` when a resource belongs to another
+tenant so that cross-tenant identifiers are not disclosed.
 
 Job-enqueueing operations that accept `X-Idempotency-Key` scope that value
-to the selected organization and operation inputs. Repeating an equivalent
-request returns the existing durable processing job and sets `duplicate`
-to `true` when that field is present.
+to the authenticated session-bound tenant and operation inputs. Repeating
+an equivalent request returns the existing durable processing job and sets
+`duplicate` to `true` when that field is present.
 
  * OpenAPI spec version: 1.0.0
  */
 
 export interface ReprocessClaimRequest {
-  /** @minLength 1 */
-  carrier: string;
+  /** Optional only when the authenticated session-bound tenant has exactly one active carrier entity. */
+  carrierEntityId?: string;
 }

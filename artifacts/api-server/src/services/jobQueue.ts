@@ -2,14 +2,16 @@ import {
   and,
   desc,
   eq,
+  sql,
 } from "drizzle-orm";
 import {
   claims,
   db,
-  pool,
   processingJobAttempts,
   processingJobs,
+  type DatabaseSessionSettings,
   type ProcessingJob,
+  type WorkspaceDatabase,
 } from "@workspace/db";
 import {
   buildJobIdempotencyKey,
@@ -59,6 +61,28 @@ export class JobLeaseLostError extends Error {
   constructor(message = "Processing job lease was lost or cancelled") {
     super(message);
     this.name = "JobLeaseLostError";
+  }
+}
+
+export class WorkerJobContextError extends Error {
+  readonly code = "worker_job_context_invalid";
+
+  constructor(message = "Worker database context does not match the claimed job") {
+    super(message);
+    this.name = "WorkerJobContextError";
+  }
+}
+
+export function assertWorkerJobContext(
+  job: Pick<ClaimedJob, "id" | "organizationId" | "leaseOwner">,
+  settings: DatabaseSessionSettings,
+): void {
+  if (
+    settings.jobId !== job.id ||
+    settings.organizationId !== job.organizationId ||
+    settings.workerId !== job.leaseOwner
+  ) {
+    throw new WorkerJobContextError();
   }
 }
 
@@ -324,222 +348,79 @@ function mapClaimedJob(row: Record<string, unknown>, workerId: string): ClaimedJ
   };
 }
 
+function rowsFromResult<Row>(result: unknown): Row[] {
+  const rows = (result as { rows?: Row[] }).rows;
+  return Array.isArray(rows) ? rows : [];
+}
+
 export async function claimNextJob(
+  controlDatabase: WorkspaceDatabase,
   workerId: string,
   leaseMs = DEFAULT_LEASE_MS,
 ): Promise<ClaimedJob | null> {
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-
-    await client.query(`
-      UPDATE processing_job_attempts a
-      SET
-        status = 'lease_expired',
-        completed_at = now(),
-        error_code = 'lease_expired',
-        error_message = 'Worker lease expired before completion'
-      FROM processing_jobs j
-      WHERE j.id = a.job_id
-        AND j.status = 'running'
-        AND j.lease_expires_at < now()
-        AND a.attempt_number = j.attempt_count
-        AND a.status = 'running'
-    `);
-
-    await client.query(`
-      UPDATE processing_jobs
-      SET
-        status = CASE
-          WHEN attempt_count < max_attempts THEN 'queued'::processing_job_state
-          ELSE 'failed'::processing_job_state
-        END,
-        stage = CASE
-          WHEN attempt_count < max_attempts THEN 'uploaded'::processing_job_stage
-          ELSE 'failed'::processing_job_stage
-        END,
-        available_at = now(),
-        completed_at = CASE WHEN attempt_count >= max_attempts THEN now() ELSE NULL END,
-        lease_owner = NULL,
-        lease_expires_at = NULL,
-        heartbeat_at = NULL,
-        error_code = 'lease_expired',
-        error_message = 'Worker lease expired before completion',
-        updated_at = now()
-      WHERE status = 'running'
-        AND lease_expires_at < now()
-    `);
-
-    const selected = await client.query<Record<string, unknown>>(`
-      SELECT *
-      FROM processing_jobs
-      WHERE status = 'queued'
-        AND available_at <= now()
-        AND attempt_count < max_attempts
-      ORDER BY priority ASC, created_at ASC
-      FOR UPDATE SKIP LOCKED
-      LIMIT 1
-    `);
-
-    const row = selected.rows[0];
-    if (!row) {
-      await client.query("COMMIT");
-      return null;
-    }
-
-    const attemptNumber = Number(row.attempt_count) + 1;
-    const updated = await client.query<Record<string, unknown>>(
-      `
-        UPDATE processing_jobs
-        SET
-          status = 'running',
-          attempt_count = $2,
-          lease_owner = $3,
-          lease_expires_at = now() + ($4::integer * interval '1 millisecond'),
-          heartbeat_at = now(),
-          started_at = coalesce(started_at, now()),
-          updated_at = now()
-        WHERE id = $1
-        RETURNING *
-      `,
-      [row.id, attemptNumber, workerId, leaseMs],
-    );
-
-    await client.query(
-      `
-        INSERT INTO processing_job_attempts (
-          organization_id,
-          job_id,
-          attempt_number,
-          worker_id,
-          status
-        )
-        VALUES ($1, $2, $3, $4, 'running')
-      `,
-      [row.organization_id, row.id, attemptNumber, workerId],
-    );
-
-    await client.query("COMMIT");
-    return mapClaimedJob(updated.rows[0]!, workerId);
-  } catch (err) {
-    await client.query("ROLLBACK");
-    throw err;
-  } finally {
-    client.release();
-  }
+  const result = await controlDatabase.execute(sql`
+    SELECT *
+    FROM private.claim_processing_job(${leaseMs}::integer)
+  `);
+  const row = rowsFromResult<Record<string, unknown>>(result)[0];
+  return row ? mapClaimedJob(row, workerId) : null;
 }
 
 export async function updateJobStage(
+  jobDatabase: WorkspaceDatabase,
   job: Pick<ClaimedJob, "id" | "organizationId" | "leaseOwner">,
   stage: ProcessingJob["stage"],
   progress: number,
   leaseMs = DEFAULT_LEASE_MS,
 ): Promise<void> {
-  const result = await pool.query(
-    `
-      UPDATE processing_jobs
-      SET
-        stage = $4,
-        progress = $5,
-        heartbeat_at = now(),
-        lease_expires_at = now() + ($6::integer * interval '1 millisecond'),
-        updated_at = now()
-      WHERE id = $1
-        AND organization_id = $2
-        AND lease_owner = $3
-        AND status = 'running'
-    `,
-    [
-      job.id,
-      job.organizationId,
-      job.leaseOwner,
-      stage,
-      Math.min(Math.max(Math.round(progress), 0), 100),
-      leaseMs,
-    ],
-  );
-  if (result.rowCount !== 1) throw new JobLeaseLostError();
+  const result = await jobDatabase.execute(sql`
+    SELECT private.heartbeat_processing_job(
+      ${leaseMs}::integer,
+      ${stage}::public.processing_job_stage,
+      ${Math.min(Math.max(Math.round(progress), 0), 100)}::integer
+    ) AS renewed
+  `);
+  if (!rowsFromResult<{ renewed: boolean }>(result)[0]?.renewed) {
+    throw new JobLeaseLostError();
+  }
 }
 
 export async function heartbeatJob(
+  jobDatabase: WorkspaceDatabase,
   job: Pick<ClaimedJob, "id" | "organizationId" | "leaseOwner">,
   leaseMs = DEFAULT_LEASE_MS,
 ): Promise<void> {
-  const result = await pool.query(
-    `
-      UPDATE processing_jobs
-      SET
-        heartbeat_at = now(),
-        lease_expires_at = now() + ($4::integer * interval '1 millisecond'),
-        updated_at = now()
-      WHERE id = $1
-        AND organization_id = $2
-        AND lease_owner = $3
-        AND status = 'running'
-    `,
-    [job.id, job.organizationId, job.leaseOwner, leaseMs],
-  );
-  if (result.rowCount !== 1) throw new JobLeaseLostError();
+  const result = await jobDatabase.execute(sql`
+    SELECT private.heartbeat_processing_job(
+      ${leaseMs}::integer,
+      NULL::public.processing_job_stage,
+      NULL::integer
+    ) AS renewed
+  `);
+  if (!rowsFromResult<{ renewed: boolean }>(result)[0]?.renewed) {
+    throw new JobLeaseLostError();
+  }
 }
 
 export async function completeJob(
+  jobDatabase: WorkspaceDatabase,
   job: ClaimedJob,
   outcome: "succeeded" | "degraded",
   metadata?: Record<string, unknown>,
 ): Promise<void> {
-  const stage = outcome === "succeeded" ? "completed" : "degraded";
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-    const result = await client.query(
-      `
-        UPDATE processing_jobs
-        SET
-          status = $4,
-          stage = $5,
-          progress = 100,
-          completed_at = now(),
-          lease_owner = NULL,
-          lease_expires_at = NULL,
-          heartbeat_at = now(),
-          error_metadata = coalesce($6::jsonb, error_metadata),
-          updated_at = now()
-        WHERE id = $1
-          AND organization_id = $2
-          AND lease_owner = $3
-          AND status = 'running'
-      `,
-      [
-        job.id,
-        job.organizationId,
-        job.leaseOwner,
-        outcome,
-        stage,
-        metadata ? JSON.stringify(metadata) : null,
-      ],
-    );
-    if (result.rowCount !== 1) throw new JobLeaseLostError();
-
-    await client.query(
-      `
-        UPDATE processing_job_attempts
-        SET status = $3, completed_at = now()
-        WHERE job_id = $1
-          AND attempt_number = $2
-          AND status = 'running'
-      `,
-      [job.id, job.attemptCount, outcome],
-    );
-    await client.query("COMMIT");
-  } catch (err) {
-    await client.query("ROLLBACK");
-    throw err;
-  } finally {
-    client.release();
+  const result = await jobDatabase.execute(sql`
+    SELECT private.complete_processing_job(
+      ${outcome}::public.processing_job_state,
+      ${metadata ? JSON.stringify(metadata) : null}::jsonb
+    ) AS completed
+  `);
+  if (!rowsFromResult<{ completed: boolean }>(result)[0]?.completed) {
+    throw new JobLeaseLostError();
   }
 }
 
 export async function failJob(
+  jobDatabase: WorkspaceDatabase,
   job: ClaimedJob,
   error: unknown,
 ): Promise<"queued" | "failed" | "cancelled"> {
@@ -550,96 +431,21 @@ export async function failJob(
       : error instanceof Error && "code" in error && typeof error.code === "string"
         ? error.code
         : "processing_failed";
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-    const current = await client.query<{ status: ProcessingJob["status"] }>(
-      "SELECT status FROM processing_jobs WHERE id = $1 AND organization_id = $2 FOR UPDATE",
-      [job.id, job.organizationId],
-    );
-    if (!current.rows[0]) {
-      await client.query("COMMIT");
-      return "failed";
-    }
-    if (current.rows[0].status === "cancelled") {
-      await client.query(
-        `
-          UPDATE processing_job_attempts
-          SET
-            status = 'cancelled',
-            completed_at = now(),
-            error_code = 'cancelled_by_user',
-            error_message = 'Cancelled while processing'
-          WHERE job_id = $1 AND attempt_number = $2 AND status = 'running'
-        `,
-        [job.id, job.attemptCount],
-      );
-      await client.query("COMMIT");
-      return "cancelled";
-    }
-
-    const shouldRetry = job.attemptCount < job.maxAttempts;
-    const nextStatus = shouldRetry ? "queued" : "failed";
-    const delaySeconds = Math.min(60, 2 ** Math.max(job.attemptCount - 1, 0));
-    await client.query(
-      `
-        UPDATE processing_jobs
-        SET
-          status = $4,
-          stage = 'failed',
-          progress = CASE WHEN $4 = 'queued' THEN 0 ELSE progress END,
-          available_at = now() + ($5::integer * interval '1 second'),
-          completed_at = CASE WHEN $4 = 'failed' THEN now() ELSE NULL END,
-          lease_owner = NULL,
-          lease_expires_at = NULL,
-          heartbeat_at = NULL,
-          error_code = $6,
-          error_message = $7,
-          error_metadata = $8::jsonb,
-          updated_at = now()
-        WHERE id = $1
-          AND organization_id = $2
-          AND lease_owner = $3
-          AND status = 'running'
-      `,
-      [
-        job.id,
-        job.organizationId,
-        job.leaseOwner,
-        nextStatus,
-        delaySeconds,
-        code,
-        message.slice(0, 2000),
-        JSON.stringify({ errorName: error instanceof Error ? error.name : "UnknownError" }),
-      ],
-    );
-    await client.query(
-      `
-        UPDATE processing_job_attempts
-        SET
-          status = 'failed',
-          completed_at = now(),
-          error_code = $3,
-          error_message = $4,
-          error_metadata = $5::jsonb
-        WHERE job_id = $1 AND attempt_number = $2 AND status = 'running'
-      `,
-      [
-        job.id,
-        job.attemptCount,
-        code,
-        message.slice(0, 2000),
-        JSON.stringify({ retryScheduled: shouldRetry }),
-      ],
-    );
-    await client.query("COMMIT");
-    return nextStatus;
-  } catch (err) {
-    await client.query("ROLLBACK");
-    throw err;
-  } finally {
-    client.release();
-  }
+  const result = await jobDatabase.execute(sql`
+    SELECT private.fail_processing_job(
+      ${code},
+      ${message.slice(0, 2000)},
+      ${JSON.stringify({
+        errorName: error instanceof Error ? error.name : "UnknownError",
+        retryScheduled: job.attemptCount < job.maxAttempts,
+      })}::jsonb
+    )::text AS status
+  `);
+  const status = rowsFromResult<{
+    status: "queued" | "failed" | "cancelled" | null;
+  }>(result)[0]?.status;
+  if (!status) throw new JobLeaseLostError();
+  return status;
 }
 
 export async function listJobAttempts(

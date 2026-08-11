@@ -58,6 +58,10 @@ async function buildAll() {
       index: path.resolve(__dirname, "src/index.ts"),
       worker: path.resolve(__dirname, "src/worker.ts"),
       migrate: path.resolve(__dirname, "src/migrate.ts"),
+      "migrate-carrier-tenant-storage": path.resolve(
+        __dirname,
+        "src/migrateCarrierTenantStorage.ts",
+      ),
     },
     platform: "node",
     bundle: true,

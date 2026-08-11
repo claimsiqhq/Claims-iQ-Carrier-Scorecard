@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import rateLimit from "express-rate-limit";
 import {
-  db,
+  identityDb as db,
   organizationAuditEvents,
   organizationInvitations,
   organizationMemberships,

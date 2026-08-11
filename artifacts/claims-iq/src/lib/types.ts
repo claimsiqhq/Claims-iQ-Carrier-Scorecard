@@ -360,8 +360,16 @@ export interface SavedView {
 }
 
 export interface CarrierOption {
+  id: string
   key: string
+  entityKey: string
+  carrierKey: string
+  organizationId: string
   displayName: string
+  legalName?: string | null
+  isPrimary: boolean
+  active: boolean
+  logoUrl: string | null
 }
 
 export interface CarrierQuestion {
@@ -529,6 +537,7 @@ export interface AuthUser {
   lastName: string | null
   profileImageUrl: string | null
   role: string
+  platformRole: "none" | "admin"
 }
 
 export interface AuthOrganization {
@@ -536,11 +545,19 @@ export interface AuthOrganization {
   name: string
   role: string
   permissions: string[]
+  accessMode?: "membership" | "platform_lease"
+  accessExpiresAt?: string | null
 }
 
 export interface AuthSession {
   user: AuthUser | null
   organization: AuthOrganization | null
+}
+
+export interface PlatformTenantSummary {
+  id: string
+  name: string
+  slug?: string | null
 }
 
 export interface InvitationPreview {

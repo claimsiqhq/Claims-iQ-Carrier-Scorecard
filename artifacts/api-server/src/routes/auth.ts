@@ -1,7 +1,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import bcrypt from "bcryptjs";
 import rateLimit from "express-rate-limit";
-import { db, usersTable } from "@workspace/db";
+import { identityDb, usersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import {
   clearSession,
@@ -11,6 +11,7 @@ import {
   SESSION_TTL,
   type SessionData,
 } from "../lib/auth";
+import { authSessionResponse } from "../lib/authResponse";
 import logger from "../lib/logger";
 
 const router: IRouter = Router();
@@ -36,79 +37,68 @@ function setSessionCookie(res: Response, sid: string) {
 
 router.get("/auth/user", (req: Request, res: Response) => {
   if (req.isAuthenticated()) {
-    res.json({
-      user: {
-        id: req.user.id,
-        email: req.user.email,
-        firstName: req.user.firstName,
-        lastName: req.user.lastName,
-        profileImageUrl: req.user.profileImageUrl,
-        role: req.user.role,
-      },
-      organization: req.organization
-        ? {
-            id: req.organization.organizationId,
-            name: req.organization.organizationName,
-            role: req.organization.role,
-            permissions: req.organization.permissions,
-          }
-        : null,
-    });
+    res.json(authSessionResponse(req.user, req.organization));
   } else {
-    res.json({ user: null });
+    res.json({ user: null, organization: null });
   }
 });
 
-router.post("/auth/login", loginLimiter, async (req: Request, res: Response) => {
-  const { email, password } = req.body;
+router.post(
+  "/auth/login",
+  loginLimiter,
+  async (req: Request, res: Response) => {
+    const { email, password } = req.body;
 
-  if (!email || !password) {
-    res.status(400).json({ error: "Email and password are required" });
-    return;
-  }
-
-  try {
-    const [user] = await db
-      .select()
-      .from(usersTable)
-      .where(eq(usersTable.email, email.toLowerCase().trim()));
-
-    if (!user) {
-      res.status(401).json({ error: "Invalid email or password" });
+    if (!email || !password) {
+      res.status(400).json({ error: "Email and password are required" });
       return;
     }
 
-    const valid = await bcrypt.compare(password, user.passwordHash);
-    if (!valid) {
-      res.status(401).json({ error: "Invalid email or password" });
-      return;
+    try {
+      const [user] = await identityDb
+        .select()
+        .from(usersTable)
+        .where(eq(usersTable.email, email.toLowerCase().trim()));
+
+      if (!user) {
+        res.status(401).json({ error: "Invalid email or password" });
+        return;
+      }
+
+      const valid = await bcrypt.compare(password, user.passwordHash);
+      if (!valid) {
+        res.status(401).json({ error: "Invalid email or password" });
+        return;
+      }
+
+      const sessionData: SessionData = {
+        authVersion: user.authVersion,
+        user: {
+          id: user.id,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          profileImageUrl: user.profileImageUrl,
+          role: user.role,
+          platformRole:
+            user.platformRole === "platform_admin" ? "admin" : "none",
+        },
+      };
+
+      const sid = await createSession(sessionData);
+      setSessionCookie(res, sid);
+
+      logger.info({ userId: user.id }, "User logged in");
+
+      res.json({
+        user: sessionData.user,
+      });
+    } catch (err) {
+      logger.error({ err }, "Login error");
+      res.status(500).json({ error: "Login failed" });
     }
-
-    const sessionData: SessionData = {
-      authVersion: user.authVersion,
-      user: {
-        id: user.id,
-        email: user.email,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        profileImageUrl: user.profileImageUrl,
-        role: user.role,
-      },
-    };
-
-    const sid = await createSession(sessionData);
-    setSessionCookie(res, sid);
-
-    logger.info({ userId: user.id }, "User logged in");
-
-    res.json({
-      user: sessionData.user,
-    });
-  } catch (err) {
-    logger.error({ err }, "Login error");
-    res.status(500).json({ error: "Login failed" });
-  }
-});
+  },
+);
 
 router.post("/auth/logout", async (req: Request, res: Response) => {
   const sid = getSessionId(req);

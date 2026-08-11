@@ -3,6 +3,7 @@ import {
   clearSession,
   getSessionId,
   getSession,
+  type ActivePlatformTenantAccess,
   type SessionUser,
 } from "../lib/auth";
 
@@ -13,10 +14,13 @@ declare global {
     interface Request {
       isAuthenticated(): this is AuthedRequest;
       user?: User | undefined;
+      databaseSessionId?: string;
+      activePlatformTenantAccess?: ActivePlatformTenantAccess | null;
     }
 
     export interface AuthedRequest {
       user: User;
+      databaseSessionId: string;
     }
   }
 }
@@ -36,13 +40,19 @@ export async function authMiddleware(
     return;
   }
 
-  const session = await getSession(sid);
-  if (!session?.user?.id) {
-    await clearSession(res, sid);
-    next();
-    return;
-  }
+  try {
+    const session = await getSession(sid);
+    if (!session?.user?.id) {
+      await clearSession(res, sid);
+      next();
+      return;
+    }
 
-  req.user = session.user;
-  next();
+    req.user = session.user;
+    req.databaseSessionId = session.databaseSessionId;
+    req.activePlatformTenantAccess = session.activePlatformTenantAccess;
+    next();
+  } catch (error) {
+    next(error);
+  }
 }

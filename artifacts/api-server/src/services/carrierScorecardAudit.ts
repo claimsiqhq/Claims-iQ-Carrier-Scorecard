@@ -353,12 +353,13 @@ export function parseCarrierScorecardJson(
 export async function runCarrierScorecardAudit(input: {
   reportText: string;
   requestId: string;
+  organizationId: string;
   carrier?: string;
 }): Promise<CarrierScorecardAuditResult> {
   const startedAt = Date.now();
   const model = env.GEMINI_MODEL;
 
-  const ruleset = await getCarrierRuleset(input.carrier ?? "", {
+  const ruleset = await getCarrierRuleset(input.organizationId, {
     allowDefault: false,
   });
   const categories = ruleset.scorecard_categories;

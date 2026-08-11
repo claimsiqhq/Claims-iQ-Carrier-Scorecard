@@ -50,6 +50,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { api, apiErrorMessage, queryKeys } from "@/lib/api"
 import { useAuth } from "@/lib/auth-context"
+import { carrierEntitiesForOrganization } from "@/lib/carrier-entities"
 import type {
   AuditResult,
   CarrierOption,
@@ -101,7 +102,7 @@ export default function ClaimWorkbench({ claimId }: { claimId: string }) {
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [reprocessOpen, setReprocessOpen] = useState(false)
-  const [reprocessCarrier, setReprocessCarrier] = useState("")
+  const [reprocessCarrierEntityId, setReprocessCarrierEntityId] = useState("")
   const [reprocessing, setReprocessing] = useState(false)
   const [emailOpen, setEmailOpen] = useState(false)
   const [emailHtml, setEmailHtml] = useState<string | null>(null)
@@ -124,6 +125,10 @@ export default function ClaimWorkbench({ claimId }: { claimId: string }) {
     enabled: reprocessOpen,
     staleTime: 5 * 60_000,
   })
+  const carrierEntities = useMemo(
+    () => carrierEntitiesForOrganization(carrierQuery.data, organization?.id),
+    [carrierQuery.data, organization?.id],
+  )
   const activityQuery = useQuery({
     queryKey: queryKeys.claimActivity(claimId),
     queryFn: () => api.getClaimActivity(claimId),
@@ -143,6 +148,20 @@ export default function ClaimWorkbench({ claimId }: { claimId: string }) {
       setSelectedDocumentId(claimQuery.data.documents[0].id)
     }
   }, [claimQuery.data?.documents, selectedDocumentId])
+
+  useEffect(() => {
+    if (!reprocessOpen) return
+    if (carrierEntities.length === 1) {
+      setReprocessCarrierEntityId(carrierEntities[0].id)
+      return
+    }
+    if (
+      reprocessCarrierEntityId
+      && !carrierEntities.some((option) => option.id === reprocessCarrierEntityId)
+    ) {
+      setReprocessCarrierEntityId("")
+    }
+  }, [carrierEntities, reprocessCarrierEntityId, reprocessOpen])
 
   const findings = useMemo(
     () => collectFindings(claimQuery.data?.audit),
@@ -255,11 +274,11 @@ export default function ClaimWorkbench({ claimId }: { claimId: string }) {
   }
 
   const reprocess = async () => {
-    if (!reprocessCarrier) return
+    if (!reprocessCarrierEntityId) return
     setReprocessing(true)
     setActionError(null)
     try {
-      await api.reprocessClaim(claimId, reprocessCarrier)
+      await api.reprocessClaim(claimId, reprocessCarrierEntityId)
       for (let attempt = 0; attempt < 240; attempt += 1) {
         const status = await api.getProcessingStatus(claimId)
         if (
@@ -284,7 +303,7 @@ export default function ClaimWorkbench({ claimId }: { claimId: string }) {
       }
       await refreshAll()
       setReprocessOpen(false)
-      setReprocessCarrier("")
+      setReprocessCarrierEntityId("")
     } catch (error) {
       setActionError(apiErrorMessage(error, "Reprocessing failed."))
     } finally {
@@ -695,26 +714,43 @@ export default function ClaimWorkbench({ claimId }: { claimId: string }) {
               Reprocess source package
             </DialogTitle>
             <DialogDescription>
-              This replaces the current audit with a new carrier-specific run. The source file is
-              retained and processing status is polled safely.
+              This replaces the current audit with a new run for an entity in the active tenant.
+              The source file is retained and processing status is polled safely.
             </DialogDescription>
           </DialogHeader>
           <div className="ciq-field">
-            <label htmlFor="reprocess-carrier">Carrier profile</label>
+            <label htmlFor="reprocess-carrier">Carrier entity</label>
             <select
               id="reprocess-carrier"
               className="ciq-control"
-              value={reprocessCarrier}
-              onChange={(event) => setReprocessCarrier(event.target.value)}
-              disabled={reprocessing}
+              value={reprocessCarrierEntityId}
+              onChange={(event) => setReprocessCarrierEntityId(event.target.value)}
+              disabled={
+                reprocessing
+                || carrierQuery.isLoading
+                || carrierEntities.length <= 1
+              }
             >
-              <option value="">Select a published carrier…</option>
-              {(carrierQuery.data || []).map((option: CarrierOption) => (
-                <option key={option.key} value={option.displayName}>
+              {carrierQuery.isLoading && <option value="">Loading tenant entities…</option>}
+              {!carrierQuery.isLoading && carrierEntities.length === 0 && (
+                <option value="">No active carrier entity available</option>
+              )}
+              {carrierEntities.length > 1 && (
+                <option value="">Select a carrier entity…</option>
+              )}
+              {carrierEntities.map((option: CarrierOption) => (
+                <option key={option.id} value={option.id}>
                   {option.displayName}
                 </option>
               ))}
             </select>
+            <span className="text-xs text-[var(--ciq-ink-muted)]">
+              {carrierEntities.length > 1
+                ? "Only entities returned for the active tenant are available."
+                : carrierEntities.length === 1
+                  ? "Locked to the active entity returned for this tenant."
+                  : "Reprocessing requires an active entity in the current tenant."}
+            </span>
           </div>
           {reprocessing && (
             <p className="flex items-center gap-2 text-sm text-[var(--ciq-ink-muted)]" role="status">
@@ -726,7 +762,10 @@ export default function ClaimWorkbench({ claimId }: { claimId: string }) {
             <Button variant="outline" onClick={() => setReprocessOpen(false)} disabled={reprocessing}>
               Cancel
             </Button>
-            <Button onClick={() => void reprocess()} disabled={!reprocessCarrier || reprocessing}>
+            <Button
+              onClick={() => void reprocess()}
+              disabled={!reprocessCarrierEntityId || reprocessing || carrierQuery.isLoading}
+            >
               <RefreshCw className={reprocessing ? "animate-spin" : ""} aria-hidden="true" />
               {reprocessing ? "Reprocessing" : "Reprocess claim"}
             </Button>

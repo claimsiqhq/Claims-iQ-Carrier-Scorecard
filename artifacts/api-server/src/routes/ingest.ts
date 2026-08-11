@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { Router, type IRouter } from "express";
 import multer from "multer";
 import {
@@ -21,8 +21,13 @@ import {
   retryOrganizationJob,
 } from "../services/jobQueue";
 import {
-  deleteFile,
-  uploadFile,
+  CarrierEntitySelectionError,
+  resolveRequestedCarrierEntity,
+} from "../services/carrierRulesetService";
+import {
+  createTenantStorageCapability,
+  type CanonicalDocumentReference,
+  type TenantStorageCapability,
 } from "../lib/supabaseStorage";
 import { getAuthorizedClaim } from "../lib/authorization";
 import { requireAuth } from "../middlewares/requireAuth";
@@ -48,6 +53,17 @@ function callerIdempotencyKey(req: {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+function hasForbiddenCarrierAuthority(body: unknown): boolean {
+  return Boolean(
+    body &&
+      typeof body === "object" &&
+      ("carrier" in body ||
+        "carrierKey" in body ||
+        "organizationId" in body ||
+        "tenantId" in body),
+  );
+}
+
 router.post(
   "/ingest",
   requireAuth,
@@ -55,7 +71,8 @@ router.post(
   upload.single("file"),
   async (req, res) => {
     const organization = req.organization!;
-    let uploadedStoragePath: string | null = null;
+    let storage: TenantStorageCapability | null = null;
+    let uploadedReference: CanonicalDocumentReference | null = null;
     try {
       const file = req.file;
       if (!file) {
@@ -74,17 +91,36 @@ router.post(
         });
         return;
       }
+      if (hasForbiddenCarrierAuthority(req.body)) {
+        res.status(400).json({
+          error:
+            "Use carrierEntityId; carrier profile and organization selection are server-controlled.",
+        });
+        return;
+      }
 
       const sourceHash = createHash("sha256").update(file.buffer).digest("hex");
-      const requestedCarrier =
-        typeof req.body?.carrier === "string" && req.body.carrier.trim()
-          ? req.body.carrier.trim()
+      const requestedCarrierEntityId =
+        typeof req.body?.carrierEntityId === "string" &&
+        req.body.carrierEntityId.trim()
+          ? req.body.carrierEntityId.trim()
           : null;
+      if (
+        requestedCarrierEntityId &&
+        !UUID_RE.test(requestedCarrierEntityId)
+      ) {
+        res.status(400).json({ error: "carrierEntityId must be a valid UUID" });
+        return;
+      }
+      const selectedCarrierEntity = await resolveRequestedCarrierEntity(
+        organization.organizationId,
+        requestedCarrierEntityId,
+      );
       const idempotencyKey = buildJobIdempotencyKey({
         organizationId: organization.organizationId,
         type: "ingest",
         sourceHash,
-        requestedCarrier,
+        carrierEntityId: selectedCarrierEntity.id,
         callerKey: callerIdempotencyKey(req),
       });
 
@@ -112,24 +148,44 @@ router.post(
         return;
       }
 
-      uploadedStoragePath = await uploadFile(
-        file.buffer,
-        file.originalname,
-        "application/pdf",
-        organization.organizationId,
-      );
+      if (!req.databaseSessionId) {
+        res.status(401).json({ error: "Authenticated session required" });
+        return;
+      }
+      const claimId = randomUUID();
+      const documentId = randomUUID();
+      const jobId = randomUUID();
+      storage = createTenantStorageCapability({
+        organizationId: organization.organizationId,
+        userId: req.user!.id,
+        sessionId: req.databaseSessionId,
+        maxExpiresAt: organization.accessExpiresAt,
+      });
+      const uploadedStoragePath = await storage.uploadDocument({
+        claimId,
+        documentId,
+        fileName: file.originalname,
+        contentType: "application/pdf",
+        body: file.buffer,
+      });
+      uploadedReference = {
+        claimId,
+        documentId,
+        storagePath: uploadedStoragePath,
+      };
 
       const result = await db.transaction(async (tx) => {
         const [reservedJob] = await tx
           .insert(processingJobs)
           .values({
+            id: jobId,
             organizationId: organization.organizationId,
             requestedByUserId: req.user!.id,
             type: "ingest",
             status: "queued",
             stage: "uploaded",
             idempotencyKey,
-            payload: { carrier: requestedCarrier },
+            payload: { carrierEntityId: selectedCarrierEntity.id },
           })
           .onConflictDoNothing({
             target: [
@@ -144,12 +200,14 @@ router.post(
         const [newClaim] = await tx
           .insert(claims)
           .values({
+            id: claimId,
             organizationId: organization.organizationId,
-            ownerUserId: req.user!.id,
+            ownerUserId: organization.membershipId ? req.user!.id : null,
             claimNumber: `CLM-${reservedJob.id.slice(0, 8)}`,
             insuredName: "Processing…",
             status: "processing",
-            carrier: requestedCarrier,
+            carrierEntityId: selectedCarrierEntity.id,
+            carrier: selectedCarrierEntity.displayName,
             systemStatus: "processing",
             aiStatus: "queued",
             humanReviewStatus: "unassigned",
@@ -159,6 +217,7 @@ router.post(
         const [document] = await tx
           .insert(documents)
           .values({
+            id: documentId,
             organizationId: organization.organizationId,
             claimId: newClaim.id,
             uploadedByUserId: req.user!.id,
@@ -166,6 +225,9 @@ router.post(
             fileUrl: uploadedStoragePath!,
             sourceSha256: sourceHash,
             metadata: {
+              organizationId: organization.organizationId,
+              claimId: newClaim.id,
+              documentId,
               fileName: file.originalname,
               contentType: "application/pdf",
               storagePath: uploadedStoragePath,
@@ -199,8 +261,8 @@ router.post(
       });
 
       if (!result) {
-        await deleteFile(uploadedStoragePath);
-        uploadedStoragePath = null;
+        await storage.deleteDocument(uploadedReference);
+        uploadedReference = null;
         const [raceWinner] = await db
           .select()
           .from(processingJobs)
@@ -224,6 +286,7 @@ router.post(
         });
         return;
       }
+      uploadedReference = null;
 
       logger.info(
         {
@@ -252,8 +315,26 @@ router.post(
         },
       });
     } catch (error) {
-      if (uploadedStoragePath) {
-        await deleteFile(uploadedStoragePath).catch(() => undefined);
+      if (storage && uploadedReference) {
+        try {
+          await storage.deleteDocument(uploadedReference);
+        } catch (cleanupError) {
+          logger.error(
+            {
+              cleanupError,
+              claimId: uploadedReference.claimId,
+              documentId: uploadedReference.documentId,
+            },
+            "Failed to clean up unregistered ingestion object",
+          );
+        }
+      }
+      if (error instanceof CarrierEntitySelectionError) {
+        res.status(error.status).json({
+          error: error.message,
+          code: error.code,
+        });
+        return;
       }
       logger.error({ error }, "Ingestion enqueue failed");
       res.status(500).json({ error: "Failed to store and queue claim file" });
@@ -339,7 +420,7 @@ async function enqueueExistingClaimJob(input: {
   userId: string;
   claimId: string;
   type: "retry" | "reprocess";
-  carrier?: string | null;
+  carrierEntityId: string;
   callerKey?: string | null;
 }) {
   const [document] = await db
@@ -399,7 +480,7 @@ async function enqueueExistingClaimJob(input: {
     type: input.type,
     claimId: input.claimId,
     documentId: document.id,
-    requestedCarrier: input.carrier,
+    carrierEntityId: input.carrierEntityId,
     callerKey:
       input.callerKey
       ?? `${input.type}:${claim?.currentAuditId ?? "no-successful-audit"}`,
@@ -411,7 +492,7 @@ async function enqueueExistingClaimJob(input: {
     requestedByUserId: input.userId,
     type: input.type,
     idempotencyKey,
-    payload: { carrier: input.carrier ?? null },
+    payload: { carrierEntityId: input.carrierEntityId },
   });
   if (
     !queued.created
@@ -432,6 +513,17 @@ router.post(
   requireOrganizationPermission("jobs:retry"),
   async (req, res) => {
     try {
+      if (
+        hasForbiddenCarrierAuthority(req.body) ||
+        (req.body &&
+          typeof req.body === "object" &&
+          "carrierEntityId" in req.body)
+      ) {
+        res.status(400).json({
+          error: "Carrier and organization selection cannot be overridden on retry.",
+        });
+        return;
+      }
       const claimId = firstParam(req.params.id);
       if (!UUID_RE.test(claimId)) {
         res.status(400).json({ error: "Invalid claim ID format" });
@@ -445,6 +537,10 @@ router.post(
         res.status(404).json({ error: "Claim not found" });
         return;
       }
+      const selectedCarrierEntity = await resolveRequestedCarrierEntity(
+        req.organization!.organizationId,
+        claim.carrierEntityId,
+      );
 
       const [latest] = await db
         .select()
@@ -483,7 +579,7 @@ router.post(
         userId: req.user!.id,
         claimId,
         type: "retry",
-        carrier: claim.carrier,
+        carrierEntityId: selectedCarrierEntity.id,
         callerKey: callerIdempotencyKey(req),
       });
       if (!queued) {
@@ -511,6 +607,10 @@ router.post(
         duplicate: !queued.created,
       });
     } catch (error) {
+      if (error instanceof CarrierEntitySelectionError) {
+        res.status(error.status).json({ error: error.message, code: error.code });
+        return;
+      }
       if (error instanceof ClaimJobStateError) {
         res.status(error.status).json({ error: error.message });
         return;
@@ -527,15 +627,26 @@ router.post(
   requireOrganizationPermission("audits:run"),
   async (req, res) => {
     try {
+      if (hasForbiddenCarrierAuthority(req.body)) {
+        res.status(400).json({
+          error:
+            "Use carrierEntityId; carrier profile and organization selection are server-controlled.",
+        });
+        return;
+      }
       const claimId = firstParam(req.params.id);
       if (!UUID_RE.test(claimId)) {
         res.status(400).json({ error: "Invalid claim ID format" });
         return;
       }
-      const carrier =
-        typeof req.body?.carrier === "string" ? req.body.carrier.trim() : "";
-      if (!carrier) {
-        res.status(400).json({ error: "carrier is required" });
+      const carrierEntityId =
+        typeof req.body?.carrierEntityId === "string"
+          ? req.body.carrierEntityId.trim()
+          : null;
+      if (carrierEntityId && !UUID_RE.test(carrierEntityId)) {
+        res.status(400).json({
+          error: "carrierEntityId must be a valid UUID",
+        });
         return;
       }
       const claim = await getAuthorizedClaim(
@@ -546,13 +657,17 @@ router.post(
         res.status(404).json({ error: "Claim not found" });
         return;
       }
+      const selectedCarrierEntity = await resolveRequestedCarrierEntity(
+        req.organization!.organizationId,
+        carrierEntityId,
+      );
 
       const queued = await enqueueExistingClaimJob({
         organizationId: req.organization!.organizationId,
         userId: req.user!.id,
         claimId,
         type: "reprocess",
-        carrier,
+        carrierEntityId: selectedCarrierEntity.id,
         callerKey: callerIdempotencyKey(req),
       });
       if (!queued) {
@@ -562,7 +677,7 @@ router.post(
       await db
         .update(claims)
         .set({
-          carrier,
+          carrierEntityId: selectedCarrierEntity.id,
           status: "processing",
           systemStatus: "processing",
           aiStatus: "queued",
@@ -585,6 +700,10 @@ router.post(
         duplicate: !queued.created,
       });
     } catch (error) {
+      if (error instanceof CarrierEntitySelectionError) {
+        res.status(error.status).json({ error: error.message, code: error.code });
+        return;
+      }
       if (error instanceof ClaimJobStateError) {
         res.status(error.status).json({ error: error.message });
         return;
@@ -597,7 +716,7 @@ router.post(
 
 export async function recoverStuckClaims(): Promise<void> {
   // Compatibility export for older callers. Lease recovery is now atomic and
-  // happens inside claimNextJob() with FOR UPDATE SKIP LOCKED.
+  // happens inside private.claim_processing_job().
 }
 
 export default router;

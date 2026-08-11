@@ -74,8 +74,8 @@ export default function CarriersPage() {
     <div className="ciq-page">
       <PageHeader
         compact
-        eyebrow="Administrator workspace"
-        title="Carrier profiles"
+        eyebrow="Platform administration"
+        title="Carrier rulesets"
         description="Govern carrier policy through validated drafts, explicit publication approval, immutable history, impact review, and rollback."
         meta={
           <>
@@ -92,7 +92,7 @@ export default function CarriersPage() {
             asChild
             className="border-white/15 bg-white text-[var(--ciq-aubergine)] hover:bg-[#f7f3ed]"
           >
-            <Link href="/carriers/new">
+            <Link href="/platform/carriers/new">
               <Plus aria-hidden="true" />
               New carrier
             </Link>
@@ -138,7 +138,7 @@ export default function CarriersPage() {
                         <div className="flex flex-wrap items-center gap-2">
                           <Link
                             className="ciq-link text-sm font-bold"
-                            href={`/carriers/${profile.carrierKey}`}
+                            href={`/platform/carriers/${profile.carrierKey}`}
                           >
                             {profile.displayName}
                           </Link>
@@ -165,7 +165,7 @@ export default function CarriersPage() {
                     </div>
                     <div className="flex items-center gap-2 md:justify-end">
                       <Button variant="outline" asChild>
-                        <Link href={`/carriers/${profile.carrierKey}`}>
+                        <Link href={`/platform/carriers/${profile.carrierKey}`}>
                           <FileCode2 aria-hidden="true" />
                           Edit profile
                           <ArrowRight aria-hidden="true" />
@@ -193,7 +193,7 @@ export default function CarriersPage() {
                 description="Create a draft profile, validate its questions and categories, then publish it to the audit workflow."
               >
                 <Button asChild>
-                  <Link href="/carriers/new">
+                  <Link href="/platform/carriers/new">
                     <Plus aria-hidden="true" />
                     Create first profile
                   </Link>

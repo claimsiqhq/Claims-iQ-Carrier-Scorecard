@@ -38,6 +38,25 @@ router.post(
   auditLimiter,
   async (req, res) => {
   try {
+    if (
+      req.body &&
+      typeof req.body === "object" &&
+      [
+        "organizationId",
+        "tenantId",
+        "carrier",
+        "carrierKey",
+        "carrierEntityId",
+        "profileId",
+        "rulesetId",
+      ].some((key) => key in req.body)
+    ) {
+      res.status(400).json({
+        error:
+          "Audit carrier policy is derived from the authenticated organization and claim.",
+      });
+      return;
+    }
     const id = firstParam(req.params.id);
 
     if (!UUID_RE.test(id)) {

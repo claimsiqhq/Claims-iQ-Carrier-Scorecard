@@ -4,17 +4,22 @@
  * Api
  * Typed contract for the Complete iQ Carrier Audit API.
 
-Authenticated requests use the `sid` HTTP-only session cookie. The optional
-`X-Organization-Id` header selects one of the caller's organization
-memberships; otherwise the default (or earliest) membership is used.
-Organization-scoped lookups deliberately return `404` when a resource
-belongs to another tenant so that cross-tenant identifiers are not
-disclosed.
+Authenticated requests use the `sid` HTTP-only session cookie. Ordinary
+tenant context is bound by the server from exactly one organization
+membership; accounts with zero or multiple memberships cannot access
+tenant routes. Tenant-selection headers and request-body overrides are
+rejected.
+
+Platform administrators have no tenant context by default. They use the
+reason-required `/platform/tenant-access` endpoints to create or revoke a
+temporary, audited lease bound to the authenticated session. Tenant-scoped
+lookups deliberately return `404` when a resource belongs to another
+tenant so that cross-tenant identifiers are not disclosed.
 
 Job-enqueueing operations that accept `X-Idempotency-Key` scope that value
-to the selected organization and operation inputs. Repeating an equivalent
-request returns the existing durable processing job and sets `duplicate`
-to `true` when that field is present.
+to the authenticated session-bound tenant and operation inputs. Repeating
+an equivalent request returns the existing durable processing job and sets
+`duplicate` to `true` when that field is present.
 
  * OpenAPI spec version: 1.0.0
  */
@@ -35,16 +40,6 @@ export const GetHealthResponse = zod.object({
  * Returns per-route request counts, average latency, and error counts for this process.
  * @summary Read in-memory request metrics
  */
-export const GetMetricsHeader = zod.object({
-  "X-Organization-Id": zod
-    .string()
-    .uuid()
-    .optional()
-    .describe(
-      "Organization membership to use for this request. Omit to use the\ncaller's default membership. An inaccessible value returns `403`.\n",
-    ),
-});
-
 export const getMetricsResponseCountMin = 0;
 
 export const getMetricsResponseAvgMsMin = 0;
@@ -64,16 +59,6 @@ export const GetMetricsResponse = zod.record(
  * Returns `user: null` when no valid session cookie is present.
  * @summary Get the current session
  */
-export const GetAuthSessionHeader = zod.object({
-  "X-Organization-Id": zod
-    .string()
-    .uuid()
-    .optional()
-    .describe(
-      "Organization membership to use for this request. Omit to use the\ncaller's default membership. An inaccessible value returns `403`.\n",
-    ),
-});
-
 export const GetAuthSessionResponse = zod.object({
   user: zod
     .object({
@@ -83,6 +68,7 @@ export const GetAuthSessionResponse = zod.object({
       lastName: zod.string().nullable(),
       profileImageUrl: zod.string().nullable(),
       role: zod.string(),
+      platformRole: zod.enum(["none", "admin"]),
     })
     .nullable(),
   organization: zod
@@ -96,6 +82,7 @@ export const GetAuthSessionResponse = zod.object({
         "reviewer",
         "member",
         "viewer",
+        "platform_admin",
       ]),
       permissions: zod.array(
         zod.enum([
@@ -114,8 +101,19 @@ export const GetAuthSessionResponse = zod.object({
           "email:send",
         ]),
       ),
+      accessMode: zod.enum(["membership", "platform_lease"]),
+      accessExpiresAt: zod
+        .string()
+        .datetime({})
+        .nullable()
+        .describe(
+          "Lease expiration for platform access; null for membership-bound sessions.",
+        ),
     })
-    .nullish(),
+    .describe(
+      "Tenant context bound to the authenticated session. Membership mode is\nresolved server-side from exactly one organization membership;\nplatform-lease mode is established only through the reason-required\ntenant-access endpoints.\n",
+    )
+    .nullable(),
 });
 
 /**
@@ -139,6 +137,7 @@ export const LoginResponse = zod.object({
     lastName: zod.string().nullable(),
     profileImageUrl: zod.string().nullable(),
     role: zod.string(),
+    platformRole: zod.enum(["none", "admin"]),
   }),
 });
 
@@ -146,16 +145,6 @@ export const LoginResponse = zod.object({
  * Deletes the server-side session when present and clears the `sid` cookie.
  * @summary Clear the current session
  */
-export const LogoutHeader = zod.object({
-  "X-Organization-Id": zod
-    .string()
-    .uuid()
-    .optional()
-    .describe(
-      "Organization membership to use for this request. Omit to use the\ncaller's default membership. An inaccessible value returns `403`.\n",
-    ),
-});
-
 export const LogoutResponse = zod.object({
   success: zod.boolean(),
   message: zod.string().optional(),
@@ -293,16 +282,6 @@ export const AcceptInvitationResponse = zod.object({
  * Requires the `claims:read` organization permission.
  * @summary Get dashboard aggregates
  */
-export const GetDashboardHeader = zod.object({
-  "X-Organization-Id": zod
-    .string()
-    .uuid()
-    .optional()
-    .describe(
-      "Organization membership to use for this request. Omit to use the\ncaller's default membership. An inaccessible value returns `403`.\n",
-    ),
-});
-
 export const getDashboardResponseStatsTotalClaimsMin = 0;
 
 export const getDashboardResponseStatsAnalyzedCountMin = 0;
@@ -367,6 +346,13 @@ export const GetDashboardResponse = zod.object({
   recentClaims: zod.array(
     zod.object({
       id: zod.string().uuid(),
+      carrierEntityId: zod
+        .string()
+        .uuid()
+        .nullish()
+        .describe(
+          "Authoritative tenant-owned carrier entity; `carrier` is only a source\/display snapshot.",
+        ),
       claimNumber: zod.string(),
       insuredName: zod.string(),
       carrier: zod.string().nullish(),
@@ -434,16 +420,6 @@ export const GetDashboardResponse = zod.object({
  * Requires the `claims:read` organization permission.
  * @summary Get organization quality and workflow insights
  */
-export const GetInsightsHeader = zod.object({
-  "X-Organization-Id": zod
-    .string()
-    .uuid()
-    .optional()
-    .describe(
-      "Organization membership to use for this request. Omit to use the\ncaller's default membership. An inaccessible value returns `403`.\n",
-    ),
-});
-
 export const getInsightsResponseSummaryRunCountMin = 0;
 
 export const getInsightsResponseSummaryDegradedCountMin = 0;
@@ -538,7 +514,8 @@ export const GetInsightsResponse = zod.object({
 });
 
 /**
- * Returns claims in descending creation order for the selected organization.
+ * Returns claims in descending creation order for the authenticated
+session-bound tenant.
 Requires `claims:read`. Pagination is offset-based and the response is a
 bare array; the active route does not return a total count.
 
@@ -564,18 +541,15 @@ export const ListClaimsQueryParams = zod.object({
     .describe("Zero-based record offset."),
 });
 
-export const ListClaimsHeader = zod.object({
-  "X-Organization-Id": zod
-    .string()
-    .uuid()
-    .optional()
-    .describe(
-      "Organization membership to use for this request. Omit to use the\ncaller's default membership. An inaccessible value returns `403`.\n",
-    ),
-});
-
 export const ListClaimsResponseItem = zod.object({
   id: zod.string().uuid(),
+  carrierEntityId: zod
+    .string()
+    .uuid()
+    .nullish()
+    .describe(
+      "Authoritative tenant-owned carrier entity; `carrier` is only a source\/display snapshot.",
+    ),
   claimNumber: zod.string(),
   insuredName: zod.string(),
   carrier: zod.string().nullish(),
@@ -632,20 +606,17 @@ export const ListClaimsResponse = zod.array(ListClaimsResponseItem);
  * Creates a pending claim without uploading a source file. Requires `claims:create`.
  * @summary Create a claim record
  */
-export const CreateClaimHeader = zod.object({
-  "X-Organization-Id": zod
-    .string()
-    .uuid()
-    .optional()
-    .describe(
-      "Organization membership to use for this request. Omit to use the\ncaller's default membership. An inaccessible value returns `403`.\n",
-    ),
-});
 
 export const CreateClaimBody = zod.object({
   claimNumber: zod.string().min(1),
   insuredName: zod.string().min(1),
-  carrier: zod.string().nullish(),
+  carrierEntityId: zod
+    .string()
+    .uuid()
+    .nullish()
+    .describe(
+      "Optional only when the authenticated session-bound tenant has exactly one active carrier entity.",
+    ),
   dateOfLoss: zod.string().nullish(),
 });
 
@@ -697,16 +668,6 @@ export const GetClaimsQueueQueryParams = zod.object({
     .default(getClaimsQueueQuerySortDefault),
 });
 
-export const GetClaimsQueueHeader = zod.object({
-  "X-Organization-Id": zod
-    .string()
-    .uuid()
-    .optional()
-    .describe(
-      "Organization membership to use for this request. Omit to use the\ncaller's default membership. An inaccessible value returns `403`.\n",
-    ),
-});
-
 export const getClaimsQueueResponseTotalMin = 0;
 
 export const getClaimsQueueResponsePageSizeMax = 100;
@@ -715,6 +676,13 @@ export const GetClaimsQueueResponse = zod.object({
   items: zod.array(
     zod.object({
       id: zod.string().uuid(),
+      carrierEntityId: zod
+        .string()
+        .uuid()
+        .nullish()
+        .describe(
+          "Authoritative tenant-owned carrier entity; `carrier` is only a source\/display snapshot.",
+        ),
       claimNumber: zod.string(),
       insuredName: zod.string(),
       carrier: zod.string().nullish(),
@@ -781,16 +749,6 @@ or running processing jobs are rejected. Requires `claims:delete`.
 
  * @summary Archive selected claims
  */
-export const ArchiveClaimsHeader = zod.object({
-  "X-Organization-Id": zod
-    .string()
-    .uuid()
-    .optional()
-    .describe(
-      "Organization membership to use for this request. Omit to use the\ncaller's default membership. An inaccessible value returns `403`.\n",
-    ),
-});
-
 export const archiveClaimsBodyClaimIdsMax = 100;
 
 export const ArchiveClaimsBody = zod.object({
@@ -818,16 +776,6 @@ export const ArchiveClaimsResponse = zod.object({
  * Returns organization members available for claim assignment. Requires `claims:read`.
  * @summary List available claim assignees
  */
-export const ListClaimAssigneesHeader = zod.object({
-  "X-Organization-Id": zod
-    .string()
-    .uuid()
-    .optional()
-    .describe(
-      "Organization membership to use for this request. Omit to use the\ncaller's default membership. An inaccessible value returns `403`.\n",
-    ),
-});
-
 export const ListClaimAssigneesResponse = zod.object({
   assignees: zod.array(
     zod.object({
@@ -846,16 +794,6 @@ export const ListClaimAssigneesResponse = zod.object({
  */
 export const GetClaimDetailParams = zod.object({
   id: zod.coerce.string().uuid().describe("Claim identifier."),
-});
-
-export const GetClaimDetailHeader = zod.object({
-  "X-Organization-Id": zod
-    .string()
-    .uuid()
-    .optional()
-    .describe(
-      "Organization membership to use for this request. Omit to use the\ncaller's default membership. An inaccessible value returns `403`.\n",
-    ),
 });
 
 export const getClaimDetailResponseAuditFailedCountMin = 0;
@@ -898,6 +836,13 @@ export const getClaimDetailResponseAuditFindingsItemConfidenceMax = 100;
 export const GetClaimDetailResponse = zod.object({
   claim: zod.object({
     id: zod.string().uuid(),
+    carrierEntityId: zod
+      .string()
+      .uuid()
+      .nullish()
+      .describe(
+        "Authoritative tenant-owned carrier entity; `carrier` is only a source\/display snapshot.",
+      ),
     claimNumber: zod.string(),
     insuredName: zod.string(),
     carrier: zod.string().nullish(),
@@ -1228,39 +1173,20 @@ export const ArchiveClaimParams = zod.object({
   id: zod.coerce.string().uuid().describe("Claim identifier."),
 });
 
-export const ArchiveClaimHeader = zod.object({
-  "X-Organization-Id": zod
-    .string()
-    .uuid()
-    .optional()
-    .describe(
-      "Organization membership to use for this request. Omit to use the\ncaller's default membership. An inaccessible value returns `403`.\n",
-    ),
-});
-
 export const ArchiveClaimResponse = zod.object({
   success: zod.boolean(),
   message: zod.string().optional(),
 });
 
 /**
- * Requires `claims:assign`. The assignee must be a member of the selected
-organization; a cross-tenant or unknown assignee is reported as not found.
+ * Requires `claims:assign`. The assignee must be a member of the
+authenticated session-bound tenant; a cross-tenant or unknown assignee
+is reported as not found.
 
  * @summary Assign or unassign a claim
  */
 export const UpdateClaimAssignmentParams = zod.object({
   id: zod.coerce.string().uuid().describe("Claim identifier."),
-});
-
-export const UpdateClaimAssignmentHeader = zod.object({
-  "X-Organization-Id": zod
-    .string()
-    .uuid()
-    .optional()
-    .describe(
-      "Organization membership to use for this request. Omit to use the\ncaller's default membership. An inaccessible value returns `403`.\n",
-    ),
 });
 
 export const UpdateClaimAssignmentBody = zod.object({
@@ -1284,16 +1210,6 @@ export const UpdateClaimAssignmentResponse = zod.object({
  */
 export const UpdateClaimReviewStatusParams = zod.object({
   id: zod.coerce.string().uuid().describe("Claim identifier."),
-});
-
-export const UpdateClaimReviewStatusHeader = zod.object({
-  "X-Organization-Id": zod
-    .string()
-    .uuid()
-    .optional()
-    .describe(
-      "Organization membership to use for this request. Omit to use the\ncaller's default membership. An inaccessible value returns `403`.\n",
-    ),
 });
 
 export const UpdateClaimReviewStatusBody = zod.object({
@@ -1325,16 +1241,6 @@ disposition is `overridden`. Requires `findings:review`.
 export const UpdateClaimFindingParams = zod.object({
   id: zod.coerce.string().uuid().describe("Claim identifier."),
   findingId: zod.coerce.string().uuid().describe("Audit finding identifier."),
-});
-
-export const UpdateClaimFindingHeader = zod.object({
-  "X-Organization-Id": zod
-    .string()
-    .uuid()
-    .optional()
-    .describe(
-      "Organization membership to use for this request. Omit to use the\ncaller's default membership. An inaccessible value returns `403`.\n",
-    ),
 });
 
 export const UpdateClaimFindingBody = zod.object({
@@ -1388,16 +1294,6 @@ export const ListClaimActivityQueryParams = zod.object({
     .describe("Zero-based record offset."),
 });
 
-export const ListClaimActivityHeader = zod.object({
-  "X-Organization-Id": zod
-    .string()
-    .uuid()
-    .optional()
-    .describe(
-      "Organization membership to use for this request. Omit to use the\ncaller's default membership. An inaccessible value returns `403`.\n",
-    ),
-});
-
 export const ListClaimActivityResponse = zod.object({
   activity: zod.array(
     zod.object({
@@ -1411,7 +1307,7 @@ export const ListClaimActivityResponse = zod.object({
 });
 
 /**
- * Requires `views:manage`; results are scoped to the selected organization and current user.
+ * Requires `views:manage`; results are scoped to the authenticated session-bound tenant and current user.
  * @summary List the current user's saved views
  */
 export const listSavedViewsQueryResourceTypeDefault = `claims`;
@@ -1421,16 +1317,6 @@ export const ListSavedViewsQueryParams = zod.object({
     .string()
     .default(listSavedViewsQueryResourceTypeDefault)
     .describe("Resource family to list."),
-});
-
-export const ListSavedViewsHeader = zod.object({
-  "X-Organization-Id": zod
-    .string()
-    .uuid()
-    .optional()
-    .describe(
-      "Organization membership to use for this request. Omit to use the\ncaller's default membership. An inaccessible value returns `403`.\n",
-    ),
 });
 
 export const listSavedViewsResponseViewsItemNameMax = 100;
@@ -1459,16 +1345,6 @@ the current user's other views for the same resource type.
 
  * @summary Create a saved view
  */
-export const CreateSavedViewHeader = zod.object({
-  "X-Organization-Id": zod
-    .string()
-    .uuid()
-    .optional()
-    .describe(
-      "Organization membership to use for this request. Omit to use the\ncaller's default membership. An inaccessible value returns `403`.\n",
-    ),
-});
-
 export const createSavedViewBodyNameMax = 100;
 
 export const createSavedViewBodyResourceTypeDefault = `claims`;
@@ -1484,21 +1360,11 @@ export const CreateSavedViewBody = zod.object({
 });
 
 /**
- * Requires `views:manage`; only the owning user in the selected organization can update it.
+ * Requires `views:manage`; only the owning user in the authenticated session-bound tenant can update it.
  * @summary Update a saved view
  */
 export const UpdateSavedViewParams = zod.object({
   viewId: zod.coerce.string().uuid().describe("Saved view identifier."),
-});
-
-export const UpdateSavedViewHeader = zod.object({
-  "X-Organization-Id": zod
-    .string()
-    .uuid()
-    .optional()
-    .describe(
-      "Organization membership to use for this request. Omit to use the\ncaller's default membership. An inaccessible value returns `403`.\n",
-    ),
 });
 
 export const updateSavedViewBodyNameMax = 100;
@@ -1528,21 +1394,11 @@ export const UpdateSavedViewResponse = zod.object({
 });
 
 /**
- * Requires `views:manage`; only the owning user in the selected organization can delete it.
+ * Requires `views:manage`; only the owning user in the authenticated session-bound tenant can delete it.
  * @summary Delete a saved view
  */
 export const DeleteSavedViewParams = zod.object({
   viewId: zod.coerce.string().uuid().describe("Saved view identifier."),
-});
-
-export const DeleteSavedViewHeader = zod.object({
-  "X-Organization-Id": zod
-    .string()
-    .uuid()
-    .optional()
-    .describe(
-      "Organization membership to use for this request. Omit to use the\ncaller's default membership. An inaccessible value returns `403`.\n",
-    ),
 });
 
 export const DeleteSavedViewResponse = zod.object({
@@ -1553,35 +1409,34 @@ export const DeleteSavedViewResponse = zod.object({
 /**
  * Stores a file, creates a processing claim and document, and enqueues an
 `ingest` job. Requires `claims:create`. The idempotency identity includes
-the selected organization, file SHA-256, requested carrier, and optional
-caller key. Equivalent requests return the existing job with
-`duplicate: true`.
+the authenticated session-bound tenant, file SHA-256, requested
+`carrierEntityId`, and optional caller key. Equivalent requests return
+the existing job with `duplicate: true`.
 
  * @summary Upload and enqueue a claim file
  */
 export const ingestClaimFileHeaderXIdempotencyKeyMax = 255;
 
 export const IngestClaimFileHeader = zod.object({
-  "X-Organization-Id": zod
-    .string()
-    .uuid()
-    .optional()
-    .describe(
-      "Organization membership to use for this request. Omit to use the\ncaller's default membership. An inaccessible value returns `403`.\n",
-    ),
   "X-Idempotency-Key": zod
     .string()
     .min(1)
     .max(ingestClaimFileHeaderXIdempotencyKeyMax)
     .optional()
     .describe(
-      "Caller-provided idempotency key. It is combined with organization and\noperation-specific inputs; equivalent requests reuse the durable job.\n",
+      "Caller-provided idempotency key. It is combined with the authenticated\nsession-bound tenant and operation-specific inputs; equivalent requests\nreuse the durable job.\n",
     ),
 });
 
 export const IngestClaimFileBody = zod.object({
   file: zod.instanceof(File),
-  carrier: zod.string().optional(),
+  carrierEntityId: zod
+    .string()
+    .uuid()
+    .optional()
+    .describe(
+      "Optional only when the authenticated session-bound tenant has exactly one active carrier entity.",
+    ),
 });
 
 /**
@@ -1592,16 +1447,6 @@ export const IngestClaimFileBody = zod.object({
  */
 export const GetClaimProcessingStatusParams = zod.object({
   id: zod.coerce.string().uuid().describe("Claim identifier."),
-});
-
-export const GetClaimProcessingStatusHeader = zod.object({
-  "X-Organization-Id": zod
-    .string()
-    .uuid()
-    .optional()
-    .describe(
-      "Organization membership to use for this request. Omit to use the\ncaller's default membership. An inaccessible value returns `403`.\n",
-    ),
 });
 
 export const getClaimProcessingStatusResponseJobOneProgressMin = 0;
@@ -1701,27 +1546,21 @@ export const RetryClaimProcessingParams = zod.object({
 export const retryClaimProcessingHeaderXIdempotencyKeyMax = 255;
 
 export const RetryClaimProcessingHeader = zod.object({
-  "X-Organization-Id": zod
-    .string()
-    .uuid()
-    .optional()
-    .describe(
-      "Organization membership to use for this request. Omit to use the\ncaller's default membership. An inaccessible value returns `403`.\n",
-    ),
   "X-Idempotency-Key": zod
     .string()
     .min(1)
     .max(retryClaimProcessingHeaderXIdempotencyKeyMax)
     .optional()
     .describe(
-      "Caller-provided idempotency key. It is combined with organization and\noperation-specific inputs; equivalent requests reuse the durable job.\n",
+      "Caller-provided idempotency key. It is combined with the authenticated\nsession-bound tenant and operation-specific inputs; equivalent requests\nreuse the durable job.\n",
     ),
 });
 
 /**
  * Requires `audits:run`. Enqueues or reuses a `reprocess` job for the latest
-claim-file document. The idempotency identity includes the carrier and
-either `X-Idempotency-Key` or the current successful audit identity.
+claim-file document. The idempotency identity includes the tenant-owned
+`carrierEntityId` and either `X-Idempotency-Key` or the current
+successful audit identity.
 Archived claims return `409`.
 
  * @summary Reprocess a claim with a carrier
@@ -1733,25 +1572,24 @@ export const ReprocessClaimParams = zod.object({
 export const reprocessClaimHeaderXIdempotencyKeyMax = 255;
 
 export const ReprocessClaimHeader = zod.object({
-  "X-Organization-Id": zod
-    .string()
-    .uuid()
-    .optional()
-    .describe(
-      "Organization membership to use for this request. Omit to use the\ncaller's default membership. An inaccessible value returns `403`.\n",
-    ),
   "X-Idempotency-Key": zod
     .string()
     .min(1)
     .max(reprocessClaimHeaderXIdempotencyKeyMax)
     .optional()
     .describe(
-      "Caller-provided idempotency key. It is combined with organization and\noperation-specific inputs; equivalent requests reuse the durable job.\n",
+      "Caller-provided idempotency key. It is combined with the authenticated\nsession-bound tenant and operation-specific inputs; equivalent requests\nreuse the durable job.\n",
     ),
 });
 
 export const ReprocessClaimBody = zod.object({
-  carrier: zod.string().min(1),
+  carrierEntityId: zod
+    .string()
+    .uuid()
+    .optional()
+    .describe(
+      "Optional only when the authenticated session-bound tenant has exactly one active carrier entity.",
+    ),
 });
 
 /**
@@ -1769,20 +1607,13 @@ export const EnqueueClaimAuditParams = zod.object({
 export const enqueueClaimAuditHeaderXIdempotencyKeyMax = 255;
 
 export const EnqueueClaimAuditHeader = zod.object({
-  "X-Organization-Id": zod
-    .string()
-    .uuid()
-    .optional()
-    .describe(
-      "Organization membership to use for this request. Omit to use the\ncaller's default membership. An inaccessible value returns `403`.\n",
-    ),
   "X-Idempotency-Key": zod
     .string()
     .min(1)
     .max(enqueueClaimAuditHeaderXIdempotencyKeyMax)
     .optional()
     .describe(
-      "Caller-provided idempotency key. It is combined with organization and\noperation-specific inputs; equivalent requests reuse the durable job.\n",
+      "Caller-provided idempotency key. It is combined with the authenticated\nsession-bound tenant and operation-specific inputs; equivalent requests\nreuse the durable job.\n",
     ),
 });
 
@@ -1804,16 +1635,6 @@ export const ListClaimProcessingJobsQueryParams = zod.object({
     .max(listClaimProcessingJobsQueryLimitMax)
     .default(listClaimProcessingJobsQueryLimitDefault)
     .describe("Maximum jobs to return."),
-});
-
-export const ListClaimProcessingJobsHeader = zod.object({
-  "X-Organization-Id": zod
-    .string()
-    .uuid()
-    .optional()
-    .describe(
-      "Organization membership to use for this request. Omit to use the\ncaller's default membership. An inaccessible value returns `403`.\n",
-    ),
 });
 
 export const listClaimProcessingJobsResponseJobsItemProgressMin = 0;
@@ -1879,16 +1700,6 @@ export const GetProcessingJobParams = zod.object({
     .string()
     .uuid()
     .describe("Durable processing job identifier."),
-});
-
-export const GetProcessingJobHeader = zod.object({
-  "X-Organization-Id": zod
-    .string()
-    .uuid()
-    .optional()
-    .describe(
-      "Organization membership to use for this request. Omit to use the\ncaller's default membership. An inaccessible value returns `403`.\n",
-    ),
 });
 
 export const getProcessingJobResponseJobProgressMin = 0;
@@ -1971,16 +1782,6 @@ export const CancelProcessingJobParams = zod.object({
     .describe("Durable processing job identifier."),
 });
 
-export const CancelProcessingJobHeader = zod.object({
-  "X-Organization-Id": zod
-    .string()
-    .uuid()
-    .optional()
-    .describe(
-      "Organization membership to use for this request. Omit to use the\ncaller's default membership. An inaccessible value returns `403`.\n",
-    ),
-});
-
 export const cancelProcessingJobResponseJobProgressMin = 0;
 export const cancelProcessingJobResponseJobProgressMax = 100;
 
@@ -2042,45 +1843,22 @@ export const RetryProcessingJobParams = zod.object({
     .describe("Durable processing job identifier."),
 });
 
-export const RetryProcessingJobHeader = zod.object({
-  "X-Organization-Id": zod
-    .string()
-    .uuid()
-    .optional()
-    .describe(
-      "Organization membership to use for this request. Omit to use the\ncaller's default membership. An inaccessible value returns `403`.\n",
-    ),
-});
-
 /**
- * Associates an organization-owned storage path with a claim. Upload the
-bytes through `/storage/upload` first. Requires `claims:update`.
+ * Uploads one file into tenant-isolated storage and registers its canonical
+document ID for the claim. Raw storage paths are not accepted. Requires
+`claims:update`.
 
- * @summary Register an uploaded claim document
+ * @summary Upload and register a claim document
  */
 export const CreateClaimDocumentParams = zod.object({
   id: zod.coerce.string().uuid().describe("Claim identifier."),
 });
 
-export const CreateClaimDocumentHeader = zod.object({
-  "X-Organization-Id": zod
-    .string()
-    .uuid()
-    .optional()
-    .describe(
-      "Organization membership to use for this request. Omit to use the\ncaller's default membership. An inaccessible value returns `403`.\n",
-    ),
-});
-
 export const createClaimDocumentBodyTypeDefault = `claim_file`;
 
-export const createClaimDocumentBodyContentTypeDefault = `application/octet-stream`;
-
 export const CreateClaimDocumentBody = zod.object({
+  file: zod.instanceof(File),
   type: zod.string().default(createClaimDocumentBodyTypeDefault),
-  storagePath: zod.string().min(1),
-  fileName: zod.string().min(1),
-  contentType: zod.string().default(createClaimDocumentBodyContentTypeDefault),
 });
 
 /**
@@ -2092,16 +1870,6 @@ evidence still references the document.
 export const DeleteClaimDocumentParams = zod.object({
   id: zod.coerce.string().uuid().describe("Claim identifier."),
   docId: zod.coerce.string().uuid().describe("Claim document identifier."),
-});
-
-export const DeleteClaimDocumentHeader = zod.object({
-  "X-Organization-Id": zod
-    .string()
-    .uuid()
-    .optional()
-    .describe(
-      "Organization membership to use for this request. Omit to use the\ncaller's default membership. An inaccessible value returns `403`.\n",
-    ),
 });
 
 export const DeleteClaimDocumentResponse = zod.object({
@@ -2124,20 +1892,13 @@ export const ExtractClaimDocumentParams = zod.object({
 export const extractClaimDocumentHeaderXIdempotencyKeyMax = 255;
 
 export const ExtractClaimDocumentHeader = zod.object({
-  "X-Organization-Id": zod
-    .string()
-    .uuid()
-    .optional()
-    .describe(
-      "Organization membership to use for this request. Omit to use the\ncaller's default membership. An inaccessible value returns `403`.\n",
-    ),
   "X-Idempotency-Key": zod
     .string()
     .min(1)
     .max(extractClaimDocumentHeaderXIdempotencyKeyMax)
     .optional()
     .describe(
-      "Caller-provided idempotency key. It is combined with organization and\noperation-specific inputs; equivalent requests reuse the durable job.\n",
+      "Caller-provided idempotency key. It is combined with the authenticated\nsession-bound tenant and operation-specific inputs; equivalent requests\nreuse the durable job.\n",
     ),
 });
 
@@ -2149,90 +1910,17 @@ export const DownloadDocumentParams = zod.object({
   documentId: zod.coerce.string().uuid().describe("Document identifier."),
 });
 
-export const DownloadDocumentHeader = zod.object({
-  "X-Organization-Id": zod
-    .string()
-    .uuid()
-    .optional()
-    .describe(
-      "Organization membership to use for this request. Omit to use the\ncaller's default membership. An inaccessible value returns `403`.\n",
-    ),
-});
-
 /**
- * Requires `claims:read`; the returned URL expires after one hour.
+ * Requires `claims:read`; the returned URL expires after 120 seconds.
  * @summary Create an authorized document signed URL
  */
 export const GetDocumentSignedUrlParams = zod.object({
   documentId: zod.coerce.string().uuid().describe("Document identifier."),
 });
 
-export const GetDocumentSignedUrlHeader = zod.object({
-  "X-Organization-Id": zod
-    .string()
-    .uuid()
-    .optional()
-    .describe(
-      "Organization membership to use for this request. Omit to use the\ncaller's default membership. An inaccessible value returns `403`.\n",
-    ),
-});
-
 export const GetDocumentSignedUrlResponse = zod.object({
   url: zod.string().url(),
   expiresIn: zod.number().min(1).describe("Lifetime in seconds."),
-});
-
-/**
- * Legacy catch-all download route. `storagePath` may contain `/` path
-separators and must match a document in the selected organization.
-Prefer the document-ID route for generated clients.
-
- * @summary Download an authorized object by storage path
- */
-
-export const DownloadStorageObjectParams = zod.object({
-  storagePath: zod.coerce
-    .string()
-    .min(1)
-    .describe("Organization-prefixed storage path; may contain `\/`."),
-});
-
-export const DownloadStorageObjectHeader = zod.object({
-  "X-Organization-Id": zod
-    .string()
-    .uuid()
-    .optional()
-    .describe(
-      "Organization membership to use for this request. Omit to use the\ncaller's default membership. An inaccessible value returns `403`.\n",
-    ),
-});
-
-/**
- * Legacy catch-all signing route. `storagePath` may contain `/` path
-separators and must match a document in the selected organization.
-
- * @summary Create a signed URL by storage path
- */
-
-export const GetStorageObjectSignedUrlParams = zod.object({
-  storagePath: zod.coerce
-    .string()
-    .min(1)
-    .describe("Organization-prefixed storage path; may contain `\/`."),
-});
-
-export const GetStorageObjectSignedUrlHeader = zod.object({
-  "X-Organization-Id": zod
-    .string()
-    .uuid()
-    .optional()
-    .describe(
-      "Organization membership to use for this request. Omit to use the\ncaller's default membership. An inaccessible value returns `403`.\n",
-    ),
-});
-
-export const GetStorageObjectSignedUrlResponse = zod.object({
-  url: zod.string().url(),
 });
 
 /**
@@ -2243,23 +1931,181 @@ export const DownloadClaimAuditCsvParams = zod.object({
   id: zod.coerce.string().uuid().describe("Claim identifier."),
 });
 
-export const DownloadClaimAuditCsvHeader = zod.object({
-  "X-Organization-Id": zod
-    .string()
-    .uuid()
-    .optional()
+/**
+ * Requires platform administrator access. Returns organization identity
+metadata only; it does not expose tenant metrics or establish tenant
+context.
+
+ * @summary List tenants available for audited platform access
+ */
+export const ListPlatformTenantsResponseItem = zod
+  .object({
+    id: zod.string().uuid(),
+    name: zod.string(),
+    slug: zod.string().nullable(),
+  })
+  .describe(
+    "Organization identity metadata available before a platform tenant lease is created.",
+  );
+export const ListPlatformTenantsResponse = zod.array(
+  ListPlatformTenantsResponseItem,
+);
+
+/**
+ * Requires platform administrator access and a specific operational
+reason. Creates a time-limited tenant-access lease and binds it to the
+authenticated session, replacing any prior lease for that session.
+
+ * @summary Start temporary audited tenant access
+ */
+export const enterPlatformTenantBodyReasonMax = 500;
+
+export const EnterPlatformTenantBody = zod
+  .object({
+    organizationId: zod.string().uuid(),
+    reason: zod.string().min(1).max(enterPlatformTenantBodyReasonMax),
+  })
+  .describe(
+    "Explicit, reasoned request by a platform administrator for temporary audited tenant access.",
+  );
+
+export const EnterPlatformTenantResponse = zod.object({
+  user: zod
+    .object({
+      id: zod.string(),
+      email: zod.string().email().nullable(),
+      firstName: zod.string().nullable(),
+      lastName: zod.string().nullable(),
+      profileImageUrl: zod.string().nullable(),
+      role: zod.string(),
+      platformRole: zod.enum(["none", "admin"]),
+    })
+    .nullable(),
+  organization: zod
+    .object({
+      id: zod.string().uuid(),
+      name: zod.string(),
+      role: zod.enum([
+        "owner",
+        "admin",
+        "auditor",
+        "reviewer",
+        "member",
+        "viewer",
+        "platform_admin",
+      ]),
+      permissions: zod.array(
+        zod.enum([
+          "claims:read",
+          "claims:create",
+          "claims:update",
+          "claims:delete",
+          "claims:assign",
+          "audits:run",
+          "findings:review",
+          "jobs:read",
+          "jobs:cancel",
+          "jobs:retry",
+          "views:manage",
+          "settings:manage",
+          "email:send",
+        ]),
+      ),
+      accessMode: zod.enum(["membership", "platform_lease"]),
+      accessExpiresAt: zod
+        .string()
+        .datetime({})
+        .nullable()
+        .describe(
+          "Lease expiration for platform access; null for membership-bound sessions.",
+        ),
+    })
     .describe(
-      "Organization membership to use for this request. Omit to use the\ncaller's default membership. An inaccessible value returns `403`.\n",
-    ),
+      "Tenant context bound to the authenticated session. Membership mode is\nresolved server-side from exactly one organization membership;\nplatform-lease mode is established only through the reason-required\ntenant-access endpoints.\n",
+    )
+    .nullable(),
 });
 
 /**
- * Authenticated carrier choices used by intake and reprocessing interfaces.
- * @summary List active carrier choices
+ * Requires platform administrator access. Revokes the current
+session-bound tenant-access lease and clears tenant context from the
+authenticated session.
+
+ * @summary End temporary audited tenant access
+ */
+export const ExitPlatformTenantResponse = zod.object({
+  user: zod
+    .object({
+      id: zod.string(),
+      email: zod.string().email().nullable(),
+      firstName: zod.string().nullable(),
+      lastName: zod.string().nullable(),
+      profileImageUrl: zod.string().nullable(),
+      role: zod.string(),
+      platformRole: zod.enum(["none", "admin"]),
+    })
+    .nullable(),
+  organization: zod
+    .object({
+      id: zod.string().uuid(),
+      name: zod.string(),
+      role: zod.enum([
+        "owner",
+        "admin",
+        "auditor",
+        "reviewer",
+        "member",
+        "viewer",
+        "platform_admin",
+      ]),
+      permissions: zod.array(
+        zod.enum([
+          "claims:read",
+          "claims:create",
+          "claims:update",
+          "claims:delete",
+          "claims:assign",
+          "audits:run",
+          "findings:review",
+          "jobs:read",
+          "jobs:cancel",
+          "jobs:retry",
+          "views:manage",
+          "settings:manage",
+          "email:send",
+        ]),
+      ),
+      accessMode: zod.enum(["membership", "platform_lease"]),
+      accessExpiresAt: zod
+        .string()
+        .datetime({})
+        .nullable()
+        .describe(
+          "Lease expiration for platform access; null for membership-bound sessions.",
+        ),
+    })
+    .describe(
+      "Tenant context bound to the authenticated session. Membership mode is\nresolved server-side from exactly one organization membership;\nplatform-lease mode is established only through the reason-required\ntenant-access endpoints.\n",
+    )
+    .nullable(),
+});
+
+/**
+ * Returns only active carrier entities owned by the authenticated
+session-bound tenant and backed by its published profile.
+
+ * @summary List active tenant carrier entities
  */
 export const ListActiveCarriersResponseItem = zod.object({
+  id: zod.string().uuid(),
   key: zod.string(),
+  entityKey: zod.string(),
+  carrierKey: zod.string(),
+  organizationId: zod.string().uuid(),
   displayName: zod.string(),
+  legalName: zod.string().nullish(),
+  isPrimary: zod.boolean(),
+  active: zod.boolean(),
   logoUrl: zod.string().nullable(),
 });
 export const ListActiveCarriersResponse = zod.array(
@@ -2267,30 +2113,22 @@ export const ListActiveCarriersResponse = zod.array(
 );
 
 /**
- * Returns active and inactive global carrier rulesets. Requires global `admin`.
- * @summary List all carrier rulesets
+ * Returns the carrier profile bound by the platform administrator's
+active tenant-access lease.
+
+ * @summary List the leased tenant's carrier profile
  */
-export const ListCarriersHeader = zod.object({
-  "X-Organization-Id": zod
-    .string()
-    .uuid()
-    .optional()
-    .describe(
-      "Organization membership to use for this request. Omit to use the\ncaller's default membership. An inaccessible value returns `403`.\n",
-    ),
-});
+export const listCarriersResponseRulesetOneDaQuestionsItemWeightMin = 0;
+export const listCarriersResponseRulesetOneDaQuestionsItemWeightMax = 100;
 
-export const listCarriersResponseRulesetDaQuestionsItemWeightMin = 0;
-export const listCarriersResponseRulesetDaQuestionsItemWeightMax = 100;
+export const listCarriersResponseRulesetOneDaQuestionsItemWeightIfNoDenialMin = 0;
+export const listCarriersResponseRulesetOneDaQuestionsItemWeightIfNoDenialMax = 100;
 
-export const listCarriersResponseRulesetDaQuestionsItemWeightIfNoDenialMin = 0;
-export const listCarriersResponseRulesetDaQuestionsItemWeightIfNoDenialMax = 100;
+export const listCarriersResponseRulesetOneFaQuestionsItemWeightMin = 0;
+export const listCarriersResponseRulesetOneFaQuestionsItemWeightMax = 100;
 
-export const listCarriersResponseRulesetFaQuestionsItemWeightMin = 0;
-export const listCarriersResponseRulesetFaQuestionsItemWeightMax = 100;
-
-export const listCarriersResponseRulesetFaQuestionsItemWeightIfNoDenialMin = 0;
-export const listCarriersResponseRulesetFaQuestionsItemWeightIfNoDenialMax = 100;
+export const listCarriersResponseRulesetOneFaQuestionsItemWeightIfNoDenialMin = 0;
+export const listCarriersResponseRulesetOneFaQuestionsItemWeightIfNoDenialMax = 100;
 
 export const listCarriersResponseLatestVersionOneRulesetDaQuestionsItemWeightMin = 0;
 export const listCarriersResponseLatestVersionOneRulesetDaQuestionsItemWeightMax = 100;
@@ -2318,76 +2156,98 @@ export const listCarriersResponsePublishedVersionOneRulesetFaQuestionsItemWeight
 
 export const ListCarriersResponseItem = zod.object({
   id: zod.string().uuid(),
+  organizationId: zod.string().uuid(),
   carrierKey: zod.string(),
   displayName: zod.string(),
   logoUrl: zod.string().nullable(),
   active: zod.boolean(),
-  ruleset: zod.object({
-    version: zod.string(),
-    da_questions: zod
-      .array(
-        zod.object({
-          id: zod.string(),
-          text: zod.string(),
-          weight: zod
-            .number()
-            .min(listCarriersResponseRulesetDaQuestionsItemWeightMin)
-            .max(listCarriersResponseRulesetDaQuestionsItemWeightMax),
-          weightIfNoDenial: zod
-            .number()
-            .min(listCarriersResponseRulesetDaQuestionsItemWeightIfNoDenialMin)
-            .max(listCarriersResponseRulesetDaQuestionsItemWeightIfNoDenialMax)
-            .optional(),
-          section: zod.string(),
-          scorecard: zod.enum(["DA", "FA"]),
-          categoryKey: zod.string(),
-          categoryName: zod.string(),
-          applicability: zod.string().optional(),
-          severity: zod
-            .enum(["critical", "high", "medium", "low", "info"])
-            .optional(),
-          sourceReference: zod.string().optional(),
-        }),
-      )
-      .min(1),
-    fa_questions: zod
-      .array(
-        zod.object({
-          id: zod.string(),
-          text: zod.string(),
-          weight: zod
-            .number()
-            .min(listCarriersResponseRulesetFaQuestionsItemWeightMin)
-            .max(listCarriersResponseRulesetFaQuestionsItemWeightMax),
-          weightIfNoDenial: zod
-            .number()
-            .min(listCarriersResponseRulesetFaQuestionsItemWeightIfNoDenialMin)
-            .max(listCarriersResponseRulesetFaQuestionsItemWeightIfNoDenialMax)
-            .optional(),
-          section: zod.string(),
-          scorecard: zod.enum(["DA", "FA"]),
-          categoryKey: zod.string(),
-          categoryName: zod.string(),
-          applicability: zod.string().optional(),
-          severity: zod
-            .enum(["critical", "high", "medium", "low", "info"])
-            .optional(),
-          sourceReference: zod.string().optional(),
-        }),
-      )
-      .min(1),
-    scorecard_categories: zod
-      .array(
-        zod.object({
-          id: zod.string(),
-          label: zod.string(),
-          max_score: zod.number().min(1),
-        }),
-      )
-      .min(1),
-    system_prompt_override: zod.string().optional(),
-    carrier_scorecard_prompt_override: zod.string().optional(),
-  }),
+  ruleset: zod
+    .object({
+      version: zod.string(),
+      da_questions: zod
+        .array(
+          zod.object({
+            id: zod.string(),
+            text: zod.string(),
+            weight: zod
+              .number()
+              .min(listCarriersResponseRulesetOneDaQuestionsItemWeightMin)
+              .max(listCarriersResponseRulesetOneDaQuestionsItemWeightMax),
+            weightIfNoDenial: zod
+              .number()
+              .min(
+                listCarriersResponseRulesetOneDaQuestionsItemWeightIfNoDenialMin,
+              )
+              .max(
+                listCarriersResponseRulesetOneDaQuestionsItemWeightIfNoDenialMax,
+              )
+              .optional(),
+            section: zod.string(),
+            scorecard: zod.enum(["DA", "FA"]),
+            categoryKey: zod.string(),
+            categoryName: zod.string(),
+            applicability: zod.string().optional(),
+            severity: zod
+              .enum(["critical", "high", "medium", "low", "info"])
+              .optional(),
+            sourceReference: zod.string().optional(),
+          }),
+        )
+        .min(1),
+      fa_questions: zod
+        .array(
+          zod.object({
+            id: zod.string(),
+            text: zod.string(),
+            weight: zod
+              .number()
+              .min(listCarriersResponseRulesetOneFaQuestionsItemWeightMin)
+              .max(listCarriersResponseRulesetOneFaQuestionsItemWeightMax),
+            weightIfNoDenial: zod
+              .number()
+              .min(
+                listCarriersResponseRulesetOneFaQuestionsItemWeightIfNoDenialMin,
+              )
+              .max(
+                listCarriersResponseRulesetOneFaQuestionsItemWeightIfNoDenialMax,
+              )
+              .optional(),
+            section: zod.string(),
+            scorecard: zod.enum(["DA", "FA"]),
+            categoryKey: zod.string(),
+            categoryName: zod.string(),
+            applicability: zod.string().optional(),
+            severity: zod
+              .enum(["critical", "high", "medium", "low", "info"])
+              .optional(),
+            sourceReference: zod.string().optional(),
+          }),
+        )
+        .min(1),
+      scorecard_categories: zod
+        .array(
+          zod.object({
+            id: zod.string(),
+            label: zod.string(),
+            max_score: zod.number().min(1),
+          }),
+        )
+        .min(1),
+      system_prompt_override: zod.string().optional(),
+      carrier_scorecard_prompt_override: zod.string().optional(),
+    })
+    .nullable(),
+  entities: zod.array(
+    zod.object({
+      id: zod.string().uuid(),
+      organizationId: zod.string().uuid(),
+      entityKey: zod.string(),
+      displayName: zod.string(),
+      legalName: zod.string().nullable(),
+      isPrimary: zod.boolean(),
+      active: zod.boolean(),
+    }),
+  ),
   sourceReferences: zod
     .array(
       zod.object({
@@ -2625,7 +2485,7 @@ export const ListCarriersResponseItem = zod.object({
 export const ListCarriersResponse = zod.array(ListCarriersResponseItem);
 
 /**
- * Returns one global carrier ruleset. Requires global `admin`.
+ * Returns the carrier profile for the session-bound platform tenant lease.
  * @summary Get a carrier ruleset
  */
 
@@ -2633,27 +2493,17 @@ export const GetCarrierParams = zod.object({
   key: zod.coerce.string().min(1).describe("Stable normalized carrier key."),
 });
 
-export const GetCarrierHeader = zod.object({
-  "X-Organization-Id": zod
-    .string()
-    .uuid()
-    .optional()
-    .describe(
-      "Organization membership to use for this request. Omit to use the\ncaller's default membership. An inaccessible value returns `403`.\n",
-    ),
-});
+export const getCarrierResponseRulesetOneDaQuestionsItemWeightMin = 0;
+export const getCarrierResponseRulesetOneDaQuestionsItemWeightMax = 100;
 
-export const getCarrierResponseRulesetDaQuestionsItemWeightMin = 0;
-export const getCarrierResponseRulesetDaQuestionsItemWeightMax = 100;
+export const getCarrierResponseRulesetOneDaQuestionsItemWeightIfNoDenialMin = 0;
+export const getCarrierResponseRulesetOneDaQuestionsItemWeightIfNoDenialMax = 100;
 
-export const getCarrierResponseRulesetDaQuestionsItemWeightIfNoDenialMin = 0;
-export const getCarrierResponseRulesetDaQuestionsItemWeightIfNoDenialMax = 100;
+export const getCarrierResponseRulesetOneFaQuestionsItemWeightMin = 0;
+export const getCarrierResponseRulesetOneFaQuestionsItemWeightMax = 100;
 
-export const getCarrierResponseRulesetFaQuestionsItemWeightMin = 0;
-export const getCarrierResponseRulesetFaQuestionsItemWeightMax = 100;
-
-export const getCarrierResponseRulesetFaQuestionsItemWeightIfNoDenialMin = 0;
-export const getCarrierResponseRulesetFaQuestionsItemWeightIfNoDenialMax = 100;
+export const getCarrierResponseRulesetOneFaQuestionsItemWeightIfNoDenialMin = 0;
+export const getCarrierResponseRulesetOneFaQuestionsItemWeightIfNoDenialMax = 100;
 
 export const getCarrierResponseLatestVersionOneRulesetDaQuestionsItemWeightMin = 0;
 export const getCarrierResponseLatestVersionOneRulesetDaQuestionsItemWeightMax = 100;
@@ -2681,76 +2531,98 @@ export const getCarrierResponsePublishedVersionOneRulesetFaQuestionsItemWeightIf
 
 export const GetCarrierResponse = zod.object({
   id: zod.string().uuid(),
+  organizationId: zod.string().uuid(),
   carrierKey: zod.string(),
   displayName: zod.string(),
   logoUrl: zod.string().nullable(),
   active: zod.boolean(),
-  ruleset: zod.object({
-    version: zod.string(),
-    da_questions: zod
-      .array(
-        zod.object({
-          id: zod.string(),
-          text: zod.string(),
-          weight: zod
-            .number()
-            .min(getCarrierResponseRulesetDaQuestionsItemWeightMin)
-            .max(getCarrierResponseRulesetDaQuestionsItemWeightMax),
-          weightIfNoDenial: zod
-            .number()
-            .min(getCarrierResponseRulesetDaQuestionsItemWeightIfNoDenialMin)
-            .max(getCarrierResponseRulesetDaQuestionsItemWeightIfNoDenialMax)
-            .optional(),
-          section: zod.string(),
-          scorecard: zod.enum(["DA", "FA"]),
-          categoryKey: zod.string(),
-          categoryName: zod.string(),
-          applicability: zod.string().optional(),
-          severity: zod
-            .enum(["critical", "high", "medium", "low", "info"])
-            .optional(),
-          sourceReference: zod.string().optional(),
-        }),
-      )
-      .min(1),
-    fa_questions: zod
-      .array(
-        zod.object({
-          id: zod.string(),
-          text: zod.string(),
-          weight: zod
-            .number()
-            .min(getCarrierResponseRulesetFaQuestionsItemWeightMin)
-            .max(getCarrierResponseRulesetFaQuestionsItemWeightMax),
-          weightIfNoDenial: zod
-            .number()
-            .min(getCarrierResponseRulesetFaQuestionsItemWeightIfNoDenialMin)
-            .max(getCarrierResponseRulesetFaQuestionsItemWeightIfNoDenialMax)
-            .optional(),
-          section: zod.string(),
-          scorecard: zod.enum(["DA", "FA"]),
-          categoryKey: zod.string(),
-          categoryName: zod.string(),
-          applicability: zod.string().optional(),
-          severity: zod
-            .enum(["critical", "high", "medium", "low", "info"])
-            .optional(),
-          sourceReference: zod.string().optional(),
-        }),
-      )
-      .min(1),
-    scorecard_categories: zod
-      .array(
-        zod.object({
-          id: zod.string(),
-          label: zod.string(),
-          max_score: zod.number().min(1),
-        }),
-      )
-      .min(1),
-    system_prompt_override: zod.string().optional(),
-    carrier_scorecard_prompt_override: zod.string().optional(),
-  }),
+  ruleset: zod
+    .object({
+      version: zod.string(),
+      da_questions: zod
+        .array(
+          zod.object({
+            id: zod.string(),
+            text: zod.string(),
+            weight: zod
+              .number()
+              .min(getCarrierResponseRulesetOneDaQuestionsItemWeightMin)
+              .max(getCarrierResponseRulesetOneDaQuestionsItemWeightMax),
+            weightIfNoDenial: zod
+              .number()
+              .min(
+                getCarrierResponseRulesetOneDaQuestionsItemWeightIfNoDenialMin,
+              )
+              .max(
+                getCarrierResponseRulesetOneDaQuestionsItemWeightIfNoDenialMax,
+              )
+              .optional(),
+            section: zod.string(),
+            scorecard: zod.enum(["DA", "FA"]),
+            categoryKey: zod.string(),
+            categoryName: zod.string(),
+            applicability: zod.string().optional(),
+            severity: zod
+              .enum(["critical", "high", "medium", "low", "info"])
+              .optional(),
+            sourceReference: zod.string().optional(),
+          }),
+        )
+        .min(1),
+      fa_questions: zod
+        .array(
+          zod.object({
+            id: zod.string(),
+            text: zod.string(),
+            weight: zod
+              .number()
+              .min(getCarrierResponseRulesetOneFaQuestionsItemWeightMin)
+              .max(getCarrierResponseRulesetOneFaQuestionsItemWeightMax),
+            weightIfNoDenial: zod
+              .number()
+              .min(
+                getCarrierResponseRulesetOneFaQuestionsItemWeightIfNoDenialMin,
+              )
+              .max(
+                getCarrierResponseRulesetOneFaQuestionsItemWeightIfNoDenialMax,
+              )
+              .optional(),
+            section: zod.string(),
+            scorecard: zod.enum(["DA", "FA"]),
+            categoryKey: zod.string(),
+            categoryName: zod.string(),
+            applicability: zod.string().optional(),
+            severity: zod
+              .enum(["critical", "high", "medium", "low", "info"])
+              .optional(),
+            sourceReference: zod.string().optional(),
+          }),
+        )
+        .min(1),
+      scorecard_categories: zod
+        .array(
+          zod.object({
+            id: zod.string(),
+            label: zod.string(),
+            max_score: zod.number().min(1),
+          }),
+        )
+        .min(1),
+      system_prompt_override: zod.string().optional(),
+      carrier_scorecard_prompt_override: zod.string().optional(),
+    })
+    .nullable(),
+  entities: zod.array(
+    zod.object({
+      id: zod.string().uuid(),
+      organizationId: zod.string().uuid(),
+      entityKey: zod.string(),
+      displayName: zod.string(),
+      legalName: zod.string().nullable(),
+      isPrimary: zod.boolean(),
+      active: zod.boolean(),
+    }),
+  ),
   sourceReferences: zod
     .array(
       zod.object({
@@ -2987,7 +2859,7 @@ export const GetCarrierResponse = zod.object({
 });
 
 /**
- * Requires global `admin`. A false `active` value creates an immutable draft
+ * Requires platform administrator access and an active tenant lease. A false `active` value creates an immutable draft
 version; true creates and explicitly publishes a validated version while
 preserving the prior publication.
 
@@ -2996,16 +2868,6 @@ preserving the prior publication.
 
 export const UpsertCarrierParams = zod.object({
   key: zod.coerce.string().min(1).describe("Stable normalized carrier key."),
-});
-
-export const UpsertCarrierHeader = zod.object({
-  "X-Organization-Id": zod
-    .string()
-    .uuid()
-    .optional()
-    .describe(
-      "Organization membership to use for this request. Omit to use the\ncaller's default membership. An inaccessible value returns `403`.\n",
-    ),
 });
 
 export const upsertCarrierBodyRulesetDaQuestionsItemWeightMin = 0;
@@ -3217,22 +3079,12 @@ export const UpsertCarrierResponse = zod.object({
 });
 
 /**
- * Requires global `admin`; publication history is preserved.
+ * Requires platform administrator access and an active tenant lease; publication history is preserved.
  * @summary Deactivate a carrier ruleset
  */
 
 export const DeleteCarrierParams = zod.object({
   key: zod.coerce.string().min(1).describe("Stable normalized carrier key."),
-});
-
-export const DeleteCarrierHeader = zod.object({
-  "X-Organization-Id": zod
-    .string()
-    .uuid()
-    .optional()
-    .describe(
-      "Organization membership to use for this request. Omit to use the\ncaller's default membership. An inaccessible value returns `403`.\n",
-    ),
 });
 
 export const DeleteCarrierResponse = zod.object({
@@ -3241,22 +3093,73 @@ export const DeleteCarrierResponse = zod.object({
 });
 
 /**
- * Requires global `admin`.
+ * Requires platform administrator access and an active tenant lease.
+The entity is created only in the session-bound tenant; request bodies
+cannot override organization ownership.
+
+ * @summary Create a tenant-owned carrier entity
+ */
+
+export const CreateCarrierEntityParams = zod.object({
+  key: zod.coerce.string().min(1).describe("Stable normalized carrier key."),
+});
+
+export const createCarrierEntityBodyEntityKeyRegExp = new RegExp(
+  "^[a-z0-9]+(?:-[a-z0-9]+)\*$",
+);
+
+export const createCarrierEntityBodyIsPrimaryDefault = false;
+export const createCarrierEntityBodyActiveDefault = true;
+
+export const CreateCarrierEntityBody = zod.object({
+  entityKey: zod.string().regex(createCarrierEntityBodyEntityKeyRegExp),
+  displayName: zod.string().min(1),
+  legalName: zod.string().nullish(),
+  isPrimary: zod.boolean().default(createCarrierEntityBodyIsPrimaryDefault),
+  active: zod.boolean().default(createCarrierEntityBodyActiveDefault),
+  changeReason: zod.string().min(1),
+});
+
+/**
+ * Requires platform administrator access and an active tenant lease.
+The entity ID must belong to the carrier profile in the session-bound
+tenant.
+
+ * @summary Update a tenant-owned carrier entity
+ */
+
+export const UpdateCarrierEntityParams = zod.object({
+  key: zod.coerce.string().min(1).describe("Stable normalized carrier key."),
+  entityId: zod.coerce
+    .string()
+    .uuid()
+    .describe("Tenant-owned carrier entity identifier."),
+});
+
+export const updateCarrierEntityBodyEntityKeyRegExp = new RegExp(
+  "^[a-z0-9]+(?:-[a-z0-9]+)\*$",
+);
+
+export const UpdateCarrierEntityBody = zod.object({
+  entityKey: zod.string().regex(updateCarrierEntityBodyEntityKeyRegExp),
+  displayName: zod.string().min(1),
+  legalName: zod.string().nullish(),
+  isPrimary: zod.boolean(),
+  active: zod.boolean(),
+  changeReason: zod.string().min(1),
+});
+
+export const UpdateCarrierEntityResponse = zod.object({
+  id: zod.string().uuid(),
+});
+
+/**
+ * Requires platform administrator access and an active tenant lease.
  * @summary List immutable carrier ruleset versions
  */
 
 export const ListCarrierVersionsParams = zod.object({
   key: zod.coerce.string().min(1).describe("Stable normalized carrier key."),
-});
-
-export const ListCarrierVersionsHeader = zod.object({
-  "X-Organization-Id": zod
-    .string()
-    .uuid()
-    .optional()
-    .describe(
-      "Organization membership to use for this request. Omit to use the\ncaller's default membership. An inaccessible value returns `403`.\n",
-    ),
 });
 
 export const listCarrierVersionsResponseVersionsItemRulesetDaQuestionsItemWeightMin = 0;
@@ -3390,7 +3293,7 @@ export const ListCarrierVersionsResponse = zod.object({
 });
 
 /**
- * Requires global `admin`; validates the persisted draft before publication.
+ * Requires platform administrator access and an active tenant lease; validates the persisted draft before publication.
  * @summary Approve and publish a draft ruleset version
  */
 
@@ -3400,16 +3303,6 @@ export const PublishCarrierVersionParams = zod.object({
     .string()
     .uuid()
     .describe("Immutable carrier ruleset version identifier."),
-});
-
-export const PublishCarrierVersionHeader = zod.object({
-  "X-Organization-Id": zod
-    .string()
-    .uuid()
-    .optional()
-    .describe(
-      "Organization membership to use for this request. Omit to use the\ncaller's default membership. An inaccessible value returns `403`.\n",
-    ),
 });
 
 export const publishCarrierVersionResponseVersionRulesetDaQuestionsItemWeightMin = 0;
@@ -3536,7 +3429,7 @@ export const PublishCarrierVersionResponse = zod.object({
 });
 
 /**
- * Requires global `admin`; prior versions remain immutable.
+ * Requires platform administrator access and an active tenant lease; prior versions remain immutable.
  * @summary Restore a historical publication as a new version
  */
 
@@ -3546,16 +3439,6 @@ export const RollbackCarrierVersionParams = zod.object({
     .string()
     .uuid()
     .describe("Immutable carrier ruleset version identifier."),
-});
-
-export const RollbackCarrierVersionHeader = zod.object({
-  "X-Organization-Id": zod
-    .string()
-    .uuid()
-    .optional()
-    .describe(
-      "Organization membership to use for this request. Omit to use the\ncaller's default membership. An inaccessible value returns `403`.\n",
-    ),
 });
 
 export const rollbackCarrierVersionResponseVersionRulesetDaQuestionsItemWeightMin = 0;
@@ -3682,7 +3565,7 @@ export const RollbackCarrierVersionResponse = zod.object({
 });
 
 /**
- * Requires global `admin` and `claims:read`. This does not call the AI
+ * Requires platform administrator access and an active tenant lease. This does not call the AI
 provider and does not mutate the representative claim.
 
  * @summary Run deterministic representative-claim ruleset preflight
@@ -3690,16 +3573,6 @@ provider and does not mutate the representative claim.
 
 export const TestCarrierVersionParams = zod.object({
   key: zod.coerce.string().min(1).describe("Stable normalized carrier key."),
-});
-
-export const TestCarrierVersionHeader = zod.object({
-  "X-Organization-Id": zod
-    .string()
-    .uuid()
-    .optional()
-    .describe(
-      "Organization membership to use for this request. Omit to use the\ncaller's default membership. An inaccessible value returns `403`.\n",
-    ),
 });
 
 export const TestCarrierVersionBody = zod.object({
@@ -3737,18 +3610,9 @@ export const TestCarrierVersionResponse = zod.object({
 });
 
 /**
- * Requires `settings:manage` in the selected organization.
+ * Requires `settings:manage` in the authenticated session-bound tenant.
  * @summary Get organization administration overview
  */
-export const GetSettingsOverviewHeader = zod.object({
-  "X-Organization-Id": zod
-    .string()
-    .uuid()
-    .optional()
-    .describe(
-      "Organization membership to use for this request. Omit to use the\ncaller's default membership. An inaccessible value returns `403`.\n",
-    ),
-});
 
 export const GetSettingsOverviewResponse = zod.object({
   members: zod.array(
@@ -3831,16 +3695,6 @@ export const GetSettingsOverviewResponse = zod.object({
  * Requires `settings:manage`. This records policy only and does not delete retained data.
  * @summary Update organization notification and retention policy
  */
-export const UpdateOrganizationSettingsHeader = zod.object({
-  "X-Organization-Id": zod
-    .string()
-    .uuid()
-    .optional()
-    .describe(
-      "Organization membership to use for this request. Omit to use the\ncaller's default membership. An inaccessible value returns `403`.\n",
-    ),
-});
-
 export const updateOrganizationSettingsBodyRetentionDaysMin = 30;
 export const updateOrganizationSettingsBodyRetentionDaysMax = 3650;
 
@@ -3871,16 +3725,6 @@ export const UpdateOrganizationMemberRoleParams = zod.object({
   membershipId: zod.coerce.string().uuid(),
 });
 
-export const UpdateOrganizationMemberRoleHeader = zod.object({
-  "X-Organization-Id": zod
-    .string()
-    .uuid()
-    .optional()
-    .describe(
-      "Organization membership to use for this request. Omit to use the\ncaller's default membership. An inaccessible value returns `403`.\n",
-    ),
-});
-
 export const UpdateOrganizationMemberRoleBody = zod.object({
   role: zod.enum(["owner", "admin", "auditor", "reviewer", "member", "viewer"]),
 });
@@ -3895,16 +3739,6 @@ export const UpdateOrganizationMemberRoleResponse = zod.object({
  * Requires `settings:manage`; privileged role invitations require an owner.
  * @summary Send an organization invitation
  */
-export const InviteOrganizationMemberHeader = zod.object({
-  "X-Organization-Id": zod
-    .string()
-    .uuid()
-    .optional()
-    .describe(
-      "Organization membership to use for this request. Omit to use the\ncaller's default membership. An inaccessible value returns `403`.\n",
-    ),
-});
-
 export const inviteOrganizationMemberBodyEmailMax = 254;
 
 export const InviteOrganizationMemberBody = zod.object({
@@ -3919,31 +3753,11 @@ export const RevokeOrganizationInvitationParams = zod.object({
   invitationId: zod.coerce.string().uuid(),
 });
 
-export const RevokeOrganizationInvitationHeader = zod.object({
-  "X-Organization-Id": zod
-    .string()
-    .uuid()
-    .optional()
-    .describe(
-      "Organization membership to use for this request. Omit to use the\ncaller's default membership. An inaccessible value returns `403`.\n",
-    ),
-});
-
 /**
  * @summary Rotate and resend a pending invitation
  */
 export const ResendOrganizationInvitationParams = zod.object({
   invitationId: zod.coerce.string().uuid(),
-});
-
-export const ResendOrganizationInvitationHeader = zod.object({
-  "X-Organization-Id": zod
-    .string()
-    .uuid()
-    .optional()
-    .describe(
-      "Organization membership to use for this request. Omit to use the\ncaller's default membership. An inaccessible value returns `403`.\n",
-    ),
 });
 
 export const ResendOrganizationInvitationResponse = zod.object({
@@ -3960,29 +3774,10 @@ export const SendOrganizationMemberPasswordResetParams = zod.object({
   membershipId: zod.coerce.string().uuid(),
 });
 
-export const SendOrganizationMemberPasswordResetHeader = zod.object({
-  "X-Organization-Id": zod
-    .string()
-    .uuid()
-    .optional()
-    .describe(
-      "Organization membership to use for this request. Omit to use the\ncaller's default membership. An inaccessible value returns `403`.\n",
-    ),
-});
-
 /**
  * Requires `settings:manage`; organization defaults are returned when no overrides are stored.
  * @summary Get audit prompt settings
  */
-export const GetPromptSettingsHeader = zod.object({
-  "X-Organization-Id": zod
-    .string()
-    .uuid()
-    .optional()
-    .describe(
-      "Organization membership to use for this request. Omit to use the\ncaller's default membership. An inaccessible value returns `403`.\n",
-    ),
-});
 
 export const GetPromptSettingsResponse = zod.object({
   system_prompt: zod.string().min(1),
@@ -4002,15 +3797,6 @@ export const GetPromptSettingsResponse = zod.object({
 
  * @summary Replace audit prompt settings
  */
-export const UpdatePromptSettingsHeader = zod.object({
-  "X-Organization-Id": zod
-    .string()
-    .uuid()
-    .optional()
-    .describe(
-      "Organization membership to use for this request. Omit to use the\ncaller's default membership. An inaccessible value returns `403`.\n",
-    ),
-});
 
 export const UpdatePromptSettingsBody = zod.object({
   system_prompt: zod.string().min(1),
@@ -4033,16 +3819,6 @@ export const UpdatePromptSettingsResponse = zod.object({
  * Deletes organization-scoped overrides and returns built-in defaults. Requires `settings:manage`.
  * @summary Reset audit prompts
  */
-export const ResetPromptSettingsHeader = zod.object({
-  "X-Organization-Id": zod
-    .string()
-    .uuid()
-    .optional()
-    .describe(
-      "Organization membership to use for this request. Omit to use the\ncaller's default membership. An inaccessible value returns `403`.\n",
-    ),
-});
-
 export const ResetPromptSettingsResponse = zod.object({
   success: zod.boolean(),
   system_prompt: zod.string(),
@@ -4057,16 +3833,6 @@ export const PreviewAuditEmailParams = zod.object({
   id: zod.coerce.string().uuid().describe("Claim identifier."),
 });
 
-export const PreviewAuditEmailHeader = zod.object({
-  "X-Organization-Id": zod
-    .string()
-    .uuid()
-    .optional()
-    .describe(
-      "Organization membership to use for this request. Omit to use the\ncaller's default membership. An inaccessible value returns `403`.\n",
-    ),
-});
-
 export const PreviewAuditEmailResponse = zod.object({
   html: zod.string(),
 });
@@ -4079,16 +3845,6 @@ export const PreviewAuditEmailResponse = zod.object({
  */
 export const SendAuditEmailParams = zod.object({
   id: zod.coerce.string().uuid().describe("Claim identifier."),
-});
-
-export const SendAuditEmailHeader = zod.object({
-  "X-Organization-Id": zod
-    .string()
-    .uuid()
-    .optional()
-    .describe(
-      "Organization membership to use for this request. Omit to use the\ncaller's default membership. An inaccessible value returns `403`.\n",
-    ),
 });
 
 export const SendAuditEmailBody = zod.object({

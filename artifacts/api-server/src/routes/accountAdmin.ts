@@ -49,7 +49,15 @@ function isValidEmail(email: string): boolean {
 }
 
 function canAssignRole(currentRole: string, role: OrganizationRole): boolean {
-  return currentRole === "owner" || !["owner", "admin"].includes(role);
+  return (
+    currentRole === "owner"
+    || currentRole === "platform_admin"
+    || !["owner", "admin"].includes(role)
+  );
+}
+
+function canManagePrivilegedRoles(currentRole: string): boolean {
+  return currentRole === "owner" || currentRole === "platform_admin";
 }
 
 function emailIsConfigured(): boolean {
@@ -290,7 +298,7 @@ router.post(
       return;
     }
     if (
-      organization.role !== "owner"
+      !canManagePrivilegedRoles(organization.role)
       && ["owner", "admin"].includes(pendingInvitation.role)
     ) {
       res.status(403).json({ error: "Only an organization owner can resend this invitation" });
@@ -431,7 +439,7 @@ router.delete(
       return;
     }
     if (
-      organization.role !== "owner"
+      !canManagePrivilegedRoles(organization.role)
       && ["owner", "admin"].includes(invitation.role)
     ) {
       res.status(403).json({ error: "Only an organization owner can revoke this invitation" });
@@ -493,7 +501,7 @@ router.post(
       return;
     }
     if (
-      organization.role !== "owner"
+      !canManagePrivilegedRoles(organization.role)
       && ["owner", "admin"].includes(member.role)
     ) {
       res.status(403).json({ error: "Only an organization owner can reset this member" });

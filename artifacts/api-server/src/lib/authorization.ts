@@ -1,20 +1,17 @@
-import {
-  and,
-  asc,
-  desc,
-  eq,
-} from "drizzle-orm";
+import { and, asc, desc, eq } from "drizzle-orm";
 import {
   auditFindings,
   audits,
   claims,
   db,
   documents,
+  identityDb,
   organizationMemberships,
   organizations,
   type OrganizationRole,
 } from "@workspace/db";
 import {
+  ALL_ORGANIZATION_PERMISSIONS,
   permissionsForRole,
   type OrganizationPermission,
 } from "./authorizationPolicy";
@@ -29,40 +26,37 @@ export interface OrganizationContext {
   organizationId: string;
   organizationName: string;
   userId: string;
-  membershipId: string;
-  role: OrganizationRole;
+  membershipId: string | null;
+  role: OrganizationRole | "platform_admin";
   permissions: readonly OrganizationPermission[];
+  accessMode: "membership" | "platform_lease";
+  accessExpiresAt: Date | null;
+  accessLeaseId: string | null;
 }
 
-export async function resolveOrganizationContext(
-  userId: string,
-  requestedOrganizationId?: string,
-): Promise<OrganizationContext | null> {
-  const predicates = [eq(organizationMemberships.userId, userId)];
-  if (requestedOrganizationId) {
-    predicates.push(eq(organizationMemberships.organizationId, requestedOrganizationId));
+export class MultipleOrganizationMembershipsError extends Error {
+  constructor(readonly userId: string) {
+    super("Multiple organization memberships require explicit platform access");
+    this.name = "MultipleOrganizationMembershipsError";
   }
+}
 
-  const [row] = await db
-    .select({
-      membershipId: organizationMemberships.id,
-      organizationId: organizationMemberships.organizationId,
-      organizationName: organizations.name,
-      role: organizationMemberships.role,
-      explicitPermissions: organizationMemberships.permissions,
-    })
-    .from(organizationMemberships)
-    .innerJoin(
-      organizations,
-      eq(organizations.id, organizationMemberships.organizationId),
-    )
-    .where(and(...predicates))
-    .orderBy(
-      desc(organizationMemberships.isDefault),
-      asc(organizationMemberships.joinedAt),
-    )
-    .limit(1);
+interface MembershipContextRow {
+  membershipId: string;
+  organizationId: string;
+  organizationName: string;
+  role: OrganizationRole;
+  explicitPermissions: string[];
+}
 
+export function resolveSingleMembershipContext(
+  userId: string,
+  rows: readonly MembershipContextRow[],
+): OrganizationContext | null {
+  if (rows.length > 1) {
+    throw new MultipleOrganizationMembershipsError(userId);
+  }
+  const row = rows[0];
   if (!row) return null;
 
   return {
@@ -75,6 +69,55 @@ export async function resolveOrganizationContext(
       row.role,
       Array.isArray(row.explicitPermissions) ? row.explicitPermissions : [],
     ),
+    accessMode: "membership",
+    accessExpiresAt: null,
+    accessLeaseId: null,
+  };
+}
+
+export async function resolveOrganizationContext(
+  userId: string,
+): Promise<OrganizationContext | null> {
+  const rows = await identityDb
+    .select({
+      membershipId: organizationMemberships.id,
+      organizationId: organizationMemberships.organizationId,
+      organizationName: organizations.name,
+      role: organizationMemberships.role,
+      explicitPermissions: organizationMemberships.permissions,
+    })
+    .from(organizationMemberships)
+    .innerJoin(
+      organizations,
+      eq(organizations.id, organizationMemberships.organizationId),
+    )
+    .where(eq(organizationMemberships.userId, userId))
+    .orderBy(
+      desc(organizationMemberships.isDefault),
+      asc(organizationMemberships.joinedAt),
+    )
+    .limit(2);
+
+  return resolveSingleMembershipContext(userId, rows);
+}
+
+export function platformLeaseOrganizationContext(input: {
+  userId: string;
+  leaseId: string;
+  organizationId: string;
+  organizationName: string;
+  expiresAt: Date;
+}): OrganizationContext {
+  return {
+    organizationId: input.organizationId,
+    organizationName: input.organizationName,
+    userId: input.userId,
+    membershipId: null,
+    role: "platform_admin",
+    permissions: [...ALL_ORGANIZATION_PERMISSIONS],
+    accessMode: "platform_lease",
+    accessExpiresAt: input.expiresAt,
+    accessLeaseId: input.leaseId,
   };
 }
 
@@ -86,10 +129,7 @@ export async function getAuthorizedClaim(
     .select()
     .from(claims)
     .where(
-      and(
-        eq(claims.id, claimId),
-        eq(claims.organizationId, organizationId),
-      ),
+      and(eq(claims.id, claimId), eq(claims.organizationId, organizationId)),
     )
     .limit(1);
   return claim;
@@ -140,7 +180,13 @@ export async function getAuthorizedFinding(
   const [finding] = await db
     .select({ finding: auditFindings })
     .from(auditFindings)
-    .innerJoin(audits, eq(audits.id, auditFindings.auditId))
+    .innerJoin(
+      audits,
+      and(
+        eq(audits.id, auditFindings.auditId),
+        eq(audits.organizationId, auditFindings.organizationId),
+      ),
+    )
     .where(
       and(
         eq(auditFindings.id, findingId),

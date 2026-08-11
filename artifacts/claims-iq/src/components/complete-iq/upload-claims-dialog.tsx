@@ -29,11 +29,13 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { api, apiErrorMessage, queryKeys } from "@/lib/api"
+import { useAuth } from "@/lib/auth-context"
+import { carrierEntitiesForOrganization } from "@/lib/carrier-entities"
+import { intakeRecoveryKey } from "@/lib/tenant-state"
 import type { CarrierOption } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 const MAX_FILE_SIZE = 100 * 1024 * 1024
-const RECOVERY_KEY = "complete-iq-intake-recovery-v1"
 
 type UploadStage =
   | "queued"
@@ -67,9 +69,10 @@ const stageCopy: Record<UploadStage, string> = {
   cancelled: "Processing cancelled",
 }
 
-function readRecoveryQueue(): UploadItem[] {
+function readRecoveryQueue(recoveryKey: string | null): UploadItem[] {
+  if (!recoveryKey) return []
   try {
-    const stored = JSON.parse(localStorage.getItem(RECOVERY_KEY) || "[]") as Array<{
+    const stored = JSON.parse(localStorage.getItem(recoveryKey) || "[]") as Array<{
       id: string
       fileName: string
       claimId: string
@@ -94,13 +97,18 @@ export function UploadClaimsDialog({
   onOpenChange?: (open: boolean) => void
 }) {
   const queryClient = useQueryClient()
+  const { user, organization } = useAuth()
+  const recoveryKey = useMemo(
+    () => intakeRecoveryKey(user?.id, organization?.id),
+    [organization?.id, user?.id],
+  )
   const inputRef = useRef<HTMLInputElement>(null)
   const resumedRef = useRef(new Set<string>())
   const cancelledRef = useRef(new Set<string>())
   const [open, setOpen] = useState(initialOpen)
   const [dragging, setDragging] = useState(false)
-  const [carrier, setCarrier] = useState("")
-  const [queue, setQueue] = useState<UploadItem[]>(readRecoveryQueue)
+  const [carrierEntityId, setCarrierEntityId] = useState("")
+  const [queue, setQueue] = useState<UploadItem[]>(() => readRecoveryQueue(recoveryKey))
   const [processingBatch, setProcessingBatch] = useState(false)
   const [preflightMessage, setPreflightMessage] = useState<string | null>(null)
 
@@ -109,10 +117,27 @@ export function UploadClaimsDialog({
     queryFn: api.getCarrierOptions,
     staleTime: 5 * 60_000,
   })
+  const carrierEntities = useMemo(
+    () => carrierEntitiesForOrganization(carriers.data, organization?.id),
+    [carriers.data, organization?.id],
+  )
 
   useEffect(() => {
     setOpen(initialOpen)
   }, [initialOpen])
+
+  useEffect(() => {
+    if (carrierEntities.length === 1) {
+      setCarrierEntityId(carrierEntities[0].id)
+      return
+    }
+    if (
+      carrierEntityId
+      && !carrierEntities.some((option) => option.id === carrierEntityId)
+    ) {
+      setCarrierEntityId("")
+    }
+  }, [carrierEntities, carrierEntityId])
 
   useEffect(() => {
     const resumable = queue.filter(
@@ -130,6 +155,7 @@ export function UploadClaimsDialog({
   }, [])
 
   useEffect(() => {
+    if (!recoveryKey) return
     try {
       const recoverable = queue
         .filter(
@@ -146,11 +172,15 @@ export function UploadClaimsDialog({
           jobId,
           stage,
         }))
-      localStorage.setItem(RECOVERY_KEY, JSON.stringify(recoverable))
+      if (recoverable.length) {
+        localStorage.setItem(recoveryKey, JSON.stringify(recoverable))
+      } else {
+        localStorage.removeItem(recoveryKey)
+      }
     } catch {
       // Recovery is an enhancement; processing remains server-owned.
     }
-  }, [queue])
+  }, [queue, recoveryKey])
 
   const setDialogOpen = (next: boolean) => {
     setOpen(next)
@@ -229,7 +259,7 @@ export function UploadClaimsDialog({
       if (!item.file) return
       updateItem(item.id, { stage: "uploading", error: undefined })
       try {
-        const result = await api.ingest(item.file, carrier || undefined)
+        const result = await api.ingest(item.file, carrierEntityId || undefined)
         const claimId = result.claim?.id || result.job.claimId
         if (!claimId) throw new Error("The server queued this file without a claim identifier.")
         updateItem(item.id, {
@@ -247,7 +277,7 @@ export function UploadClaimsDialog({
         })
       }
     },
-    [carrier, updateItem, waitForCompletion],
+    [carrierEntityId, updateItem, waitForCompletion],
   )
 
   const addFiles = useCallback((files: File[]) => {
@@ -400,23 +430,33 @@ export function UploadClaimsDialog({
           )}
 
           <div className="ciq-field">
-            <label htmlFor="intake-carrier">Carrier ruleset</label>
+            <label htmlFor="intake-carrier">Carrier entity</label>
             <select
               id="intake-carrier"
               className="ciq-control"
-              value={carrier}
-              onChange={(event) => setCarrier(event.target.value)}
-              disabled={activeCount > 0}
+              value={carrierEntityId}
+              onChange={(event) => setCarrierEntityId(event.target.value)}
+              disabled={activeCount > 0 || carrierEntities.length <= 1 || carriers.isLoading}
             >
-              <option value="">Auto-detect from each source package</option>
-              {(carriers.data || []).map((option: CarrierOption) => (
-                <option key={option.key} value={option.displayName}>
+              {carriers.isLoading && <option value="">Loading tenant entities…</option>}
+              {!carriers.isLoading && carrierEntities.length === 0 && (
+                <option value="">Assigned from the tenant session</option>
+              )}
+              {carrierEntities.length > 1 && (
+                <option value="">Select a carrier entity…</option>
+              )}
+              {carrierEntities.map((option: CarrierOption) => (
+                <option key={option.id} value={option.id}>
                   {option.displayName}
                 </option>
               ))}
             </select>
             <span className="text-xs text-[var(--ciq-ink-muted)]">
-              A selected profile applies to every queued file in this batch.
+              {carrierEntities.length > 1
+                ? "Choose an entity within the current tenant for this batch."
+                : carrierEntities.length === 1
+                  ? "Locked to the active entity returned for this tenant."
+                  : "The server will use the entity assigned to this tenant session."}
             </span>
           </div>
 
@@ -520,7 +560,15 @@ export function UploadClaimsDialog({
             <Button variant="outline" onClick={() => setDialogOpen(false)}>
               {activeCount ? "Continue in background" : "Close"}
             </Button>
-            <Button onClick={() => void startBatch()} disabled={!queuedCount || processingBatch}>
+            <Button
+              onClick={() => void startBatch()}
+              disabled={
+                !queuedCount
+                || processingBatch
+                || carriers.isLoading
+                || (carrierEntities.length > 1 && !carrierEntityId)
+              }
+            >
               {processingBatch ? (
                 <>
                   <LoaderCircle className="animate-spin" aria-hidden="true" />

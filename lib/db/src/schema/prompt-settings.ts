@@ -13,6 +13,7 @@ export const promptSettings = pgTable(
     updatedAt: timestamp("updated_at").defaultNow(),
   },
   (table) => [
+    unique("uq_prompt_settings_org_id").on(table.organizationId, table.id),
     unique("uq_prompt_settings_org_key").on(table.organizationId, table.key),
   ],
 );

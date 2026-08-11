@@ -1,12 +1,18 @@
 import { randomUUID } from "node:crypto";
 import { and, eq, ne } from "drizzle-orm";
 import {
+  acquireWorkerControlDatabase,
+  acquireWorkerDatabase,
   claimActivity,
   claims,
   db,
   documents,
+  runWithScopedDatabase,
+  type DatabaseSessionSettings,
+  type WorkspaceDatabase,
 } from "@workspace/db";
 import {
+  assertWorkerJobContext,
   claimNextJob,
   completeJob,
   failJob,
@@ -15,12 +21,16 @@ import {
   updateJobStage,
   type ClaimedJob,
 } from "./jobQueue";
+import {
+  listActiveCarrierEntities,
+  resolveDetectedCarrierEntity,
+} from "./carrierRulesetService";
 import { parseClaimFromText } from "./ingest";
 import { extractPdfTextWithVisionPages } from "./finalReportIngestion";
 import { runAndSaveAudit } from "./auditRunner";
 import {
-  downloadFile,
-  isOrganizationStoragePath,
+  createTenantStorageCapability,
+  type TenantStorageCapability,
 } from "../lib/supabaseStorage";
 import logger from "../lib/logger";
 
@@ -80,22 +90,24 @@ async function loadJobDocument(job: ClaimedJob) {
       "Authorized source document was not found",
     );
   }
-  if (!isOrganizationStoragePath(document.fileUrl, job.organizationId)) {
-    throw new ProcessingFailure(
-      "invalid_storage_tenant_prefix",
-      "Source document storage path is outside the organization prefix",
-    );
-  }
   return document;
 }
 
-async function processExtractionJob(job: ClaimedJob): Promise<{
+async function processExtractionJob(
+  job: ClaimedJob,
+  jobDatabase: WorkspaceDatabase,
+  storage: TenantStorageCapability,
+): Promise<{
   degraded: boolean;
 }> {
   const document = await loadJobDocument(job);
-  await updateJobStage(job, "scanning", 10);
+  await updateJobStage(jobDatabase, job, "scanning", 10);
 
-  const fileBuffer = await downloadFile(document.fileUrl!);
+  const fileBuffer = await storage.downloadDocument({
+    claimId: job.claimId!,
+    documentId: document.id,
+    storagePath: document.fileUrl!,
+  });
   if (fileBuffer.length > MAX_SOURCE_SIZE) {
     throw new ProcessingFailure(
       "source_too_large",
@@ -103,7 +115,7 @@ async function processExtractionJob(job: ClaimedJob): Promise<{
     );
   }
 
-  await updateJobStage(job, "extracting", 25);
+  await updateJobStage(jobDatabase, job, "extracting", 25);
   const metadata = (document.metadata as Record<string, unknown> | null) ?? {};
   const fileName =
     typeof metadata.fileName === "string" ? metadata.fileName : "claim.pdf";
@@ -179,17 +191,42 @@ async function processExtractionJob(job: ClaimedJob): Promise<{
   }
 
   const parsedData = await parseClaimFromText(extractedText);
-  const requestedCarrier =
-    typeof job.payload.carrier === "string" && job.payload.carrier.trim()
-      ? job.payload.carrier.trim()
+  let requestedCarrierEntityId =
+    typeof job.payload.carrierEntityId === "string" &&
+    job.payload.carrierEntityId.trim()
+      ? job.payload.carrierEntityId.trim()
       : null;
+  if (!requestedCarrierEntityId) {
+    const [claimCarrier] = await db
+      .select({ carrierEntityId: claims.carrierEntityId })
+      .from(claims)
+      .where(
+        and(
+          eq(claims.id, job.claimId!),
+          eq(claims.organizationId, job.organizationId),
+        ),
+      )
+      .limit(1);
+    requestedCarrierEntityId = claimCarrier?.carrierEntityId ?? null;
+  }
+  const allowedCarrierEntities = await listActiveCarrierEntities(
+    job.organizationId,
+  );
+  const resolvedCarrierEntity = resolveDetectedCarrierEntity({
+    organizationId: job.organizationId,
+    entities: allowedCarrierEntities,
+    detectedCarrier: parsedData.carrier,
+    requestedCarrierEntityId,
+  });
 
-  await db
+  const [updatedClaim] = await db
     .update(claims)
     .set({
       claimNumber: parsedData.claimNumber || `CLM-${job.claimId!.slice(0, 8)}`,
       insuredName: parsedData.insuredName || "Unknown Insured",
-      carrier: requestedCarrier || parsedData.carrier || null,
+      carrierEntityId: resolvedCarrierEntity.id,
+      carrier:
+        parsedData.carrier.trim() || resolvedCarrierEntity.displayName,
       dateOfLoss: parsedData.dateOfLoss || null,
       status: "pending",
       policyNumber: parsedData.policyNumber || null,
@@ -209,7 +246,14 @@ async function processExtractionJob(job: ClaimedJob): Promise<{
         ne(claims.status, "archived"),
         ne(claims.systemStatus, "archived"),
       ),
+    )
+    .returning({ id: claims.id });
+  if (!updatedClaim) {
+    throw new ProcessingFailure(
+      "claim_update_denied",
+      "The claimed job could not update its organization-scoped claim",
     );
+  }
 
   await db
     .update(documents)
@@ -230,9 +274,10 @@ async function processExtractionJob(job: ClaimedJob): Promise<{
       ),
     );
 
-  await updateJobStage(job, "auditing", 70);
+  await updateJobStage(jobDatabase, job, "auditing", 70);
   const audit = await runAndSaveAudit(job.claimId!, {
     organizationId: job.organizationId,
+    storage,
     actorUserId: job.requestedByUserId,
     processingJobId: job.id,
   });
@@ -246,15 +291,20 @@ async function processExtractionJob(job: ClaimedJob): Promise<{
   return { degraded };
 }
 
-async function processAuditOnlyJob(job: ClaimedJob): Promise<{
+async function processAuditOnlyJob(
+  job: ClaimedJob,
+  jobDatabase: WorkspaceDatabase,
+  storage: TenantStorageCapability,
+): Promise<{
   degraded: boolean;
 }> {
   if (!job.claimId) {
     throw new ProcessingFailure("claim_missing", "Audit job has no claim");
   }
-  await updateJobStage(job, "auditing", 30);
+  await updateJobStage(jobDatabase, job, "auditing", 30);
   const result = await runAndSaveAudit(job.claimId, {
     organizationId: job.organizationId,
+    storage,
     actorUserId: job.requestedByUserId,
     processingJobId: job.id,
   });
@@ -265,12 +315,20 @@ async function processAuditOnlyJob(job: ClaimedJob): Promise<{
   return { degraded: false };
 }
 
-async function processClaimedJob(job: ClaimedJob): Promise<void> {
+async function processClaimedJob(
+  job: ClaimedJob,
+  jobDatabase: WorkspaceDatabase,
+  storage: TenantStorageCapability,
+): Promise<void> {
   let heartbeatError: Error | null = null;
+  let heartbeatInFlight = Promise.resolve();
   const heartbeatTimer = setInterval(() => {
-    heartbeatJob(job).catch((error) => {
-      heartbeatError = error instanceof Error ? error : new JobLeaseLostError();
-    });
+    heartbeatInFlight = heartbeatInFlight
+      .then(() => heartbeatJob(jobDatabase, job))
+      .catch((error) => {
+        heartbeatError =
+          error instanceof Error ? error : new JobLeaseLostError();
+      });
   }, HEARTBEAT_INTERVAL_MS);
   heartbeatTimer.unref();
 
@@ -294,24 +352,95 @@ async function processClaimedJob(job: ClaimedJob): Promise<void> {
     }
 
     const outcome = job.type === "audit"
-      ? await processAuditOnlyJob(job)
-      : await processExtractionJob(job);
+      ? await processAuditOnlyJob(job, jobDatabase, storage)
+      : await processExtractionJob(job, jobDatabase, storage);
     if (heartbeatError) throw heartbeatError;
-    await completeJob(job, outcome.degraded ? "degraded" : "succeeded", {
-      claimId: job.claimId,
-      documentId: job.documentId,
-    });
+    await completeJob(
+      jobDatabase,
+      job,
+      outcome.degraded ? "degraded" : "succeeded",
+      {
+        claimId: job.claimId,
+        documentId: job.documentId,
+      },
+    );
   } finally {
     clearInterval(heartbeatTimer);
+    await heartbeatInFlight;
   }
+}
+
+export function createWorkerJobStorageCapability(
+  job: ClaimedJob,
+  settings: DatabaseSessionSettings,
+): TenantStorageCapability {
+  assertWorkerJobContext(job, settings);
+  return createTenantStorageCapability({
+    organizationId: settings.organizationId!,
+    userId: settings.workerId!,
+    sessionId: settings.jobId!,
+  });
+}
+
+async function claimWithWorkerControl(
+  workerId: string,
+): Promise<ClaimedJob | null> {
+  const controlLease = await acquireWorkerControlDatabase(workerId);
+  try {
+    return await claimNextJob(controlLease.database, workerId);
+  } finally {
+    await controlLease.release();
+  }
+}
+
+async function markClaimFailedWhenAttemptsExhausted(
+  job: ClaimedJob,
+  error: unknown,
+): Promise<void> {
+  if (
+    !job.claimId ||
+    job.attemptCount < job.maxAttempts ||
+    error instanceof JobLeaseLostError
+  ) {
+    return;
+  }
+  const [claimState] = await db
+    .select({ currentAuditId: claims.currentAuditId })
+    .from(claims)
+    .where(
+      and(
+        eq(claims.id, job.claimId),
+        eq(claims.organizationId, job.organizationId),
+        ne(claims.status, "archived"),
+        ne(claims.systemStatus, "archived"),
+      ),
+    )
+    .limit(1);
+  await db
+    .update(claims)
+    .set({
+      status: claimState?.currentAuditId ? "analyzed" : "error",
+      systemStatus: claimState?.currentAuditId ? "ready" : "error",
+      aiStatus: "failed",
+    })
+    .where(
+      and(
+        eq(claims.id, job.claimId),
+        eq(claims.organizationId, job.organizationId),
+        ne(claims.status, "archived"),
+        ne(claims.systemStatus, "archived"),
+      ),
+    );
 }
 
 async function runLoop(workerId: string): Promise<void> {
   logger.info({ workerId }, "Durable processing worker started");
   while (!stopping) {
     let job: ClaimedJob | null = null;
+    let jobLease: Awaited<ReturnType<typeof acquireWorkerDatabase>> | null =
+      null;
     try {
-      job = await claimNextJob(workerId);
+      job = await claimWithWorkerControl(workerId);
       if (!job) {
         await waitForWork();
         continue;
@@ -325,45 +454,28 @@ async function runLoop(workerId: string): Promise<void> {
         },
         "Durable processing job claimed",
       );
-      await processClaimedJob(job);
+      jobLease = await acquireWorkerDatabase({
+        organizationId: job.organizationId,
+        jobId: job.id,
+        workerId,
+      });
+      assertWorkerJobContext(job, jobLease.settings);
+      const storage = createWorkerJobStorageCapability(job, jobLease.settings);
+      await runWithScopedDatabase(jobLease, () =>
+        processClaimedJob(job!, jobLease!.database, storage),
+      );
       logger.info({ workerId, jobId: job.id }, "Durable processing job completed");
     } catch (error) {
       logger.error(
         { error, workerId, jobId: job?.id },
         "Durable processing job failed",
       );
-      if (job) {
+      if (job && jobLease) {
         try {
-          const outcome = await failJob(job, error);
-          if (job.claimId && outcome === "failed") {
-            const [claimState] = await db
-              .select({ currentAuditId: claims.currentAuditId })
-              .from(claims)
-              .where(
-                and(
-                  eq(claims.id, job.claimId),
-                  eq(claims.organizationId, job.organizationId),
-                  ne(claims.status, "archived"),
-                  ne(claims.systemStatus, "archived"),
-                ),
-              )
-              .limit(1);
-            await db
-              .update(claims)
-              .set({
-                status: claimState?.currentAuditId ? "analyzed" : "error",
-                systemStatus: claimState?.currentAuditId ? "ready" : "error",
-                aiStatus: "failed",
-              })
-              .where(
-                and(
-                  eq(claims.id, job.claimId),
-                  eq(claims.organizationId, job.organizationId),
-                  ne(claims.status, "archived"),
-                  ne(claims.systemStatus, "archived"),
-                ),
-              );
-          }
+          await runWithScopedDatabase(jobLease, async () => {
+            await markClaimFailedWhenAttemptsExhausted(job!, error);
+            await failJob(jobLease!.database, job!, error);
+          });
         } catch (failureError) {
           logger.error(
             { failureError, jobId: job.id },
@@ -373,6 +485,8 @@ async function runLoop(workerId: string): Promise<void> {
       } else if (!stopping) {
         await waitForWork();
       }
+    } finally {
+      if (jobLease) await jobLease.release();
     }
   }
   logger.info({ workerId }, "Durable processing worker stopped");

@@ -5,17 +5,22 @@ info:
   description: |
     Typed contract for the Complete iQ Carrier Audit API.
 
-    Authenticated requests use the `sid` HTTP-only session cookie. The optional
-    `X-Organization-Id` header selects one of the caller's organization
-    memberships; otherwise the default (or earliest) membership is used.
-    Organization-scoped lookups deliberately return `404` when a resource
-    belongs to another tenant so that cross-tenant identifiers are not
-    disclosed.
+    Authenticated requests use the `sid` HTTP-only session cookie. Ordinary
+    tenant context is bound by the server from exactly one organization
+    membership; accounts with zero or multiple memberships cannot access
+    tenant routes. Tenant-selection headers and request-body overrides are
+    rejected.
+
+    Platform administrators have no tenant context by default. They use the
+    reason-required `/platform/tenant-access` endpoints to create or revoke a
+    temporary, audited lease bound to the authenticated session. Tenant-scoped
+    lookups deliberately return `404` when a resource belongs to another
+    tenant so that cross-tenant identifiers are not disclosed.
 
     Job-enqueueing operations that accept `X-Idempotency-Key` scope that value
-    to the selected organization and operation inputs. Repeating an equivalent
-    request returns the existing durable processing job and sets `duplicate`
-    to `true` when that field is present.
+    to the authenticated session-bound tenant and operation inputs. Repeating
+    an equivalent request returns the existing durable processing job and sets
+    `duplicate` to `true` when that field is present.
 servers:
   - url: /api
     description: Application API
@@ -25,7 +30,7 @@ tags:
   - name: Health
     description: Service health and operational metrics.
   - name: Authentication
-    description: Session lifecycle and current organization context.
+    description: Session lifecycle and server-bound tenant context.
   - name: Dashboard
     description: Organization-scoped dashboard aggregates.
   - name: Claims
@@ -83,8 +88,6 @@ paths:
       tags: [Health, Administration]
       summary: Read in-memory request metrics
       description: Returns per-route request counts, average latency, and error counts for this process.
-      parameters:
-        - $ref: "#/components/parameters/OrganizationId"
       responses:
         "200":
           description: Current process-local route metrics.
@@ -110,11 +113,9 @@ paths:
       security:
         - {}
         - cookieAuth: []
-      parameters:
-        - $ref: "#/components/parameters/OrganizationId"
       responses:
         "200":
-          description: Current user and selected organization context, if authenticated.
+          description: Current user and server-bound tenant context, if authenticated.
           content:
             application/json:
               schema:
@@ -174,8 +175,6 @@ paths:
       security:
         - {}
         - cookieAuth: []
-      parameters:
-        - $ref: "#/components/parameters/OrganizationId"
       responses:
         "200":
           description: Session cleared or no session was present.
@@ -372,8 +371,6 @@ paths:
       tags: [Dashboard]
       summary: Get dashboard aggregates
       description: Requires the `claims:read` organization permission.
-      parameters:
-        - $ref: "#/components/parameters/OrganizationId"
       responses:
         "200":
           description: Organization-scoped claim, score, carrier, and finding aggregates.
@@ -396,8 +393,6 @@ paths:
       tags: [Dashboard]
       summary: Get organization quality and workflow insights
       description: Requires the `claims:read` organization permission.
-      parameters:
-        - $ref: "#/components/parameters/OrganizationId"
       responses:
         "200":
           description: Carrier, reviewer, scoring, evidence, and processing-quality aggregates.
@@ -420,11 +415,11 @@ paths:
       tags: [Claims]
       summary: List claims
       description: |
-        Returns claims in descending creation order for the selected organization.
+        Returns claims in descending creation order for the authenticated
+        session-bound tenant.
         Requires `claims:read`. Pagination is offset-based and the response is a
         bare array; the active route does not return a total count.
       parameters:
-        - $ref: "#/components/parameters/OrganizationId"
         - $ref: "#/components/parameters/ClaimsLimit"
         - $ref: "#/components/parameters/Offset"
       responses:
@@ -449,8 +444,6 @@ paths:
       tags: [Claims]
       summary: Create a claim record
       description: Creates a pending claim without uploading a source file. Requires `claims:create`.
-      parameters:
-        - $ref: "#/components/parameters/OrganizationId"
       requestBody:
         required: true
         content:
@@ -484,7 +477,6 @@ paths:
         Returns an organization-scoped, server-filtered and sorted page for the
         operational queue. Requires `claims:read`.
       parameters:
-        - $ref: "#/components/parameters/OrganizationId"
         - name: page
           in: query
           schema: { type: integer, minimum: 1, default: 1 }
@@ -543,8 +535,6 @@ paths:
         Atomically removes 1–100 organization-scoped claims from active work while
         retaining source records and append-only audit provenance. Claims with queued
         or running processing jobs are rejected. Requires `claims:delete`.
-      parameters:
-        - $ref: "#/components/parameters/OrganizationId"
       requestBody:
         required: true
         content:
@@ -577,8 +567,6 @@ paths:
       tags: [Claims]
       summary: List available claim assignees
       description: Returns organization members available for claim assignment. Requires `claims:read`.
-      parameters:
-        - $ref: "#/components/parameters/OrganizationId"
       responses:
         "200":
           description: Organization-scoped assignment directory.
@@ -598,7 +586,6 @@ paths:
   /claims/{id}:
     parameters:
       - $ref: "#/components/parameters/ClaimId"
-      - $ref: "#/components/parameters/OrganizationId"
     get:
       operationId: getClaimDetail
       tags: [Claims]
@@ -660,11 +647,11 @@ paths:
       tags: [Workflow]
       summary: Assign or unassign a claim
       description: |
-        Requires `claims:assign`. The assignee must be a member of the selected
-        organization; a cross-tenant or unknown assignee is reported as not found.
+        Requires `claims:assign`. The assignee must be a member of the
+        authenticated session-bound tenant; a cross-tenant or unknown assignee
+        is reported as not found.
       parameters:
         - $ref: "#/components/parameters/ClaimId"
-        - $ref: "#/components/parameters/OrganizationId"
       requestBody:
         required: true
         content:
@@ -699,7 +686,6 @@ paths:
       description: Requires `findings:review`.
       parameters:
         - $ref: "#/components/parameters/ClaimId"
-        - $ref: "#/components/parameters/OrganizationId"
       requestBody:
         required: true
         content:
@@ -737,7 +723,6 @@ paths:
       parameters:
         - $ref: "#/components/parameters/ClaimId"
         - $ref: "#/components/parameters/FindingId"
-        - $ref: "#/components/parameters/OrganizationId"
       requestBody:
         required: true
         content:
@@ -772,7 +757,6 @@ paths:
       description: Returns newest activity first. Requires `claims:read`.
       parameters:
         - $ref: "#/components/parameters/ClaimId"
-        - $ref: "#/components/parameters/OrganizationId"
         - $ref: "#/components/parameters/ActivityLimit"
         - $ref: "#/components/parameters/Offset"
       responses:
@@ -800,9 +784,8 @@ paths:
       operationId: listSavedViews
       tags: [Workflow]
       summary: List the current user's saved views
-      description: Requires `views:manage`; results are scoped to the selected organization and current user.
+      description: Requires `views:manage`; results are scoped to the authenticated session-bound tenant and current user.
       parameters:
-        - $ref: "#/components/parameters/OrganizationId"
         - name: resourceType
           in: query
           required: false
@@ -832,8 +815,6 @@ paths:
       description: |
         Requires `views:manage`. Setting `isDefault` clears the default flag on
         the current user's other views for the same resource type.
-      parameters:
-        - $ref: "#/components/parameters/OrganizationId"
       requestBody:
         required: true
         content:
@@ -861,12 +842,11 @@ paths:
   /saved-views/{viewId}:
     parameters:
       - $ref: "#/components/parameters/SavedViewId"
-      - $ref: "#/components/parameters/OrganizationId"
     put:
       operationId: updateSavedView
       tags: [Workflow]
       summary: Update a saved view
-      description: Requires `views:manage`; only the owning user in the selected organization can update it.
+      description: Requires `views:manage`; only the owning user in the authenticated session-bound tenant can update it.
       requestBody:
         required: true
         content:
@@ -896,7 +876,7 @@ paths:
       operationId: deleteSavedView
       tags: [Workflow]
       summary: Delete a saved view
-      description: Requires `views:manage`; only the owning user in the selected organization can delete it.
+      description: Requires `views:manage`; only the owning user in the authenticated session-bound tenant can delete it.
       responses:
         "200":
           description: Saved view deleted.
@@ -925,11 +905,10 @@ paths:
       description: |
         Stores a file, creates a processing claim and document, and enqueues an
         `ingest` job. Requires `claims:create`. The idempotency identity includes
-        the selected organization, file SHA-256, requested carrier, and optional
-        caller key. Equivalent requests return the existing job with
-        `duplicate: true`.
+        the authenticated session-bound tenant, file SHA-256, requested
+        `carrierEntityId`, and optional caller key. Equivalent requests return
+        the existing job with `duplicate: true`.
       parameters:
-        - $ref: "#/components/parameters/OrganizationId"
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
@@ -965,7 +944,6 @@ paths:
         `processing`, `error`, or `ready` state.
       parameters:
         - $ref: "#/components/parameters/ClaimId"
-        - $ref: "#/components/parameters/OrganizationId"
       responses:
         "200":
           description: Current claim workflow and latest job state.
@@ -996,7 +974,6 @@ paths:
         Archived claims return `409`.
       parameters:
         - $ref: "#/components/parameters/ClaimId"
-        - $ref: "#/components/parameters/OrganizationId"
         - $ref: "#/components/parameters/IdempotencyKey"
       responses:
         "202":
@@ -1027,15 +1004,15 @@ paths:
       summary: Reprocess a claim with a carrier
       description: |
         Requires `audits:run`. Enqueues or reuses a `reprocess` job for the latest
-        claim-file document. The idempotency identity includes the carrier and
-        either `X-Idempotency-Key` or the current successful audit identity.
+        claim-file document. The idempotency identity includes the tenant-owned
+        `carrierEntityId` and either `X-Idempotency-Key` or the current
+        successful audit identity.
         Archived claims return `409`.
       parameters:
         - $ref: "#/components/parameters/ClaimId"
-        - $ref: "#/components/parameters/OrganizationId"
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
-        required: true
+        required: false
         content:
           application/json:
             schema:
@@ -1074,7 +1051,6 @@ paths:
         requests are limited to 10 per 15 minutes. Archived claims return `409`.
       parameters:
         - $ref: "#/components/parameters/ClaimId"
-        - $ref: "#/components/parameters/OrganizationId"
         - $ref: "#/components/parameters/IdempotencyKey"
       responses:
         "202":
@@ -1106,7 +1082,6 @@ paths:
       description: Returns newest jobs first. Requires `jobs:read`.
       parameters:
         - $ref: "#/components/parameters/ClaimId"
-        - $ref: "#/components/parameters/OrganizationId"
         - $ref: "#/components/parameters/JobsLimit"
       responses:
         "200":
@@ -1138,7 +1113,6 @@ paths:
         first. Requires `jobs:read`; cross-tenant job IDs return `404`.
       parameters:
         - $ref: "#/components/parameters/JobId"
-        - $ref: "#/components/parameters/OrganizationId"
       responses:
         "200":
           description: Job state and attempt history.
@@ -1167,7 +1141,6 @@ paths:
       description: Requires `jobs:cancel`. Only queued or running jobs can be cancelled.
       parameters:
         - $ref: "#/components/parameters/JobId"
-        - $ref: "#/components/parameters/OrganizationId"
       responses:
         "200":
           description: Job cancelled.
@@ -1198,7 +1171,6 @@ paths:
       description: Requires `jobs:retry`. Only failed, degraded, or cancelled jobs can be reset to queued.
       parameters:
         - $ref: "#/components/parameters/JobId"
-        - $ref: "#/components/parameters/OrganizationId"
       responses:
         "202":
           description: Existing durable job reset and queued.
@@ -1225,17 +1197,17 @@ paths:
     post:
       operationId: createClaimDocument
       tags: [Documents]
-      summary: Register an uploaded claim document
+      summary: Upload and register a claim document
       description: |
-        Associates an organization-owned storage path with a claim. Upload the
-        bytes through `/storage/upload` first. Requires `claims:update`.
+        Uploads one file into tenant-isolated storage and registers its canonical
+        document ID for the claim. Raw storage paths are not accepted. Requires
+        `claims:update`.
       parameters:
         - $ref: "#/components/parameters/ClaimId"
-        - $ref: "#/components/parameters/OrganizationId"
       requestBody:
         required: true
         content:
-          application/json:
+          multipart/form-data:
             schema:
               $ref: "#/components/schemas/CreateDocumentRequest"
       responses:
@@ -1253,6 +1225,8 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
         "429":
           $ref: "#/components/responses/TooManyRequests"
         "500":
@@ -1269,7 +1243,6 @@ paths:
       parameters:
         - $ref: "#/components/parameters/ClaimId"
         - $ref: "#/components/parameters/DocumentId"
-        - $ref: "#/components/parameters/OrganizationId"
       responses:
         "200":
           description: Document metadata and eligible stored object deleted.
@@ -1304,7 +1277,6 @@ paths:
       parameters:
         - $ref: "#/components/parameters/ClaimId"
         - $ref: "#/components/parameters/DocumentId"
-        - $ref: "#/components/parameters/OrganizationId"
         - $ref: "#/components/parameters/IdempotencyKey"
       responses:
         "202":
@@ -1336,7 +1308,6 @@ paths:
       description: Requires `claims:read`; cross-tenant document IDs return `404`.
       parameters:
         - $ref: "#/components/parameters/DocumentIdPath"
-        - $ref: "#/components/parameters/OrganizationId"
       responses:
         "200":
           description: Raw document bytes using the stored content type when available.
@@ -1368,10 +1339,9 @@ paths:
       operationId: getDocumentSignedUrl
       tags: [Documents]
       summary: Create an authorized document signed URL
-      description: Requires `claims:read`; the returned URL expires after one hour.
+      description: Requires `claims:read`; the returned URL expires after 120 seconds.
       parameters:
         - $ref: "#/components/parameters/DocumentIdPath"
-        - $ref: "#/components/parameters/OrganizationId"
       responses:
         "200":
           description: Time-limited document URL.
@@ -1379,79 +1349,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SignedUrl"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "429":
-          $ref: "#/components/responses/TooManyRequests"
-        "500":
-          $ref: "#/components/responses/InternalServerError"
-
-  /storage/download/{storagePath}:
-    get:
-      operationId: downloadStorageObject
-      tags: [Documents]
-      summary: Download an authorized object by storage path
-      description: |
-        Legacy catch-all download route. `storagePath` may contain `/` path
-        separators and must match a document in the selected organization.
-        Prefer the document-ID route for generated clients.
-      parameters:
-        - $ref: "#/components/parameters/StoragePath"
-        - $ref: "#/components/parameters/OrganizationId"
-      responses:
-        "200":
-          description: Raw stored bytes.
-          headers:
-            Content-Length:
-              schema:
-                type: integer
-                format: int64
-          content:
-            application/octet-stream:
-              schema:
-                type: string
-                format: binary
-            application/pdf:
-              schema:
-                type: string
-                format: binary
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "429":
-          $ref: "#/components/responses/TooManyRequests"
-        "500":
-          $ref: "#/components/responses/InternalServerError"
-
-  /storage/signed-url/{storagePath}:
-    get:
-      operationId: getStorageObjectSignedUrl
-      tags: [Documents]
-      summary: Create a signed URL by storage path
-      description: |
-        Legacy catch-all signing route. `storagePath` may contain `/` path
-        separators and must match a document in the selected organization.
-      parameters:
-        - $ref: "#/components/parameters/StoragePath"
-        - $ref: "#/components/parameters/OrganizationId"
-      responses:
-        "200":
-          description: Time-limited object URL.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/LegacySignedUrl"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -1473,7 +1370,6 @@ paths:
       description: Requires `claims:read`; returns `404` until the claim has a current audit.
       parameters:
         - $ref: "#/components/parameters/ClaimId"
-        - $ref: "#/components/parameters/OrganizationId"
       responses:
         "200":
           description: Generated audit report.
@@ -1499,12 +1395,97 @@ paths:
         "500":
           $ref: "#/components/responses/InternalServerError"
 
+  /platform/tenants:
+    get:
+      operationId: listPlatformTenants
+      tags: [Administration]
+      summary: List tenants available for audited platform access
+      description: |
+        Requires platform administrator access. Returns organization identity
+        metadata only; it does not expose tenant metrics or establish tenant
+        context.
+      responses:
+        "200":
+          description: Tenant identities available to the platform administrator.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PlatformTenantSummary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /platform/tenant-access:
+    post:
+      operationId: enterPlatformTenant
+      tags: [Authentication, Administration]
+      summary: Start temporary audited tenant access
+      description: |
+        Requires platform administrator access and a specific operational
+        reason. Creates a time-limited tenant-access lease and binds it to the
+        authenticated session, replacing any prior lease for that session.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlatformTenantAccessRequest"
+      responses:
+        "200":
+          description: Session metadata with the active platform tenant lease.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthSession"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    delete:
+      operationId: exitPlatformTenant
+      tags: [Authentication, Administration]
+      summary: End temporary audited tenant access
+      description: |
+        Requires platform administrator access. Revokes the current
+        session-bound tenant-access lease and clears tenant context from the
+        authenticated session.
+      responses:
+        "200":
+          description: Session metadata with no active tenant context.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthSession"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
   /carriers:
     get:
       operationId: listActiveCarriers
       tags: [Carriers]
-      summary: List active carrier choices
-      description: Authenticated carrier choices used by intake and reprocessing interfaces.
+      summary: List active tenant carrier entities
+      description: |
+        Returns only active carrier entities owned by the authenticated
+        session-bound tenant and backed by its published profile.
       responses:
         "200":
           description: Active carriers.
@@ -1516,22 +1497,24 @@ paths:
                   $ref: "#/components/schemas/CarrierOption"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "429":
           $ref: "#/components/responses/TooManyRequests"
         "500":
           $ref: "#/components/responses/InternalServerError"
 
-  /carriers/all:
+  /platform/carriers:
     get:
       operationId: listCarriers
       tags: [Carriers, Administration]
-      summary: List all carrier rulesets
-      description: Returns active and inactive global carrier rulesets. Requires global `admin`.
-      parameters:
-        - $ref: "#/components/parameters/OrganizationId"
+      summary: List the leased tenant's carrier profile
+      description: |
+        Returns the carrier profile bound by the platform administrator's
+        active tenant-access lease.
       responses:
         "200":
-          description: All carrier ruleset records.
+          description: Zero or one carrier profile for the leased tenant.
           content:
             application/json:
               schema:
@@ -1547,15 +1530,14 @@ paths:
         "500":
           $ref: "#/components/responses/InternalServerError"
 
-  /carriers/{key}:
+  /platform/carriers/{key}:
     parameters:
       - $ref: "#/components/parameters/CarrierKey"
-      - $ref: "#/components/parameters/OrganizationId"
     get:
       operationId: getCarrier
-      tags: [Carriers]
+      tags: [Carriers, Administration]
       summary: Get a carrier ruleset
-      description: Returns one global carrier ruleset. Requires global `admin`.
+      description: Returns the carrier profile for the session-bound platform tenant lease.
       responses:
         "200":
           description: Carrier ruleset.
@@ -1578,7 +1560,7 @@ paths:
       tags: [Carriers, Administration]
       summary: Create a governed carrier ruleset version
       description: |
-        Requires global `admin`. A false `active` value creates an immutable draft
+        Requires platform administrator access and an active tenant lease. A false `active` value creates an immutable draft
         version; true creates and explicitly publishes a validated version while
         preserving the prior publication.
       requestBody:
@@ -1608,7 +1590,7 @@ paths:
       operationId: deleteCarrier
       tags: [Carriers, Administration]
       summary: Deactivate a carrier ruleset
-      description: Requires global `admin`; publication history is preserved.
+      description: Requires platform administrator access and an active tenant lease; publication history is preserved.
       responses:
         "200":
           description: Carrier ruleset deactivated.
@@ -1627,18 +1609,94 @@ paths:
         "500":
           $ref: "#/components/responses/InternalServerError"
 
-  /carriers/{key}/versions:
+  /platform/carriers/{key}/entities:
+    post:
+      operationId: createCarrierEntity
+      tags: [Carriers, Administration]
+      summary: Create a tenant-owned carrier entity
+      description: |
+        Requires platform administrator access and an active tenant lease.
+        The entity is created only in the session-bound tenant; request bodies
+        cannot override organization ownership.
+      parameters:
+        - $ref: "#/components/parameters/CarrierKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCarrierEntityRequest"
+      responses:
+        "201":
+          description: Carrier entity created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CarrierEntityMutationResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /platform/carriers/{key}/entities/{entityId}:
+    put:
+      operationId: updateCarrierEntity
+      tags: [Carriers, Administration]
+      summary: Update a tenant-owned carrier entity
+      description: |
+        Requires platform administrator access and an active tenant lease.
+        The entity ID must belong to the carrier profile in the session-bound
+        tenant.
+      parameters:
+        - $ref: "#/components/parameters/CarrierKey"
+        - $ref: "#/components/parameters/CarrierEntityId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateCarrierEntityRequest"
+      responses:
+        "200":
+          description: Carrier entity updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CarrierEntityMutationResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /platform/carriers/{key}/versions:
     get:
       operationId: listCarrierVersions
       tags: [Carriers, Administration]
       summary: List immutable carrier ruleset versions
-      description: Requires global `admin`.
+      description: Requires platform administrator access and an active tenant lease.
       parameters:
         - $ref: "#/components/parameters/CarrierKey"
-        - $ref: "#/components/parameters/OrganizationId"
       responses:
         "200":
-          description: Version history and current-organization impact count.
+          description: Version history and session-bound tenant impact count.
           content:
             application/json:
               schema:
@@ -1650,15 +1708,14 @@ paths:
         "500":
           $ref: "#/components/responses/InternalServerError"
 
-  /carriers/{key}/versions/{versionId}/publish:
+  /platform/carriers/{key}/versions/{versionId}/publish:
     post:
       operationId: publishCarrierVersion
       tags: [Carriers, Administration]
       summary: Approve and publish a draft ruleset version
-      description: Requires global `admin`; validates the persisted draft before publication.
+      description: Requires platform administrator access and an active tenant lease; validates the persisted draft before publication.
       parameters:
         - $ref: "#/components/parameters/CarrierKey"
-        - $ref: "#/components/parameters/OrganizationId"
         - $ref: "#/components/parameters/CarrierVersionId"
       responses:
         "200":
@@ -1678,15 +1735,14 @@ paths:
         "500":
           $ref: "#/components/responses/InternalServerError"
 
-  /carriers/{key}/versions/{versionId}/rollback:
+  /platform/carriers/{key}/versions/{versionId}/rollback:
     post:
       operationId: rollbackCarrierVersion
       tags: [Carriers, Administration]
       summary: Restore a historical publication as a new version
-      description: Requires global `admin`; prior versions remain immutable.
+      description: Requires platform administrator access and an active tenant lease; prior versions remain immutable.
       parameters:
         - $ref: "#/components/parameters/CarrierKey"
-        - $ref: "#/components/parameters/OrganizationId"
         - $ref: "#/components/parameters/CarrierVersionId"
       responses:
         "200":
@@ -1704,17 +1760,16 @@ paths:
         "500":
           $ref: "#/components/responses/InternalServerError"
 
-  /carriers/{key}/test:
+  /platform/carriers/{key}/test:
     post:
       operationId: testCarrierVersion
       tags: [Carriers, Administration]
       summary: Run deterministic representative-claim ruleset preflight
       description: |
-        Requires global `admin` and `claims:read`. This does not call the AI
+        Requires platform administrator access and an active tenant lease. This does not call the AI
         provider and does not mutate the representative claim.
       parameters:
         - $ref: "#/components/parameters/CarrierKey"
-        - $ref: "#/components/parameters/OrganizationId"
       requestBody:
         required: true
         content:
@@ -1744,9 +1799,7 @@ paths:
       operationId: getSettingsOverview
       tags: [Settings, Administration]
       summary: Get organization administration overview
-      description: Requires `settings:manage` in the selected organization.
-      parameters:
-        - $ref: "#/components/parameters/OrganizationId"
+      description: Requires `settings:manage` in the authenticated session-bound tenant.
       responses:
         "200":
           description: Members, integration readiness, security policy, retention, and audit history.
@@ -1767,8 +1820,6 @@ paths:
       tags: [Settings, Administration]
       summary: Update organization notification and retention policy
       description: Requires `settings:manage`. This records policy only and does not delete retained data.
-      parameters:
-        - $ref: "#/components/parameters/OrganizationId"
       requestBody:
         required: true
         content:
@@ -1798,7 +1849,6 @@ paths:
       summary: Update an organization member role
       description: Requires `settings:manage`; privileged role changes require an organization owner.
       parameters:
-        - $ref: "#/components/parameters/OrganizationId"
         - name: membershipId
           in: path
           required: true
@@ -1842,8 +1892,6 @@ paths:
       tags: [Settings, Administration]
       summary: Send an organization invitation
       description: Requires `settings:manage`; privileged role invitations require an owner.
-      parameters:
-        - $ref: "#/components/parameters/OrganizationId"
       requestBody:
         required: true
         content:
@@ -1880,7 +1928,6 @@ paths:
       tags: [Settings, Administration]
       summary: Revoke a pending organization invitation
       parameters:
-        - $ref: "#/components/parameters/OrganizationId"
         - name: invitationId
           in: path
           required: true
@@ -1907,7 +1954,6 @@ paths:
       tags: [Settings, Administration]
       summary: Rotate and resend a pending invitation
       parameters:
-        - $ref: "#/components/parameters/OrganizationId"
         - name: invitationId
           in: path
           required: true
@@ -1944,7 +1990,6 @@ paths:
       tags: [Settings, Administration]
       summary: Send a member a password reset link
       parameters:
-        - $ref: "#/components/parameters/OrganizationId"
         - name: membershipId
           in: path
           required: true
@@ -1979,8 +2024,6 @@ paths:
       tags: [Settings, Administration]
       summary: Get audit prompt settings
       description: Requires `settings:manage`; organization defaults are returned when no overrides are stored.
-      parameters:
-        - $ref: "#/components/parameters/OrganizationId"
       responses:
         "200":
           description: Effective audit prompts.
@@ -2003,8 +2046,6 @@ paths:
       description: |
         Requires `settings:manage`. Both prompts must be non-empty, and
         `user_prompt_template` must include all required question and report placeholders.
-      parameters:
-        - $ref: "#/components/parameters/OrganizationId"
       requestBody:
         required: true
         content:
@@ -2035,8 +2076,6 @@ paths:
       tags: [Settings, Administration]
       summary: Reset audit prompts
       description: Deletes organization-scoped overrides and returns built-in defaults. Requires `settings:manage`.
-      parameters:
-        - $ref: "#/components/parameters/OrganizationId"
       responses:
         "200":
           description: Prompt settings reset.
@@ -2061,7 +2100,6 @@ paths:
       description: Requires `claims:read`; returns `404` until the claim has a persisted audit response.
       parameters:
         - $ref: "#/components/parameters/ClaimId"
-        - $ref: "#/components/parameters/OrganizationId"
       responses:
         "200":
           description: Rendered HTML email.
@@ -2092,7 +2130,6 @@ paths:
         10 requests per hour.
       parameters:
         - $ref: "#/components/parameters/ClaimId"
-        - $ref: "#/components/parameters/OrganizationId"
       requestBody:
         required: true
         content:
@@ -2197,23 +2234,14 @@ components:
       description: Shared secret configured for the SendGrid Inbound Parse callback.
 
   parameters:
-    OrganizationId:
-      name: X-Organization-Id
-      in: header
-      required: false
-      description: |
-        Organization membership to use for this request. Omit to use the
-        caller's default membership. An inaccessible value returns `403`.
-      schema:
-        type: string
-        format: uuid
     IdempotencyKey:
       name: X-Idempotency-Key
       in: header
       required: false
       description: |
-        Caller-provided idempotency key. It is combined with organization and
-        operation-specific inputs; equivalent requests reuse the durable job.
+        Caller-provided idempotency key. It is combined with the authenticated
+        session-bound tenant and operation-specific inputs; equivalent requests
+        reuse the durable job.
       schema:
         type: string
         minLength: 1
@@ -2282,14 +2310,14 @@ components:
       schema:
         type: string
         format: uuid
-    StoragePath:
-      name: storagePath
+    CarrierEntityId:
+      name: entityId
       in: path
       required: true
-      description: Organization-prefixed storage path; may contain `/`.
+      description: Tenant-owned carrier entity identifier.
       schema:
         type: string
-        minLength: 1
+        format: uuid
     ClaimsLimit:
       name: limit
       in: query
@@ -2338,21 +2366,21 @@ components:
           schema:
             $ref: "#/components/schemas/Error"
     Unauthorized:
-      description: A valid session or organization membership is required.
+      description: A valid authenticated session is required.
       content:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
     Forbidden:
-      description: The caller lacks the selected organization or required permission.
+      description: The session lacks a valid tenant context or the required permission.
       content:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
     NotFound:
       description: |
-        Resource not found in the selected organization. Organization-scoped
-        routes use this response for cross-tenant identifiers.
+        Resource not found in the authenticated session-bound tenant.
+        Tenant-scoped routes use this response for cross-tenant identifiers.
       content:
         application/json:
           schema:
@@ -2619,7 +2647,7 @@ components:
 
     AuthUser:
       type: object
-      required: [id, email, firstName, lastName, profileImageUrl, role]
+      required: [id, email, firstName, lastName, profileImageUrl, role, platformRole]
       properties:
         id:
           type: string
@@ -2638,11 +2666,25 @@ components:
           nullable: true
         role:
           type: string
+        platformRole:
+          $ref: "#/components/schemas/PlatformRole"
       additionalProperties: false
+
+    PlatformRole:
+      type: string
+      enum: [none, admin]
 
     OrganizationRole:
       type: string
       enum: [owner, admin, auditor, reviewer, member, viewer]
+
+    AuthOrganizationRole:
+      type: string
+      enum: [owner, admin, auditor, reviewer, member, viewer, platform_admin]
+
+    TenantAccessMode:
+      type: string
+      enum: [membership, platform_lease]
 
     OrganizationPermission:
       type: string
@@ -2663,7 +2705,12 @@ components:
 
     AuthOrganization:
       type: object
-      required: [id, name, role, permissions]
+      description: |
+        Tenant context bound to the authenticated session. Membership mode is
+        resolved server-side from exactly one organization membership;
+        platform-lease mode is established only through the reason-required
+        tenant-access endpoints.
+      required: [id, name, role, permissions, accessMode, accessExpiresAt]
       properties:
         id:
           type: string
@@ -2671,17 +2718,24 @@ components:
         name:
           type: string
         role:
-          $ref: "#/components/schemas/OrganizationRole"
+          $ref: "#/components/schemas/AuthOrganizationRole"
         permissions:
           type: array
           uniqueItems: true
           items:
             $ref: "#/components/schemas/OrganizationPermission"
+        accessMode:
+          $ref: "#/components/schemas/TenantAccessMode"
+        accessExpiresAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Lease expiration for platform access; null for membership-bound sessions.
       additionalProperties: false
 
     AuthSession:
       type: object
-      required: [user]
+      required: [user, organization]
       properties:
         user:
           nullable: true
@@ -2691,6 +2745,35 @@ components:
           nullable: true
           allOf:
             - $ref: "#/components/schemas/AuthOrganization"
+      additionalProperties: false
+
+    PlatformTenantSummary:
+      type: object
+      description: Organization identity metadata available before a platform tenant lease is created.
+      required: [id, name, slug]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+          nullable: true
+      additionalProperties: false
+
+    PlatformTenantAccessRequest:
+      type: object
+      description: Explicit, reasoned request by a platform administrator for temporary audited tenant access.
+      required: [organizationId, reason]
+      properties:
+        organizationId:
+          type: string
+          format: uuid
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 500
       additionalProperties: false
 
     LoginResponse:
@@ -2744,6 +2827,11 @@ components:
         id:
           type: string
           format: uuid
+        carrierEntityId:
+          type: string
+          format: uuid
+          nullable: true
+          description: Authoritative tenant-owned carrier entity; `carrier` is only a source/display snapshot.
         claimNumber:
           type: string
         insuredName:
@@ -2899,9 +2987,11 @@ components:
         insuredName:
           type: string
           minLength: 1
-        carrier:
+        carrierEntityId:
           type: string
+          format: uuid
           nullable: true
+          description: Optional only when the authenticated session-bound tenant has exactly one active carrier entity.
         dateOfLoss:
           type: string
           nullable: true
@@ -4101,8 +4191,10 @@ components:
         file:
           type: string
           format: binary
-        carrier:
+        carrierEntityId:
           type: string
+          format: uuid
+          description: Optional only when the authenticated session-bound tenant has exactly one active carrier entity.
       additionalProperties: false
 
     IngestClaim:
@@ -4145,29 +4237,23 @@ components:
 
     ReprocessClaimRequest:
       type: object
-      required: [carrier]
       properties:
-        carrier:
+        carrierEntityId:
           type: string
-          minLength: 1
+          format: uuid
+          description: Optional only when the authenticated session-bound tenant has exactly one active carrier entity.
       additionalProperties: false
 
     CreateDocumentRequest:
       type: object
-      required: [storagePath, fileName]
+      required: [file]
       properties:
+        file:
+          type: string
+          format: binary
         type:
           type: string
           default: claim_file
-        storagePath:
-          type: string
-          minLength: 1
-        fileName:
-          type: string
-          minLength: 1
-        contentType:
-          type: string
-          default: application/octet-stream
       additionalProperties: false
 
     CreatedDocument:
@@ -4200,23 +4286,32 @@ components:
           description: Lifetime in seconds.
       additionalProperties: false
 
-    LegacySignedUrl:
-      type: object
-      required: [url]
-      properties:
-        url:
-          type: string
-          format: uri
-      additionalProperties: false
-
     CarrierOption:
       type: object
-      required: [key, displayName, logoUrl]
+      required:
+        [id, key, entityKey, carrierKey, organizationId, displayName, isPrimary, active, logoUrl]
       properties:
+        id:
+          type: string
+          format: uuid
         key:
           type: string
+        entityKey:
+          type: string
+        carrierKey:
+          type: string
+        organizationId:
+          type: string
+          format: uuid
         displayName:
           type: string
+        legalName:
+          type: string
+          nullable: true
+        isPrimary:
+          type: boolean
+        active:
+          type: boolean
         logoUrl:
           type: string
           nullable: true
@@ -4298,9 +4393,13 @@ components:
 
     CarrierProfile:
       type: object
-      required: [id, carrierKey, displayName, logoUrl, active, ruleset, createdAt, updatedAt]
+      required:
+        [id, organizationId, carrierKey, displayName, logoUrl, active, ruleset, entities, createdAt, updatedAt]
       properties:
         id:
+          type: string
+          format: uuid
+        organizationId:
           type: string
           format: uuid
         carrierKey:
@@ -4313,7 +4412,13 @@ components:
         active:
           type: boolean
         ruleset:
-          $ref: "#/components/schemas/CarrierRuleset"
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/CarrierRuleset"
+        entities:
+          type: array
+          items:
+            $ref: "#/components/schemas/CarrierEntity"
         sourceReferences:
           type: array
           items:
@@ -4339,6 +4444,85 @@ components:
           type: string
           format: date-time
           nullable: true
+      additionalProperties: false
+
+    CarrierEntity:
+      type: object
+      required:
+        [id, organizationId, entityKey, displayName, legalName, isPrimary, active]
+      properties:
+        id:
+          type: string
+          format: uuid
+        organizationId:
+          type: string
+          format: uuid
+        entityKey:
+          type: string
+        displayName:
+          type: string
+        legalName:
+          type: string
+          nullable: true
+        isPrimary:
+          type: boolean
+        active:
+          type: boolean
+      additionalProperties: true
+
+    CreateCarrierEntityRequest:
+      type: object
+      required: [entityKey, displayName, changeReason]
+      properties:
+        entityKey:
+          type: string
+          pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+        displayName:
+          type: string
+          minLength: 1
+        legalName:
+          type: string
+          nullable: true
+        isPrimary:
+          type: boolean
+          default: false
+        active:
+          type: boolean
+          default: true
+        changeReason:
+          type: string
+          minLength: 1
+      additionalProperties: false
+
+    UpdateCarrierEntityRequest:
+      type: object
+      required: [entityKey, displayName, isPrimary, active, changeReason]
+      properties:
+        entityKey:
+          type: string
+          pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+        displayName:
+          type: string
+          minLength: 1
+        legalName:
+          type: string
+          nullable: true
+        isPrimary:
+          type: boolean
+        active:
+          type: boolean
+        changeReason:
+          type: string
+          minLength: 1
+      additionalProperties: false
+
+    CarrierEntityMutationResponse:
+      type: object
+      required: [id]
+      properties:
+        id:
+          type: string
+          format: uuid
       additionalProperties: false
 
     UpsertCarrierRequest:

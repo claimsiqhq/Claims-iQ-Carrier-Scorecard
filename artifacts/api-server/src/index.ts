@@ -1,20 +1,13 @@
 import logger from "./lib/logger";
-import { env } from "./env";
+import { env, validateStorageEnvironment } from "./env";
 
 const requiredEnvVars = [
-  "SUPABASE_DATABASE_URL",
-  "SUPABASE_URL",
-  "SUPABASE_SERVICE_ROLE",
   "GEMINI_API_KEY",
 ] as const;
 
 const optionalButWarnEnvVars = [
   { key: "SENDGRID_API_KEY", feature: "email sending" },
   { key: "SENDGRID_FROM_EMAIL", feature: "email sending" },
-  {
-    key: "SENDGRID_INBOUND_PARSE_TOKEN",
-    feature: "SendGrid inbound parse webhook",
-  },
 ] as const;
 
 function validateStartupEnvironment(): number {
@@ -36,6 +29,7 @@ function validateStartupEnvironment(): number {
       `Missing required environment variables: ${missing.join(", ")}`,
     );
   }
+  validateStorageEnvironment();
 
   return port;
 }
@@ -53,7 +47,7 @@ async function main(): Promise<void> {
   // This keeps Render startup failures concise and names every missing variable.
   const [
     { default: app },
-    { pool },
+    { closeRuntimePools },
     { startDurableWorker, stopDurableWorker },
   ] = await Promise.all([
     import("./app"),
@@ -94,8 +88,8 @@ async function main(): Promise<void> {
       try {
         await stopDurableWorker();
         logger.info("Durable worker stopped.");
-        await pool.end();
-        logger.info("Database pool closed.");
+        await closeRuntimePools();
+        logger.info("Database pools closed.");
         clearTimeout(forceShutdownTimer);
         process.exit(serverError ? 1 : 0);
       } catch (err) {

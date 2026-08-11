@@ -21,6 +21,10 @@ import {
   archiveClaims,
   ClaimArchiveError,
 } from "../services/claimLifecycle";
+import {
+  CarrierEntitySelectionError,
+  resolveRequestedCarrierEntity,
+} from "../services/carrierRulesetService";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const firstParam = (value: string | string[] | undefined): string =>
@@ -53,6 +57,7 @@ function mapClaim(c: any) {
     id: c.id,
     claimNumber: c.claimNumber ?? "",
     insuredName: c.insuredName ?? "",
+    carrierEntityId: c.carrierEntityId ?? null,
     carrier: c.carrier ?? undefined,
     dateOfLoss: c.dateOfLoss ?? undefined,
     status: c.status ?? "pending",
@@ -80,18 +85,43 @@ router.post(
   requireOrganizationPermission("claims:create"),
   async (req, res) => {
   try {
-    const { claimNumber, insuredName, carrier, dateOfLoss } = req.body;
+    const body =
+      req.body && typeof req.body === "object" ? req.body : {};
+    const { claimNumber, insuredName, carrierEntityId, dateOfLoss } = body;
     if (!claimNumber || !insuredName) {
       res.status(400).json({ error: "claimNumber and insuredName are required" });
       return;
     }
+    if (
+      "carrier" in body ||
+      "carrierKey" in body ||
+      "organizationId" in body
+    ) {
+      res.status(400).json({
+        error:
+          "Use carrierEntityId; carrier profile and organization selection are server-controlled.",
+      });
+      return;
+    }
+    if (
+      carrierEntityId != null &&
+      (typeof carrierEntityId !== "string" || !UUID_RE.test(carrierEntityId))
+    ) {
+      res.status(400).json({ error: "carrierEntityId must be a valid UUID" });
+      return;
+    }
+    const selectedCarrierEntity = await resolveRequestedCarrierEntity(
+      req.organization!.organizationId,
+      carrierEntityId,
+    );
 
     const [newClaim] = await db.insert(claims).values({
       organizationId: req.organization!.organizationId,
       ownerUserId: req.user!.id,
       claimNumber,
       insuredName,
-      carrier: carrier || null,
+      carrierEntityId: selectedCarrierEntity.id,
+      carrier: selectedCarrierEntity.displayName,
       dateOfLoss: dateOfLoss || null,
       status: "pending",
       systemStatus: "uploaded",
@@ -108,6 +138,10 @@ router.post(
 
     res.status(201).json(mapClaim(newClaim));
   } catch (err) {
+    if (err instanceof CarrierEntitySelectionError) {
+      res.status(err.status).json({ error: err.message, code: err.code });
+      return;
+    }
     logger.error({ err }, "Error creating claim");
     res.status(500).json({ error: "Failed to create claim" });
   }
@@ -131,7 +165,13 @@ router.get(
         approvalStatus: audits.approvalStatus,
       })
       .from(claims)
-      .leftJoin(audits, eq(claims.currentAuditId, audits.id))
+      .leftJoin(
+        audits,
+        and(
+          eq(claims.currentAuditId, audits.id),
+          eq(claims.organizationId, audits.organizationId),
+        ),
+      )
       .where(
         and(
           eq(claims.organizationId, req.organization!.organizationId),
@@ -272,7 +312,13 @@ router.get(
             approvalStatus: audits.approvalStatus,
           })
           .from(claims)
-          .leftJoin(audits, eq(claims.currentAuditId, audits.id))
+          .leftJoin(
+            audits,
+            and(
+              eq(claims.currentAuditId, audits.id),
+              eq(claims.organizationId, audits.organizationId),
+            ),
+          )
           .where(and(...conditions))
           .orderBy(orderBy)
           .limit(pageSize)
@@ -280,7 +326,13 @@ router.get(
         db
           .select({ total: sql<number>`count(*)::int` })
           .from(claims)
-          .leftJoin(audits, eq(claims.currentAuditId, audits.id))
+          .leftJoin(
+            audits,
+            and(
+              eq(claims.currentAuditId, audits.id),
+              eq(claims.organizationId, audits.organizationId),
+            ),
+          )
           .where(and(...conditions)),
         db
           .selectDistinct({ carrier: claims.carrier })

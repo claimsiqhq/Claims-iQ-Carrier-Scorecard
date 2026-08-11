@@ -15,7 +15,7 @@ export function buildJobIdempotencyKey(input: {
   claimId?: string | null;
   documentId?: string | null;
   sourceHash?: string | null;
-  requestedCarrier?: string | null;
+  carrierEntityId?: string | null;
   callerKey?: string | null;
 }): string {
   const canonical = JSON.stringify({
@@ -24,7 +24,7 @@ export function buildJobIdempotencyKey(input: {
     claimId: input.claimId ?? null,
     documentId: input.documentId ?? null,
     sourceHash: input.sourceHash ?? null,
-    requestedCarrier: input.requestedCarrier?.trim().toLowerCase() ?? null,
+    carrierEntityId: input.carrierEntityId?.trim().toLowerCase() ?? null,
     callerKey: input.callerKey?.trim() ?? null,
   });
   return `${input.type}:${createHash("sha256").update(canonical).digest("hex")}`;

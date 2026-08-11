@@ -9,6 +9,7 @@
     "seed:allstate": "tsx ./src/seedAllstateRuleset.ts",
     "seed:andover": "tsx ./src/seedAndoverRuleset.ts",
     "rehearse:migration": "tsx ./src/rehearsePhase2Migration.ts",
+    "test:tenant-integration": "tsx ./src/runTenantHttpIntegration.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

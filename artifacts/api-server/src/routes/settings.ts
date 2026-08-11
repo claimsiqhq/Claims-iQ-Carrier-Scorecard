@@ -102,7 +102,15 @@ router.get(
           },
           storage: {
             configured: Boolean(
-              process.env.SUPABASE_DATABASE_URL && process.env.SUPABASE_SERVICE_ROLE,
+              process.env.SUPABASE_URL
+              && process.env.SUPABASE_PUBLISHABLE_KEY
+              && (
+                process.env.SUPABASE_JWT_SECRET
+                || (
+                  process.env.SUPABASE_JWT_PRIVATE_KEY
+                  && process.env.SUPABASE_JWT_KEY_ID
+                )
+              ),
             ),
           },
           email: {
@@ -257,6 +265,7 @@ router.patch(
     }
     if (
       organization.role !== "owner"
+      && organization.role !== "platform_admin"
       && (target.role === "owner" || role === "owner" || role === "admin")
     ) {
       res.status(403).json({ error: "Only an organization owner can manage privileged roles" });

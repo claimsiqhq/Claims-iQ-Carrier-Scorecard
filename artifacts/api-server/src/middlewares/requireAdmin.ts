@@ -5,8 +5,8 @@ export function requireAdmin(req: Request, res: Response, next: NextFunction) {
     res.status(401).json({ error: "Authentication required" });
     return;
   }
-  if (req.user.role !== "admin") {
-    res.status(403).json({ error: "Admin access required" });
+  if (req.user.platformRole !== "admin") {
+    res.status(403).json({ error: "Platform administrator access required" });
     return;
   }
   next();

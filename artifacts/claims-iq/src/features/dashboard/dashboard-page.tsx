@@ -42,6 +42,7 @@ function nextAction(claim: ClaimSummary) {
 
 export default function DashboardPage() {
   const { user, organization } = useAuth()
+  const canCreate = Boolean(organization?.permissions.includes("claims:create"))
   const canDelete = Boolean(organization?.permissions.includes("claims:delete"))
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [archiveTargets, setArchiveTargets] = useState<ArchiveClaimTarget[]>([])
@@ -131,14 +132,16 @@ export default function DashboardPage() {
           </>
         }
         actions={
-          <UploadClaimsDialog
-            trigger={
-              <Button className="border-white/15 bg-white text-[var(--ciq-aubergine)] hover:bg-[#f7f3ed]">
-                <Plus aria-hidden="true" />
-                New claim intake
-              </Button>
-            }
-          />
+          canCreate ? (
+            <UploadClaimsDialog
+              trigger={
+                <Button className="border-white/15 bg-white text-[var(--ciq-aubergine)] hover:bg-[#f7f3ed]">
+                  <Plus aria-hidden="true" />
+                  New claim intake
+                </Button>
+              }
+            />
+          ) : undefined
         }
       />
 
@@ -457,14 +460,16 @@ export default function DashboardPage() {
               </div>
             </div>
             <div className="grid gap-2 p-3">
-              <UploadClaimsDialog
-                trigger={
-                  <Button variant="outline" className="justify-start">
-                    <UploadCloud aria-hidden="true" />
-                    Add claim package
-                  </Button>
-                }
-              />
+              {canCreate && (
+                <UploadClaimsDialog
+                  trigger={
+                    <Button variant="outline" className="justify-start">
+                      <UploadCloud aria-hidden="true" />
+                      Add claim package
+                    </Button>
+                  }
+                />
+              )}
               <Button variant="outline" className="justify-start" asChild>
                 <Link href="/claims">
                   <Files aria-hidden="true" />
