@@ -238,7 +238,7 @@ BEGIN
 END
 $revoke_migration_manifest_data_api$;
 
-CREATE OR REPLACE FUNCTION storage.claim_document_path_is_authorized(
+CREATE OR REPLACE FUNCTION private.claim_document_path_is_authorized(
   object_name text
 )
 RETURNS boolean
@@ -296,10 +296,11 @@ EXCEPTION
 END
 $function$;
 
-REVOKE ALL ON FUNCTION storage.claim_document_path_is_authorized(text)
+REVOKE ALL ON FUNCTION private.claim_document_path_is_authorized(text)
   FROM PUBLIC;
+GRANT USAGE ON SCHEMA private TO authenticated;
 GRANT EXECUTE
-  ON FUNCTION storage.claim_document_path_is_authorized(text)
+  ON FUNCTION private.claim_document_path_is_authorized(text)
   TO authenticated;
 
 ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
@@ -345,7 +346,7 @@ CREATE POLICY claim_documents_tenant_select
   USING (
     bucket_id = 'claim-documents'
     AND (
-      SELECT storage.claim_document_path_is_authorized(name)
+      SELECT private.claim_document_path_is_authorized(name)
     )
   );
 
@@ -356,7 +357,7 @@ CREATE POLICY claim_documents_tenant_insert
   WITH CHECK (
     bucket_id = 'claim-documents'
     AND (
-      SELECT storage.claim_document_path_is_authorized(name)
+      SELECT private.claim_document_path_is_authorized(name)
     )
   );
 
@@ -367,13 +368,13 @@ CREATE POLICY claim_documents_tenant_update
   USING (
     bucket_id = 'claim-documents'
     AND (
-      SELECT storage.claim_document_path_is_authorized(name)
+      SELECT private.claim_document_path_is_authorized(name)
     )
   )
   WITH CHECK (
     bucket_id = 'claim-documents'
     AND (
-      SELECT storage.claim_document_path_is_authorized(name)
+      SELECT private.claim_document_path_is_authorized(name)
     )
   );
 
@@ -384,7 +385,7 @@ CREATE POLICY claim_documents_tenant_delete
   USING (
     bucket_id = 'claim-documents'
     AND (
-      SELECT storage.claim_document_path_is_authorized(name)
+      SELECT private.claim_document_path_is_authorized(name)
     )
   );
 
