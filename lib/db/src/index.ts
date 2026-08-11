@@ -16,11 +16,84 @@ import {
 
 const { Pool } = pg;
 
+const CAPABILITY_ROLES = [
+  "claims_iq_identity",
+  "claims_iq_tenant_api",
+  "claims_iq_platform_admin",
+  "claims_iq_worker",
+] as const;
+
+type CapabilityRole = (typeof CAPABILITY_ROLES)[number];
+type PoolConnectCallback = (
+  error: Error | undefined,
+  client: pg.PoolClient | undefined,
+  done: (release?: unknown) => void,
+) => void;
+
+/**
+ * Supabase's session pooler does not reliably forward the libpq `options`
+ * startup parameter. Bind the least-privilege capability explicitly before a
+ * checked-out client can execute application SQL.
+ */
+class CapabilityPool extends Pool {
+  constructor(
+    config: pg.PoolConfig,
+    private readonly capabilityRole: CapabilityRole,
+  ) {
+    super(config);
+  }
+
+  private async bindCapabilityRole(
+    client: pg.PoolClient,
+  ): Promise<pg.PoolClient> {
+    await client.query(`SET ROLE ${this.capabilityRole}`);
+    return client;
+  }
+
+  override connect(): Promise<pg.PoolClient>;
+  override connect(callback: PoolConnectCallback): void;
+  override connect(
+    callback?: PoolConnectCallback,
+  ): Promise<pg.PoolClient> | void {
+    if (!callback) {
+      return super.connect().then(async (client) => {
+        try {
+          return await this.bindCapabilityRole(client);
+        } catch (error) {
+          const connectionError =
+            error instanceof Error ? error : new Error(String(error));
+          client.release(connectionError);
+          throw connectionError;
+        }
+      });
+    }
+
+    super.connect((error, client, done) => {
+      if (error || !client) {
+        callback(error, client, done);
+        return;
+      }
+
+      void this.bindCapabilityRole(client).then(
+        () => callback(undefined, client, done),
+        (roleError: unknown) => {
+          const connectionError =
+            roleError instanceof Error
+              ? roleError
+              : new Error(String(roleError));
+          done(connectionError);
+          callback(connectionError, undefined, () => undefined);
+        },
+      );
+    });
+  }
+}
+
 function createPool(
   connectionString: string,
   applicationName: string,
   max: number,
-  capabilityRole?: string,
+  capabilityRole?: CapabilityRole,
 ): pg.Pool {
   const poolConfig: pg.PoolConfig = {
     connectionString,
@@ -35,7 +108,9 @@ function createPool(
   if (databaseUrlUsesTls(connectionString)) {
     poolConfig.ssl = { rejectUnauthorized: false };
   }
-  return new Pool(poolConfig);
+  return capabilityRole
+    ? new CapabilityPool(poolConfig, capabilityRole)
+    : new Pool(poolConfig);
 }
 
 export const runtimeDatabaseConfig = resolveDatabaseRuntimeConfig();

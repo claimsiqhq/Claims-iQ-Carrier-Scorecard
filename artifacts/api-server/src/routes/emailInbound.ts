@@ -3,7 +3,7 @@ import {
   randomBytes,
   randomUUID,
 } from "node:crypto";
-import { createRequire } from "node:module";
+import { EventWebhook } from "@sendgrid/eventwebhook";
 import {
   Router,
   type IRouter,
@@ -214,20 +214,6 @@ function webhookSecret(req: Request): string | null {
   return unique.length === 1 ? unique[0]! : null;
 }
 
-type EventWebhookVerifier = {
-  convertPublicKeyToECDSA(publicKey: string): unknown;
-  verifySignature(
-    publicKey: unknown,
-    payload: Buffer,
-    signature: string,
-    timestamp: string,
-  ): boolean;
-};
-
-type EventWebhookConstructor = new () => EventWebhookVerifier;
-
-const require = createRequire(import.meta.url);
-
 export function isInboundSignatureTimestampFresh(
   value: string,
   nowSeconds = Math.floor(Date.now() / 1000),
@@ -253,11 +239,6 @@ function verifySendGridSignature(input: {
     return false;
   }
   try {
-    const EventWebhook = (
-      require("@sendgrid/eventwebhook") as {
-        EventWebhook: EventWebhookConstructor;
-      }
-    ).EventWebhook;
     const verifier = new EventWebhook();
     const publicKey = verifier.convertPublicKeyToECDSA(input.publicKey);
     return verifier.verifySignature(
