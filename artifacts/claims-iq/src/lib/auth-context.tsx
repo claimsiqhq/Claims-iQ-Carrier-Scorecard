@@ -94,6 +94,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, [queryClient]);
 
+  useEffect(() => {
+    if (
+      !user
+      || organization?.accessMode !== "platform_lease"
+      || !organization.accessExpiresAt
+    ) {
+      return;
+    }
+
+    const expiresAt = Date.parse(organization.accessExpiresAt);
+    if (!Number.isFinite(expiresAt)) return;
+
+    const timeout = window.setTimeout(() => {
+      void applyTenantTransition({
+        user,
+        organization: null,
+      });
+    }, Math.max(0, expiresAt - Date.now()));
+
+    return () => window.clearTimeout(timeout);
+  }, [
+    applyTenantTransition,
+    organization?.accessExpiresAt,
+    organization?.accessMode,
+    organization?.id,
+    user,
+  ]);
+
   const login = useCallback(async (email: string, password: string): Promise<string | null> => {
     try {
       await api.login(email, password);

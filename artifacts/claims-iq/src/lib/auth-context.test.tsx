@@ -30,7 +30,7 @@ const insideSession: AuthSession = {
     role: "platform_admin",
     permissions: ["claims:read", "claims:create", "settings:manage"],
     accessMode: "platform_lease",
-    accessExpiresAt: "2026-08-10T23:00:00.000Z",
+    accessExpiresAt: new Date(Date.now() + 60 * 60 * 1_000).toISOString(),
   },
 }
 
@@ -129,6 +129,49 @@ describe("AuthProvider tenant transitions", () => {
     await screen.findByText("Outside tenant")
     expect(screen.getByText("Settings: no")).toBeInTheDocument()
 
+    await waitFor(() => {
+      expect(queryClient.getQueryCache().getAll()).toHaveLength(0)
+      expect(window.localStorage.getItem(recoveryKey!)).toBeNull()
+      expect(queryKeys.dashboard).toEqual([
+        "complete-iq",
+        "session",
+        "platform-user",
+        "no-organization",
+        "dashboard",
+      ])
+    })
+  })
+
+  it("clears tenant-scoped state when a platform lease expires", async () => {
+    const expiredSession: AuthSession = {
+      ...insideSession,
+      organization: {
+        ...insideSession.organization!,
+        accessExpiresAt: new Date(Date.now() - 1_000).toISOString(),
+      },
+    }
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = new URL(String(input), "http://localhost")
+      if (url.pathname === "/api/auth/user") return jsonResponse(expiredSession)
+      return jsonResponse({ error: "Unhandled test endpoint" }, 404)
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    const queryClient = new QueryClient()
+    const recoveryKey = intakeRecoveryKey(platformUser.id, expiredSession.organization?.id)
+    expect(recoveryKey).not.toBeNull()
+    queryClient.setQueryData(["tenant", "expired", "claims"], { secret: true })
+    window.localStorage.setItem(recoveryKey!, JSON.stringify([{ claimId: "claim-expired" }]))
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <AuthHarness />
+        </AuthProvider>
+      </QueryClientProvider>,
+    )
+
+    await screen.findByText("Outside tenant")
     await waitFor(() => {
       expect(queryClient.getQueryCache().getAll()).toHaveLength(0)
       expect(window.localStorage.getItem(recoveryKey!)).toBeNull()
