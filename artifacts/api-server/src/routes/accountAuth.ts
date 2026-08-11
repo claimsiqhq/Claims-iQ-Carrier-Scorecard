@@ -511,16 +511,43 @@ router.post(
           if (!firstName) {
             throw new AccountActionError("First name is required", 400);
           }
-          [acceptedUser] = await tx
-            .insert(usersTable)
-            .values({
-              email: invitation.email,
-              passwordHash: passwordHash!,
-              firstName,
-              lastName: lastName || null,
-              emailVerifiedAt: new Date(),
-            })
-            .returning();
+          const insertedUsers = await tx.execute(sql`
+            INSERT INTO public.users (
+              email,
+              password_hash,
+              first_name,
+              last_name,
+              email_verified_at
+            )
+            VALUES (
+              ${invitation.email},
+              ${passwordHash!},
+              ${firstName},
+              ${lastName || null},
+              ${new Date()}
+            )
+            RETURNING
+              id,
+              email,
+              password_hash AS "passwordHash",
+              first_name AS "firstName",
+              last_name AS "lastName",
+              profile_image_url AS "profileImageUrl",
+              role,
+              platform_role AS "platformRole",
+              auth_version AS "authVersion",
+              password_changed_at AS "passwordChangedAt",
+              email_verified_at AS "emailVerifiedAt",
+              created_at AS "createdAt",
+              updated_at AS "updatedAt"
+          `);
+          const insertedUser = insertedUsers.rows[0] as
+            | typeof usersTable.$inferSelect
+            | undefined;
+          if (!insertedUser) {
+            throw new Error("Invitation acceptance did not create a user");
+          }
+          acceptedUser = insertedUser;
         } else if (!acceptedUser.emailVerifiedAt) {
           [acceptedUser] = await tx
             .update(usersTable)
@@ -553,15 +580,27 @@ router.post(
           .select({ count: sql<number>`count(*)::int` })
           .from(organizationMemberships)
           .where(eq(organizationMemberships.userId, acceptedUser.id));
-        const [membership] = await tx
-          .insert(organizationMemberships)
-          .values({
-            organizationId: invitation.organizationId,
-            userId: acceptedUser.id,
-            role: invitation.role,
-            isDefault: membershipCount.count === 0,
-          })
-          .returning();
+        const insertedMemberships = await tx.execute(sql`
+          INSERT INTO public.organization_memberships (
+            organization_id,
+            user_id,
+            role,
+            is_default
+          )
+          VALUES (
+            ${invitation.organizationId}::uuid,
+            ${acceptedUser.id},
+            ${invitation.role}::public.organization_role,
+            ${membershipCount.count === 0}
+          )
+          RETURNING id
+        `);
+        const membership = insertedMemberships.rows[0] as
+          | { id: string }
+          | undefined;
+        if (!membership) {
+          throw new Error("Invitation acceptance did not create a membership");
+        }
         const now = new Date();
         await tx
           .update(organizationInvitations)
@@ -571,17 +610,27 @@ router.post(
             updatedAt: now,
           })
           .where(eq(organizationInvitations.id, invitation.id));
-        await tx.insert(organizationAuditEvents).values({
-          organizationId: invitation.organizationId,
-          actorUserId: acceptedUser.id,
-          eventType: "membership.invitation_accepted",
-          targetType: "organization_membership",
-          targetId: membership.id,
-          metadata: {
-            invitationId: invitation.id,
-            role: invitation.role,
-          },
-        });
+        await tx.execute(sql`
+          INSERT INTO public.organization_audit_events (
+            organization_id,
+            actor_user_id,
+            event_type,
+            target_type,
+            target_id,
+            metadata
+          )
+          VALUES (
+            ${invitation.organizationId}::uuid,
+            ${acceptedUser.id},
+            'membership.invitation_accepted',
+            'organization_membership',
+            ${membership.id},
+            ${JSON.stringify({
+              invitationId: invitation.id,
+              role: invitation.role,
+            })}::jsonb
+          )
+        `);
         return {
           user: acceptedUser,
           organizationId: invitation.organizationId,
@@ -605,10 +654,7 @@ router.post(
       );
       if (failure.status === 500) {
         logger.error(
-          {
-            err: error,
-            errorName: error instanceof Error ? error.name : "UnknownError",
-          },
+          { errorName: error instanceof Error ? error.name : "UnknownError" },
           "Invitation acceptance failed",
         );
       }

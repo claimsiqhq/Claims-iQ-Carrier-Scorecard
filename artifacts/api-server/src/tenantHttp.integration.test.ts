@@ -62,9 +62,6 @@ const IDS = {
     savedView: "be000000-0000-4000-8000-000000000002",
     auditEvent: "bf000000-0000-4000-8000-000000000002",
   },
-  wawanesa: {
-    organization: "a11a0000-0000-4000-8000-000000000003",
-  },
 } as const;
 
 const MIGRATIONS = [
@@ -1405,11 +1402,27 @@ test(
       await t.test(
         "leased platform admin bootstraps an ownerless tenant",
         async () => {
+          await owner.query(
+            `ALTER TABLE public.organization_memberships
+              DISABLE TRIGGER trg_organization_memberships_owner_guard`,
+          );
+          try {
+            await owner.query(
+              `DELETE FROM public.organization_memberships
+              WHERE organization_id = $1`,
+              [IDS.allstate.organization],
+            );
+          } finally {
+            await owner.query(
+              `ALTER TABLE public.organization_memberships
+                ENABLE TRIGGER trg_organization_memberships_owner_guard`,
+            );
+          }
           const membershipBefore = await owner.query<{ count: number }>(
             `SELECT pg_catalog.count(*)::int AS count
             FROM public.organization_memberships
             WHERE organization_id = $1`,
-            [IDS.wawanesa.organization],
+            [IDS.allstate.organization],
           );
           assert.equal(membershipBefore.rows[0]?.count, 0);
 
@@ -1421,8 +1434,8 @@ test(
           const enter = await platform.agent
             .post("/api/platform/tenant-access")
             .send({
-              organizationId: IDS.wawanesa.organization,
-              reason: "Bootstrap Wawanesa tenant owner",
+              organizationId: IDS.allstate.organization,
+              reason: "Bootstrap Allstate tenant owner",
             });
           assert.equal(enter.status, 200, enter.text);
           assert.equal(
@@ -1440,7 +1453,7 @@ test(
           const invitation = await platform.agent
             .post("/api/settings/invitations")
             .send({
-              email: "wawanesa-bootstrap-owner@example.invalid",
+              email: "allstate-bootstrap-owner@example.invalid",
               role: "owner",
             });
           assert.equal(invitation.status, 201, invitation.text);
@@ -1461,52 +1474,95 @@ test(
           );
           assert.equal(afterRevoke.status, 403, afterRevoke.text);
 
-          const bootstrapPassword = "WawanesaOwner!2026";
+          const bootstrapPassword = "AllstateOwner!2026";
           const accepted = await request(app)
             .post("/api/auth/invitations/accept")
             .send({
               token: invitationToken,
               password: bootstrapPassword,
-              firstName: "Wanda",
+              firstName: "Alex",
               lastName: "Owner",
             });
           assert.equal(accepted.status, 200, accepted.text);
           assert.equal(
             accepted.body.organizationId,
-            IDS.wawanesa.organization,
+            IDS.allstate.organization,
           );
 
           const ownerMembership = await owner.query<{
+            membership_id: string;
+            membership_count: number;
+            organization_id: string;
             role: string;
-            audit_count: number;
+            invited_by_user_id: string;
+            accepted_by_user_id: string;
+            acceptance_audit_count: number;
           }>(
             `SELECT
+              membership.id AS membership_id,
+              (
+                SELECT pg_catalog.count(*)::int
+                FROM public.organization_memberships AS owned_membership
+                WHERE owned_membership.user_id = app_user.id
+              ) AS membership_count,
+              membership.organization_id,
               membership.role::text AS role,
+              invitation.invited_by_user_id,
+              invitation.accepted_by_user_id,
               (
                 SELECT pg_catalog.count(*)::int
                 FROM public.organization_audit_events AS event
                 WHERE event.organization_id = membership.organization_id
-                  AND event.event_type IN (
-                    'membership.invited',
-                    'membership.invitation_accepted'
-                  )
-              ) AS audit_count
+                  AND event.actor_user_id = app_user.id
+                  AND event.event_type = 'membership.invitation_accepted'
+                  AND event.target_type = 'organization_membership'
+                  AND event.target_id = membership.id::text
+                  AND event.metadata ->> 'invitationId' =
+                    invitation.id::text
+                  AND event.metadata ->> 'role' = invitation.role::text
+              ) AS acceptance_audit_count
             FROM public.organization_memberships AS membership
             JOIN public.users AS app_user ON app_user.id = membership.user_id
+            JOIN public.organization_invitations AS invitation
+              ON invitation.id = $3
             WHERE membership.organization_id = $1
               AND app_user.email = $2`,
             [
-              IDS.wawanesa.organization,
-              "wawanesa-bootstrap-owner@example.invalid",
+              IDS.allstate.organization,
+              "allstate-bootstrap-owner@example.invalid",
+              invitation.body.id,
             ],
           );
-          assert.equal(ownerMembership.rows[0]?.role, "owner");
-          assert.equal(ownerMembership.rows[0]?.audit_count, 2);
+          const acceptedMembership = ownerMembership.rows[0];
+          assert.ok(acceptedMembership);
+          assert.equal(acceptedMembership.membership_count, 1);
+          assert.equal(
+            acceptedMembership.organization_id,
+            IDS.allstate.organization,
+          );
+          assert.equal(acceptedMembership.role, "owner");
+          assert.equal(
+            acceptedMembership.invited_by_user_id,
+            "integration-platform-admin",
+          );
+          assert.equal(
+            acceptedMembership.accepted_by_user_id,
+            accepted.body.user.id,
+          );
+          assert.equal(acceptedMembership.acceptance_audit_count, 1);
+
+          const platformMembership = await owner.query<{ count: number }>(
+            `SELECT pg_catalog.count(*)::int AS count
+            FROM public.organization_memberships
+            WHERE user_id = $1`,
+            ["integration-platform-admin"],
+          );
+          assert.equal(platformMembership.rows[0]?.count, 0);
 
           const ordinaryOwner = await login(
             app,
-            "wawanesa-bootstrap-owner@example.invalid",
-            IDS.wawanesa.organization,
+            "allstate-bootstrap-owner@example.invalid",
+            IDS.allstate.organization,
             bootstrapPassword,
           );
           const ordinaryOwnerSettings = await ordinaryOwner.agent.get(
@@ -1516,6 +1572,20 @@ test(
             ordinaryOwnerSettings.status,
             200,
             ordinaryOwnerSettings.text,
+          );
+          const ownClaim = await ordinaryOwner.agent.get(
+            `/api/claims/${IDS.allstate.claim}`,
+          );
+          assert.equal(ownClaim.status, 200, ownClaim.text);
+          assertNoValues(
+            ownClaim,
+            ANDOVER_FOREIGN_VALUES,
+            "bootstrapped Allstate owner claim",
+          );
+          await runForeignProbe(
+            ordinaryOwner.agent.get(`/api/claims/${IDS.andover.claim}`),
+            "bootstrapped Allstate owner cannot read Andover",
+            ANDOVER_FOREIGN_VALUES,
           );
         },
       );
