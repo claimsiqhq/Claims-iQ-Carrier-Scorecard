@@ -9,7 +9,7 @@ services:
     runtime: node
     plan: starter
     region: oregon
-    branch: master
+    branch: main
     autoDeployTrigger: checksPass
     maxShutdownDelaySeconds: 60
     buildCommand: corepack enable && corepack prepare pnpm@11.11.0 --activate && pnpm install --frozen-lockfile && pnpm --filter @workspace/api-server run build
@@ -90,7 +90,7 @@ services:
     runtime: node
     plan: starter
     region: oregon
-    branch: master
+    branch: main
     autoDeployTrigger: checksPass
     maxShutdownDelaySeconds: 300
     buildCommand: corepack enable && corepack prepare pnpm@11.11.0 --activate && pnpm install --frozen-lockfile && pnpm --filter @workspace/api-server run build
@@ -149,7 +149,7 @@ services:
   - type: web
     name: complete-iq-carrier-audit
     runtime: static
-    branch: master
+    branch: main
     autoDeployTrigger: checksPass
     buildCommand: corepack enable && corepack prepare pnpm@11.11.0 --activate && pnpm install --frozen-lockfile && BASE_PATH=/ pnpm --filter @workspace/claims-iq run build
     staticPublishPath: artifacts/claims-iq/dist/public
