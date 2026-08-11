@@ -605,7 +605,10 @@ router.post(
       );
       if (failure.status === 500) {
         logger.error(
-          { errorName: error instanceof Error ? error.name : "UnknownError" },
+          {
+            err: error,
+            errorName: error instanceof Error ? error.name : "UnknownError",
+          },
           "Invitation acceptance failed",
         );
       }

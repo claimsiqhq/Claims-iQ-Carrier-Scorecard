@@ -53,15 +53,10 @@ and email requests are rejected before external transport calls, so the suite
 does not contact Supabase Storage, Gemini, SendGrid, or any other network
 service.
 
-## Known production defects exposed
+## Defects caught by the suite
 
-- The default 60-minute platform lease currently violates
-  `ck_platform_tenant_access_leases_expiry`: `expires_at` is based on
-  `statement_timestamp()`, while `created_at` uses `now()`, so the maximum TTL
-  can exceed `created_at + interval '1 hour'` by microseconds. The suite sets
-  the supported TTL to 59 minutes to test lease isolation, replacement,
-  revocation, and expiry without changing production behavior.
-- Routes that run `Promise.all` database operations on one request-scoped
-  `pg.Client` emit the PostgreSQL driver's concurrent-query deprecation
-  warning. The suite passes on `pg` 8, but those calls need serialization or
-  separate clients before upgrading to `pg` 9.
+The suite caught and now guards two runtime defects: exact 60-minute leases
+used inconsistent timestamp bases, and concurrent route queries shared one
+unserialized request client. Lease creation now stores `created_at` and
+`expires_at` from the same statement timestamp, while scoped clients serialize
+queries without weakening their tenant session settings.
