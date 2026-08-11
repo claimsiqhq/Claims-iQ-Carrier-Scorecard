@@ -303,7 +303,22 @@ GRANT EXECUTE
   ON FUNCTION private.claim_document_path_is_authorized(text)
   TO authenticated;
 
-ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
+DO $storage_objects_rls$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_catalog.pg_class AS relation
+    JOIN pg_catalog.pg_namespace AS namespace
+      ON namespace.oid = relation.relnamespace
+    WHERE namespace.nspname = 'storage'
+      AND relation.relname = 'objects'
+      AND relation.relrowsecurity
+  ) THEN
+    RAISE EXCEPTION
+      'Supabase storage.objects must already have row-level security enabled';
+  END IF;
+END
+$storage_objects_rls$;
 
 -- Any permissive policy granted to a Data API role can combine with another
 -- permissive policy and expose this bucket. Remove those policies first,
