@@ -608,19 +608,19 @@ BEGIN
     RAISE EXCEPTION 'Tenant A can see a foreign storage object';
   END IF;
 
-  IF storage.claim_document_path_is_authorized(
+  IF private.claim_document_path_is_authorized(
        'organizations/a1000000-0000-4000-8000-000000000001/claims/a2000000-0000-4000-8000-000000000001/documents/a3000000-0000-4000-8000-000000000001/%2e%2e.pdf'
      )
-     OR storage.claim_document_path_is_authorized(
+     OR private.claim_document_path_is_authorized(
        'organizations/a1000000-0000-4000-8000-000000000001/claims/../documents/a3000000-0000-4000-8000-000000000001/report.pdf'
      )
-     OR storage.claim_document_path_is_authorized(
+     OR private.claim_document_path_is_authorized(
        'organizations/a1000000-0000-4000-8000-000000000001/claims/a2000000-0000-4000-8000-000000000001/documents/a3000000-0000-4000-8000-000000000001/report%2Fescape.pdf'
      )
-     OR storage.claim_document_path_is_authorized(
+     OR private.claim_document_path_is_authorized(
        'organizations/a1000000-0000-4000-8000-000000000001/claims/a2000000-0000-4000-8000-000000000001/documents/a3000000-0000-4000-8000-000000000001/report%252e.pdf'
      )
-     OR storage.claim_document_path_is_authorized(
+     OR private.claim_document_path_is_authorized(
        'organizations/a1000000-0000-4000-8000-000000000001/claims/a2000000-0000-4000-8000-000000000001\documents\a3000000-0000-4000-8000-000000000001\report.pdf'
      ) THEN
     RAISE EXCEPTION 'Traversal or encoded storage path was authorized';
