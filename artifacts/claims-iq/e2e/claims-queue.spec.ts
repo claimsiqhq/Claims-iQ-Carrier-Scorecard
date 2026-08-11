@@ -292,12 +292,22 @@ test("operational queue is responsive, keyboard reachable, and axe-clean", async
   await expect(page.getByRole("heading", { name: "Claims", exact: true })).toBeVisible()
   await expect(page.getByText("CIQ-2026-001").filter({ visible: true }).first()).toBeVisible()
   await expect(page.getByText("Synthetic Test Record").filter({ visible: true }).first()).toBeVisible()
-  await expect(page.getByRole("button", { name: /switch tenant/i })).toHaveCount(0)
-  await expect(page.getByText("Platform administration", { exact: true })).toHaveCount(0)
 
   await page.keyboard.press("Tab")
   const focusedTag = await page.evaluate(() => document.activeElement?.tagName)
   expect(["A", "BUTTON", "INPUT", "SELECT"]).toContain(focusedTag)
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+
+  await page
+    .getByRole("button", {
+      name: "Tenant menu. Current tenant: Complete iQ QA",
+    })
+    .click()
+  await expect(page.getByRole("menuitem", { name: "Complete iQ QA, current tenant" })).toBeVisible()
+  await expect(page.getByRole("menuitem", { name: /switch to/i })).toHaveCount(0)
+  await page.keyboard.press("Escape")
+  await expect(page.locator("#root")).not.toHaveAttribute("aria-hidden", "true")
+  await expect(page.getByText("Platform administration", { exact: true })).toHaveCount(0)
 
   const hasHorizontalOverflow = await page.evaluate(
     () => document.documentElement.scrollWidth > window.innerWidth + 1,
@@ -528,11 +538,12 @@ test("platform access requires a reason and clears tenant-scoped state", async (
   })
 
   await page.goto("/claims?carrier=Andover")
-  await expect(page.getByRole("heading", { name: "Request tenant access" })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "Choose a tenant from the header" })).toBeVisible()
   await expect(page).toHaveURL(/\/tenant-access$/)
 
-  await page.getByRole("button", { name: "Access Andover Companies" }).click()
-  const startAccess = page.getByRole("button", { name: "Start temporary access" })
+  await page.getByRole("button", { name: "Tenant menu. Select a tenant" }).click()
+  await page.getByRole("menuitem", { name: "Open Andover Companies" }).click()
+  const startAccess = page.getByRole("button", { name: "Open Andover Companies" })
   await expect(startAccess).toBeDisabled()
   await page.getByLabel("Reason for access").fill("Investigate support case CIQ-1842")
   await startAccess.click()
@@ -567,7 +578,7 @@ test("platform access requires a reason and clears tenant-scoped state", async (
   })
   await page.getByRole("button", { name: "Exit tenant" }).click()
 
-  await expect(page.getByRole("heading", { name: "Request tenant access" })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "Choose a tenant from the header" })).toBeVisible()
   await expect(page).toHaveURL(/\/tenant-access$/)
   expect(
     await page.evaluate(() =>
@@ -782,8 +793,9 @@ test("platform cache and recovery state stay isolated across tenant A to B", asy
   })
 
   await page.goto("/tenant-access")
-  await page.getByRole("button", { name: "Access Tenant A Insurance" }).click()
-  const startTenantA = page.getByRole("button", { name: "Start temporary access" })
+  await page.getByRole("button", { name: "Tenant menu. Select a tenant" }).click()
+  await page.getByRole("menuitem", { name: "Open Tenant A Insurance" }).click()
+  const startTenantA = page.getByRole("button", { name: "Open Tenant A Insurance" })
   await page.getByLabel("Reason for access").fill("   ")
   await expect(startTenantA).toBeDisabled()
   await page.getByLabel("Reason for access").fill("Investigate Tenant A case")
@@ -815,25 +827,14 @@ test("platform cache and recovery state stay isolated across tenant A to B", asy
       JSON.stringify([{ claimId: "tenant-a-recovery" }]),
     )
   })
-  await page.getByRole("button", { name: "Exit tenant" }).click()
-  await expect(page.getByRole("heading", { name: "Request tenant access" })).toBeVisible()
-  expect(
-    await page.evaluate(() =>
-      Object.keys(window.localStorage).filter((key) =>
-        key.startsWith("complete-iq:intake-recovery"),
-      ),
-    ),
-  ).toEqual([])
-
-  await page.evaluate(() => {
-    window.localStorage.setItem(
-      "complete-iq:intake-recovery:v2:user-platform-admin:org-tenant-a",
-      JSON.stringify([{ claimId: "late-tenant-a-recovery" }]),
-    )
-  })
   const tenantBRequestStart = tenantDataRequests.length
-  await page.getByRole("button", { name: "Access Tenant B Insurance" }).click()
-  const startTenantB = page.getByRole("button", { name: "Start temporary access" })
+  await page
+    .getByRole("button", {
+      name: "Tenant menu. Current tenant: Tenant A Insurance",
+    })
+    .click()
+  await page.getByRole("menuitem", { name: "Switch to Tenant B Insurance" }).click()
+  const startTenantB = page.getByRole("button", { name: "Switch to Tenant B Insurance" })
   await expect(startTenantB).toBeDisabled()
   await page.getByLabel("Reason for access").fill("Investigate Tenant B case")
   await startTenantB.click()

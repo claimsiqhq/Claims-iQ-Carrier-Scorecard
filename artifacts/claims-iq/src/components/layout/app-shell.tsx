@@ -48,6 +48,7 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet"
+import { TenantSwitcher } from "@/components/complete-iq/tenant-switcher"
 import { useAuth } from "@/lib/auth-context"
 import { ChangePasswordDialog } from "@/features/account/change-password-dialog"
 import { cn } from "@/lib/utils"
@@ -270,10 +271,7 @@ export function UtilityBar() {
             <span>Search or jump</span>
             <kbd>⌘K</kbd>
           </button>
-          <span className="ciq-tenant-chip" title={organization?.name || "Complete iQ tenant"}>
-            <Building2 aria-hidden="true" />
-            <span>{organization?.name || "Complete iQ tenant"}</span>
-          </span>
+          <TenantSwitcher />
           {canCreateClaims && !location.startsWith("/claims/") && (
             <Button
               size="sm"
