@@ -79,6 +79,7 @@ const MIGRATIONS = [
   "20260810222350_carrier_tenant_rls.sql",
   "20260810225039_carrier_tenant_storage.sql",
   "20260810232004_carrier_tenant_data_cutover.sql",
+  "20260812001000_frictionless_tenant_switching.sql",
 ] as const;
 
 const PHASE_TWO_MIGRATIONS = MIGRATIONS.slice(0, 10);
@@ -267,6 +268,10 @@ async function provisionDatabase(
   );
   await applySqlFile(client, "20260810232004_carrier_tenant_data_cutover.sql");
   await applySqlFile(client, "testing/validate_carrier_tenant_cutover.sql");
+  await applySqlFile(
+    client,
+    "20260812001000_frictionless_tenant_switching.sql",
+  );
 
   const passwordHash = await bcrypt.hash(PASSWORD, 4);
   const seedTemplate = await readFile(
@@ -780,7 +785,13 @@ test(
         "andover-owner@example.invalid",
         IDS.andover.organization,
       );
-      const platform = await login(app, "platform-admin@example.invalid", null);
+      // Platform administrators are placed into a tenant workspace at
+      // sign-in; the seeded tenants sort alphabetically, so Allstate opens.
+      const platform = await login(
+        app,
+        "platform-admin@example.invalid",
+        IDS.allstate.organization,
+      );
 
       await t.test(
         "real cookie sessions scope aggregate and report routes",
@@ -1005,6 +1016,16 @@ test(
             "normal user platform lease attempt",
           );
 
+          const attemptedMembershipSwitch = await agent
+            .post("/api/auth/active-organization")
+            .send({ organizationId: a.organization });
+          assertResponse(
+            attemptedMembershipSwitch,
+            403,
+            ANDOVER_FOREIGN_VALUES,
+            "non-member organization switch attempt",
+          );
+
           const stillAllstate = await agent.get("/api/auth/user");
           assert.equal(stillAllstate.status, 200, stillAllstate.text);
           assert.equal(
@@ -1200,16 +1221,53 @@ test(
       );
 
       await t.test(
-        "platform access is reasoned, single-tenant, revocable, and expiring",
+        "platform access is audited, single-tenant, revocable, and renewing",
         async () => {
           const agent = platform.agent;
-          const noLease = await agent.get("/api/claims");
-          assert.equal(noLease.status, 403, noLease.text);
-          assertNoValues(
-            noLease,
-            [...ALLSTATE_FOREIGN_VALUES, ...ANDOVER_FOREIGN_VALUES],
-            "platform request without lease",
+
+          // Sign-in opened the first tenant automatically with an audited
+          // workspace-switch reason; no reason prompt was involved.
+          const autoEntered = await agent.get("/api/claims");
+          assert.equal(autoEntered.status, 200, autoEntered.text);
+          assert.match(
+            responseSurface(autoEntered),
+            new RegExp(IDS.allstate.claim),
           );
+          assertNoValues(
+            autoEntered,
+            ANDOVER_FOREIGN_VALUES,
+            "auto-entered platform tenant",
+          );
+          const autoLease = await owner.query<{ reason: string }>(
+            `SELECT reason
+            FROM public.platform_tenant_access_leases
+            WHERE platform_user_id = $1 AND session_id = $2
+              AND revoked_at IS NULL
+            ORDER BY created_at DESC
+            LIMIT 1`,
+            ["integration-platform-admin", platform.databaseSessionId],
+          );
+          assert.equal(
+            autoLease.rows[0]?.reason,
+            "Tenant session via workspace switcher",
+          );
+
+          const organizationsList = await agent.get("/api/auth/organizations");
+          assert.equal(organizationsList.status, 200, organizationsList.text);
+          const listedOrganizations = organizationsList.body as Array<{
+            id: string;
+            role: string;
+          }>;
+          for (const expectedId of [
+            IDS.allstate.organization,
+            IDS.andover.organization,
+          ]) {
+            const listed = listedOrganizations.find(
+              ({ id }) => id === expectedId,
+            );
+            assert.ok(listed, `Platform list is missing ${expectedId}`);
+            assert.equal(listed.role, "platform_admin");
+          }
 
           const summaries = await agent.get("/api/platform/tenants");
           assert.equal(summaries.status, 200, summaries.text);
@@ -1230,10 +1288,16 @@ test(
           assert.equal(summarySurface.includes("totalClaims"), false);
           assert.equal(summarySurface.includes("metrics"), false);
 
-          const missingReason = await agent
-            .post("/api/platform/tenant-access")
-            .send({ organizationId: IDS.allstate.organization });
-          assert.equal(missingReason.status, 400, missingReason.text);
+          // Reasons are optional: switching without one records the automatic
+          // workspace-switch reason in the audit trail.
+          const reasonlessSwitch = await agent
+            .post("/api/auth/active-organization")
+            .send({ organizationId: IDS.andover.organization });
+          assert.equal(reasonlessSwitch.status, 200, reasonlessSwitch.text);
+          assert.equal(
+            reasonlessSwitch.body.organization?.id,
+            IDS.andover.organization,
+          );
 
           const enterAllstate = await agent
             .post("/api/platform/tenant-access")
@@ -1383,19 +1447,45 @@ test(
             );
           }
 
+          // Expired leases are renewed silently so administrators are never
+          // bounced mid-session; the replacement lease is audited with the
+          // automatic workspace-switch reason.
           const afterExpiry = await agent.get("/api/claims");
-          assert.equal(afterExpiry.status, 403, afterExpiry.text);
-          const settingsAfterExpiry = await agent.get(
-            "/api/settings/overview",
+          assert.equal(afterExpiry.status, 200, afterExpiry.text);
+          assertNoValues(
+            afterExpiry,
+            ANDOVER_FOREIGN_VALUES,
+            "renewed Allstate lease after expiry",
           );
+          const renewedLease = await owner.query<{
+            reason: string;
+            expires_at: Date;
+          }>(
+            `SELECT reason, expires_at
+            FROM public.platform_tenant_access_leases
+            WHERE platform_user_id = $1 AND session_id = $2
+              AND organization_id = $3
+              AND revoked_at IS NULL
+              AND expires_at > pg_catalog.clock_timestamp()
+            ORDER BY created_at DESC
+            LIMIT 1`,
+            [
+              "integration-platform-admin",
+              platform.databaseSessionId,
+              IDS.allstate.organization,
+            ],
+          );
+          assert.ok(renewedLease.rows[0], "Expired lease was not renewed");
           assert.equal(
-            settingsAfterExpiry.status,
-            403,
-            settingsAfterExpiry.text,
+            renewedLease.rows[0].reason,
+            "Tenant session via workspace switcher",
           );
-          const clearedSession = await agent.get("/api/auth/user");
-          assert.equal(clearedSession.status, 200, clearedSession.text);
-          assert.equal(clearedSession.body.organization, null);
+          const renewedSession = await agent.get("/api/auth/user");
+          assert.equal(renewedSession.status, 200, renewedSession.text);
+          assert.equal(
+            renewedSession.body.organization?.id,
+            IDS.allstate.organization,
+          );
         },
       );
 
@@ -1425,6 +1515,13 @@ test(
             [IDS.allstate.organization],
           );
           assert.equal(membershipBefore.rows[0]?.count, 0);
+
+          // Explicitly exit the renewed workspace so the lease requirement is
+          // observable before re-entering to bootstrap the tenant.
+          const detach = await platform.agent.delete(
+            "/api/platform/tenant-access",
+          );
+          assert.equal(detach.status, 200, detach.text);
 
           const withoutLease = await platform.agent.get(
             "/api/settings/overview",
@@ -1586,6 +1683,112 @@ test(
             ordinaryOwner.agent.get(`/api/claims/${IDS.andover.claim}`),
             "bootstrapped Allstate owner cannot read Andover",
             ANDOVER_FOREIGN_VALUES,
+          );
+        },
+      );
+
+      await t.test(
+        "multi-membership users switch tenants without a reason",
+        async () => {
+          const agent = andover.agent;
+
+          const singleTenant = await agent.get("/api/auth/organizations");
+          assert.equal(singleTenant.status, 200, singleTenant.text);
+          assert.deepEqual(
+            (singleTenant.body as Array<{ id: string }>).map(({ id }) => id),
+            [IDS.andover.organization],
+          );
+
+          // Role-based access: a second membership makes the tenant
+          // switchable. The database no longer restricts users to one tenant.
+          await owner.query(
+            `INSERT INTO public.organization_memberships
+              (organization_id, user_id, role)
+            VALUES ($1, $2, 'reviewer')`,
+            [IDS.allstate.organization, IDS.andover.user],
+          );
+          try {
+            const bothTenants = await agent.get("/api/auth/organizations");
+            assert.equal(bothTenants.status, 200, bothTenants.text);
+            assert.deepEqual(
+              (bothTenants.body as Array<{ id: string; role: string }>)
+                .map(({ id, role }) => ({ id, role }))
+                .sort((left, right) => left.id.localeCompare(right.id)),
+              [
+                { id: IDS.allstate.organization, role: "reviewer" },
+                { id: IDS.andover.organization, role: "owner" },
+              ],
+            );
+
+            // The session stays bound to Andover until an explicit switch.
+            const beforeSwitch = await agent.get("/api/auth/user");
+            assert.equal(
+              beforeSwitch.body.organization?.id,
+              IDS.andover.organization,
+            );
+
+            const switched = await agent
+              .post("/api/auth/active-organization")
+              .send({ organizationId: IDS.allstate.organization });
+            assert.equal(switched.status, 200, switched.text);
+            assert.equal(
+              switched.body.organization?.id,
+              IDS.allstate.organization,
+            );
+            assert.equal(switched.body.organization?.accessMode, "membership");
+            assert.equal(switched.body.organization?.role, "reviewer");
+
+            const allstateClaim = await agent.get(
+              `/api/claims/${IDS.allstate.claim}`,
+            );
+            assert.equal(allstateClaim.status, 200, allstateClaim.text);
+            assertNoValues(
+              allstateClaim,
+              ANDOVER_FOREIGN_VALUES,
+              "membership-switched Allstate context",
+            );
+            await runForeignProbe(
+              agent.get(`/api/claims/${IDS.andover.claim}`),
+              "Allstate-bound session cannot read Andover",
+              ANDOVER_FOREIGN_VALUES,
+            );
+
+            // The last active tenant is remembered for future sign-ins.
+            const lastActive = await owner.query<{
+              last_active_organization_id: string | null;
+            }>(
+              `SELECT last_active_organization_id
+              FROM public.users
+              WHERE id = $1`,
+              [IDS.andover.user],
+            );
+            assert.equal(
+              lastActive.rows[0]?.last_active_organization_id,
+              IDS.allstate.organization,
+            );
+
+            const switchedBack = await agent
+              .post("/api/auth/active-organization")
+              .send({ organizationId: IDS.andover.organization });
+            assert.equal(switchedBack.status, 200, switchedBack.text);
+            assert.equal(
+              switchedBack.body.organization?.id,
+              IDS.andover.organization,
+            );
+            assert.equal(switchedBack.body.organization?.role, "owner");
+          } finally {
+            await owner.query(
+              `DELETE FROM public.organization_memberships
+              WHERE organization_id = $1 AND user_id = $2`,
+              [IDS.allstate.organization, IDS.andover.user],
+            );
+          }
+
+          const afterCleanup = await agent.get("/api/auth/user");
+          assert.equal(afterCleanup.status, 200, afterCleanup.text);
+          assert.equal(
+            afterCleanup.body.organization?.id,
+            IDS.andover.organization,
           );
         },
       );

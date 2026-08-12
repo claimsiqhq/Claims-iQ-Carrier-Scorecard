@@ -238,10 +238,12 @@ const databaseRepository: PlatformAccessRepository = {
   },
 
   async clearSessionAccess(actor) {
+    // Remove the active-organization pointer as well so an explicit exit is
+    // not undone by the automatic lease renewal in session resolution.
     await identityDb
       .update(sessionsTable)
       .set({
-        sess: sql`${sessionsTable.sess} - 'platformTenantAccess'`,
+        sess: sql`(${sessionsTable.sess} - 'platformTenantAccess') - 'activeOrganizationId'`,
       })
       .where(
         and(
