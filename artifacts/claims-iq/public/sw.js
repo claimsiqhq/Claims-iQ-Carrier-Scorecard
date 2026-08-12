@@ -1,4 +1,4 @@
-const CACHE_NAME = "complete-iq-v4";
+const CACHE_NAME = "complete-iq-v5";
 const scopeUrl = new URL(self.registration.scope);
 const scoped = (path) => new URL(path, scopeUrl).toString();
 const STATIC_ASSETS = [

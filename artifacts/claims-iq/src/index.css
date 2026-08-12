@@ -996,7 +996,6 @@
 .ciq-wordmark {
   display: inline-flex;
   align-items: center;
-  gap: 0.65rem;
   color: var(--ciq-ink);
 }
 
@@ -1004,39 +1003,25 @@
   color: #fffefa;
 }
 
-.ciq-mark-image {
+.ciq-brand-asset {
   display: block;
+  object-fit: contain;
+}
+
+.ciq-brand-asset--icon {
   width: 2rem;
   height: 2rem;
   flex: 0 0 2rem;
-  border-radius: 0.5rem;
-  object-fit: cover;
 }
 
-.ciq-wordmark__text {
-  display: flex;
-  flex-direction: column;
-  line-height: 1.05;
-  white-space: nowrap;
+.ciq-brand-asset--lockup {
+  width: 8.75rem;
+  height: auto;
+  max-height: 2.1rem;
 }
 
-.ciq-wordmark__text > span {
-  font-size: 0.88rem;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-}
-
-.ciq-wordmark__text small {
-  margin-top: 0.18rem;
-  color: var(--ciq-ink-muted);
-  font-size: 0.55rem;
-  font-weight: 600;
-  letter-spacing: 0.11em;
-  text-transform: uppercase;
-}
-
-.ciq-wordmark--inverse .ciq-wordmark__text small {
-  color: #9d94a3;
+.ciq-brand-asset--responsive-icon {
+  display: none;
 }
 
 .ciq-page {
@@ -1602,12 +1587,16 @@ textarea.ciq-control {
     flex-basis: 4.75rem;
   }
 
-  .ciq-primary-nav .ciq-wordmark__text,
+  .ciq-primary-nav .ciq-brand-asset--lockup,
   .ciq-primary-nav .ciq-primary-nav__section,
   .ciq-primary-nav .ciq-nav-link span,
   .ciq-primary-nav .ciq-primary-nav__assurance,
   .ciq-primary-nav .ciq-nav-collapse span {
     display: none;
+  }
+
+  .ciq-primary-nav .ciq-brand-asset--responsive-icon {
+    display: block;
   }
 
   .ciq-primary-nav .ciq-nav-link {
@@ -1663,8 +1652,8 @@ textarea.ciq-control {
     display: block;
   }
 
-  .ciq-wordmark__text small {
-    display: none;
+  .ciq-utility-bar__mobile-brand .ciq-brand-asset--lockup {
+    width: 6.75rem;
   }
 
   .ciq-account-trigger {
@@ -1708,11 +1697,18 @@ textarea.ciq-control {
     border-right: 0;
   }
 
-  .ciq-mobile-menu-sheet .ciq-primary-nav .ciq-wordmark__text,
   .ciq-mobile-menu-sheet .ciq-primary-nav .ciq-primary-nav__section,
   .ciq-mobile-menu-sheet .ciq-primary-nav .ciq-nav-link span,
   .ciq-mobile-menu-sheet .ciq-primary-nav .ciq-primary-nav__assurance {
     display: flex;
+  }
+
+  .ciq-mobile-menu-sheet .ciq-primary-nav .ciq-brand-asset--lockup {
+    display: block;
+  }
+
+  .ciq-mobile-menu-sheet .ciq-primary-nav .ciq-brand-asset--responsive-icon {
+    display: none;
   }
 
   .ciq-mobile-menu-sheet .ciq-primary-nav .ciq-nav-link {
@@ -1734,12 +1730,19 @@ textarea.ciq-control {
     height: 100%;
   }
 
-  .ciq-mobile-menu-panel .ciq-primary-nav .ciq-wordmark__text,
   .ciq-mobile-menu-panel .ciq-primary-nav .ciq-primary-nav__section,
   .ciq-mobile-menu-panel .ciq-primary-nav .ciq-nav-link span,
   .ciq-mobile-menu-panel .ciq-primary-nav .ciq-primary-nav__assurance,
   .ciq-mobile-menu-panel .ciq-primary-nav .ciq-nav-collapse span {
     display: flex;
+  }
+
+  .ciq-mobile-menu-panel .ciq-primary-nav .ciq-brand-asset--lockup {
+    display: block;
+  }
+
+  .ciq-mobile-menu-panel .ciq-primary-nav .ciq-brand-asset--responsive-icon {
+    display: none;
   }
 
   .ciq-mobile-menu-panel .ciq-primary-nav .ciq-nav-link {

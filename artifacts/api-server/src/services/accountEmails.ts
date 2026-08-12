@@ -25,7 +25,7 @@ export function renderAccountActionEmail(input: {
   const actionUrl = escapeHtml(input.actionUrl);
   const expiryLabel = escapeHtml(input.expiryLabel);
   const logoUrl = escapeHtml(
-    `${env.APP_PUBLIC_URL}/images/complete-iq-signature.png`,
+    `${env.APP_PUBLIC_URL}/images/complete-iq-signature.png?v=5`,
   );
   const preheader = escapeHtml(
     `${input.title} — secure account action from Complete iQ Carrier Audit`,

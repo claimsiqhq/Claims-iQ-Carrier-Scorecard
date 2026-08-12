@@ -7,19 +7,33 @@ interface BrandMarkProps {
 }
 
 export function BrandMark({ compact = false, inverse = false, className }: BrandMarkProps) {
+  const iconAsset = inverse ? "complete-iq-icon-light.png" : "complete-iq-icon-dark.png"
+  const lockupAsset = inverse ? "complete-iq-lockup-light.png" : "complete-iq-lockup-dark.png"
+
   return (
     <span className={cn("ciq-wordmark", inverse && "ciq-wordmark--inverse", className)}>
-      <img
-        className="ciq-mark-image"
-        src={`${import.meta.env.BASE_URL}images/complete-iq-mark.png?v=4`}
-        alt=""
-        aria-hidden="true"
-      />
-      {!compact && (
-        <span className="ciq-wordmark__text">
-          <span>Complete iQ</span>
-          <small>Carrier Audit</small>
-        </span>
+      {compact ? (
+        <img
+          className="ciq-brand-asset ciq-brand-asset--icon"
+          src={`${import.meta.env.BASE_URL}images/${iconAsset}?v=5`}
+          alt=""
+          aria-hidden="true"
+        />
+      ) : (
+        <>
+          <img
+            className="ciq-brand-asset ciq-brand-asset--lockup"
+            src={`${import.meta.env.BASE_URL}images/${lockupAsset}?v=5`}
+            alt=""
+            aria-hidden="true"
+          />
+          <img
+            className="ciq-brand-asset ciq-brand-asset--icon ciq-brand-asset--responsive-icon"
+            src={`${import.meta.env.BASE_URL}images/${iconAsset}?v=5`}
+            alt=""
+            aria-hidden="true"
+          />
+        </>
       )}
       <span className="sr-only">Complete iQ Carrier Audit</span>
     </span>
