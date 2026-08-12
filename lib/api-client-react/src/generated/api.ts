@@ -4,17 +4,18 @@
  * Api
  * Typed contract for the Complete iQ Carrier Audit API.
 
-Authenticated requests use the `sid` HTTP-only session cookie. Ordinary
-tenant context is bound by the server from exactly one organization
-membership; accounts with zero or multiple memberships cannot access
-tenant routes. Tenant-selection headers and request-body overrides are
-rejected.
+Authenticated requests use the `sid` HTTP-only session cookie. Tenant
+context is bound by the server from the session's active organization,
+which must be one of the user's organization memberships. Users switch
+between their memberships with `/auth/active-organization`.
+Tenant-selection headers and request-body overrides are rejected.
 
-Platform administrators have no tenant context by default. They use the
-reason-required `/platform/tenant-access` endpoints to create or revoke a
-temporary, audited lease bound to the authenticated session. Tenant-scoped
-lookups deliberately return `404` when a resource belongs to another
-tenant so that cross-tenant identifiers are not disclosed.
+Platform administrators are placed into a tenant workspace at sign-in and
+switch tenants with the same `/auth/active-organization` endpoint; the
+server maintains a session-bound, audited tenant-access lease behind the
+scenes and renews it automatically. Tenant-scoped lookups deliberately
+return `404` when a resource belongs to another tenant so that
+cross-tenant identifiers are not disclosed.
 
 Job-enqueueing operations that accept `X-Idempotency-Key` scope that value
 to the authenticated session-bound tenant and operation inputs. Repeating
@@ -37,6 +38,7 @@ import type {
 import type {
   AcceptInvitationRequest,
   AcceptInvitationResponse,
+  AccessibleOrganization,
   AccountTokenRequest,
   ArchiveClaimsRequest,
   ArchiveClaimsResponse,
@@ -115,6 +117,7 @@ import type {
   SettingsOverview,
   SignedUrl,
   Success,
+  SwitchOrganizationRequest,
   TooManyRequestsResponse,
   UnauthorizedResponse,
   UpdateAssignmentRequest,
@@ -589,6 +592,215 @@ export const useLogout = <
   TContext
 > => {
   return useMutation(getLogoutMutationOptions(options));
+};
+
+/**
+ * Returns the user's organization memberships with their tenant role.
+Platform administrators receive every tenant with the
+`platform_admin` role.
+
+ * @summary List organizations the session can work in
+ */
+export const getListAccessibleOrganizationsUrl = () => {
+  return `/api/auth/organizations`;
+};
+
+export const listAccessibleOrganizations = async (
+  options?: RequestInit,
+): Promise<AccessibleOrganization[]> => {
+  return customFetch<AccessibleOrganization[]>(
+    getListAccessibleOrganizationsUrl(),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getListAccessibleOrganizationsQueryKey = () => {
+  return [`/api/auth/organizations`] as const;
+};
+
+export const getListAccessibleOrganizationsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listAccessibleOrganizations>>,
+  TError = ErrorType<
+    | UnauthorizedResponse
+    | ForbiddenResponse
+    | TooManyRequestsResponse
+    | InternalServerErrorResponse
+  >,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listAccessibleOrganizations>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListAccessibleOrganizationsQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listAccessibleOrganizations>>
+  > = ({ signal }) =>
+    listAccessibleOrganizations({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listAccessibleOrganizations>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListAccessibleOrganizationsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listAccessibleOrganizations>>
+>;
+export type ListAccessibleOrganizationsQueryError = ErrorType<
+  | UnauthorizedResponse
+  | ForbiddenResponse
+  | TooManyRequestsResponse
+  | InternalServerErrorResponse
+>;
+
+/**
+ * @summary List organizations the session can work in
+ */
+
+export function useListAccessibleOrganizations<
+  TData = Awaited<ReturnType<typeof listAccessibleOrganizations>>,
+  TError = ErrorType<
+    | UnauthorizedResponse
+    | ForbiddenResponse
+    | TooManyRequestsResponse
+    | InternalServerErrorResponse
+  >,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listAccessibleOrganizations>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListAccessibleOrganizationsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Rebinds the authenticated session to another organization the user can
+access. Ordinary users may select any of their memberships. Platform
+administrators may select any tenant; the server records an audited
+session-bound tenant-access lease automatically.
+
+ * @summary Switch the session's active organization
+ */
+export const getSwitchActiveOrganizationUrl = () => {
+  return `/api/auth/active-organization`;
+};
+
+export const switchActiveOrganization = async (
+  switchOrganizationRequest: SwitchOrganizationRequest,
+  options?: RequestInit,
+): Promise<AuthSession> => {
+  return customFetch<AuthSession>(getSwitchActiveOrganizationUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(switchOrganizationRequest),
+  });
+};
+
+export const getSwitchActiveOrganizationMutationOptions = <
+  TError = ErrorType<
+    | BadRequestResponse
+    | UnauthorizedResponse
+    | ForbiddenResponse
+    | TooManyRequestsResponse
+    | InternalServerErrorResponse
+  >,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof switchActiveOrganization>>,
+    TError,
+    { data: BodyType<SwitchOrganizationRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof switchActiveOrganization>>,
+  TError,
+  { data: BodyType<SwitchOrganizationRequest> },
+  TContext
+> => {
+  const mutationKey = ["switchActiveOrganization"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof switchActiveOrganization>>,
+    { data: BodyType<SwitchOrganizationRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return switchActiveOrganization(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SwitchActiveOrganizationMutationResult = NonNullable<
+  Awaited<ReturnType<typeof switchActiveOrganization>>
+>;
+export type SwitchActiveOrganizationMutationBody =
+  BodyType<SwitchOrganizationRequest>;
+export type SwitchActiveOrganizationMutationError = ErrorType<
+  | BadRequestResponse
+  | UnauthorizedResponse
+  | ForbiddenResponse
+  | TooManyRequestsResponse
+  | InternalServerErrorResponse
+>;
+
+/**
+ * @summary Switch the session's active organization
+ */
+export const useSwitchActiveOrganization = <
+  TError = ErrorType<
+    | BadRequestResponse
+    | UnauthorizedResponse
+    | ForbiddenResponse
+    | TooManyRequestsResponse
+    | InternalServerErrorResponse
+  >,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof switchActiveOrganization>>,
+    TError,
+    { data: BodyType<SwitchOrganizationRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof switchActiveOrganization>>,
+  TError,
+  { data: BodyType<SwitchOrganizationRequest> },
+  TContext
+> => {
+  return useMutation(getSwitchActiveOrganizationMutationOptions(options));
 };
 
 /**
@@ -4820,11 +5032,12 @@ export function useListPlatformTenants<
 }
 
 /**
- * Requires platform administrator access and a specific operational
-reason. Creates a time-limited tenant-access lease and binds it to the
-authenticated session, replacing any prior lease for that session.
+ * Requires platform administrator access. Creates a time-limited
+tenant-access lease and binds it to the authenticated session,
+replacing any prior lease for that session. The optional reason is
+recorded in the audit trail.
 
- * @summary Start temporary audited tenant access
+ * @summary Start session-bound audited tenant access
  */
 export const getEnterPlatformTenantUrl = () => {
   return `/api/platform/tenant-access`;
@@ -4900,7 +5113,7 @@ export type EnterPlatformTenantMutationError = ErrorType<
 >;
 
 /**
- * @summary Start temporary audited tenant access
+ * @summary Start session-bound audited tenant access
  */
 export const useEnterPlatformTenant = <
   TError = ErrorType<

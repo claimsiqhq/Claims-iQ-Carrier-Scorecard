@@ -34,14 +34,7 @@ export interface OrganizationContext {
   accessLeaseId: string | null;
 }
 
-export class MultipleOrganizationMembershipsError extends Error {
-  constructor(readonly userId: string) {
-    super("Multiple organization memberships require explicit platform access");
-    this.name = "MultipleOrganizationMembershipsError";
-  }
-}
-
-interface MembershipContextRow {
+export interface MembershipContextRow {
   membershipId: string;
   organizationId: string;
   organizationName: string;
@@ -49,16 +42,10 @@ interface MembershipContextRow {
   explicitPermissions: string[];
 }
 
-export function resolveSingleMembershipContext(
+export function membershipOrganizationContext(
   userId: string,
-  rows: readonly MembershipContextRow[],
-): OrganizationContext | null {
-  if (rows.length > 1) {
-    throw new MultipleOrganizationMembershipsError(userId);
-  }
-  const row = rows[0];
-  if (!row) return null;
-
+  row: MembershipContextRow,
+): OrganizationContext {
   return {
     organizationId: row.organizationId,
     organizationName: row.organizationName,
@@ -75,10 +62,23 @@ export function resolveSingleMembershipContext(
   };
 }
 
-export async function resolveOrganizationContext(
+export function resolveMembershipContext(
   userId: string,
-): Promise<OrganizationContext | null> {
-  const rows = await identityDb
+  rows: readonly MembershipContextRow[],
+  activeOrganizationId?: string | null,
+): OrganizationContext | null {
+  const active = activeOrganizationId
+    ? rows.find((row) => row.organizationId === activeOrganizationId)
+    : undefined;
+  const row = active ?? rows[0];
+  if (!row) return null;
+  return membershipOrganizationContext(userId, row);
+}
+
+export async function listMembershipContexts(
+  userId: string,
+): Promise<MembershipContextRow[]> {
+  return identityDb
     .select({
       membershipId: organizationMemberships.id,
       organizationId: organizationMemberships.organizationId,
@@ -95,10 +95,15 @@ export async function resolveOrganizationContext(
     .orderBy(
       desc(organizationMemberships.isDefault),
       asc(organizationMemberships.joinedAt),
-    )
-    .limit(2);
+    );
+}
 
-  return resolveSingleMembershipContext(userId, rows);
+export async function resolveOrganizationContext(
+  userId: string,
+  activeOrganizationId?: string | null,
+): Promise<OrganizationContext | null> {
+  const rows = await listMembershipContexts(userId);
+  return resolveMembershipContext(userId, rows, activeOrganizationId);
 }
 
 export function platformLeaseOrganizationContext(input: {

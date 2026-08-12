@@ -4,17 +4,18 @@
  * Api
  * Typed contract for the Complete iQ Carrier Audit API.
 
-Authenticated requests use the `sid` HTTP-only session cookie. Ordinary
-tenant context is bound by the server from exactly one organization
-membership; accounts with zero or multiple memberships cannot access
-tenant routes. Tenant-selection headers and request-body overrides are
-rejected.
+Authenticated requests use the `sid` HTTP-only session cookie. Tenant
+context is bound by the server from the session's active organization,
+which must be one of the user's organization memberships. Users switch
+between their memberships with `/auth/active-organization`.
+Tenant-selection headers and request-body overrides are rejected.
 
-Platform administrators have no tenant context by default. They use the
-reason-required `/platform/tenant-access` endpoints to create or revoke a
-temporary, audited lease bound to the authenticated session. Tenant-scoped
-lookups deliberately return `404` when a resource belongs to another
-tenant so that cross-tenant identifiers are not disclosed.
+Platform administrators are placed into a tenant workspace at sign-in and
+switch tenants with the same `/auth/active-organization` endpoint; the
+server maintains a session-bound, audited tenant-access lease behind the
+scenes and renews it automatically. Tenant-scoped lookups deliberately
+return `404` when a resource belongs to another tenant so that
+cross-tenant identifiers are not disclosed.
 
 Job-enqueueing operations that accept `X-Idempotency-Key` scope that value
 to the authenticated session-bound tenant and operation inputs. Repeating
@@ -148,6 +149,98 @@ export const LoginResponse = zod.object({
 export const LogoutResponse = zod.object({
   success: zod.boolean(),
   message: zod.string().optional(),
+});
+
+/**
+ * Returns the user's organization memberships with their tenant role.
+Platform administrators receive every tenant with the
+`platform_admin` role.
+
+ * @summary List organizations the session can work in
+ */
+export const ListAccessibleOrganizationsResponseItem = zod
+  .object({
+    id: zod.string().uuid(),
+    name: zod.string(),
+    slug: zod.string().nullable(),
+    role: zod.string(),
+  })
+  .describe(
+    "An organization the authenticated user can work in, with their tenant role.",
+  );
+export const ListAccessibleOrganizationsResponse = zod.array(
+  ListAccessibleOrganizationsResponseItem,
+);
+
+/**
+ * Rebinds the authenticated session to another organization the user can
+access. Ordinary users may select any of their memberships. Platform
+administrators may select any tenant; the server records an audited
+session-bound tenant-access lease automatically.
+
+ * @summary Switch the session's active organization
+ */
+export const SwitchActiveOrganizationBody = zod
+  .object({
+    organizationId: zod.string().uuid(),
+  })
+  .describe("Selects the session's active organization.");
+
+export const SwitchActiveOrganizationResponse = zod.object({
+  user: zod
+    .object({
+      id: zod.string(),
+      email: zod.string().email().nullable(),
+      firstName: zod.string().nullable(),
+      lastName: zod.string().nullable(),
+      profileImageUrl: zod.string().nullable(),
+      role: zod.string(),
+      platformRole: zod.enum(["none", "admin"]),
+    })
+    .nullable(),
+  organization: zod
+    .object({
+      id: zod.string().uuid(),
+      name: zod.string(),
+      role: zod.enum([
+        "owner",
+        "admin",
+        "auditor",
+        "reviewer",
+        "member",
+        "viewer",
+        "platform_admin",
+      ]),
+      permissions: zod.array(
+        zod.enum([
+          "claims:read",
+          "claims:create",
+          "claims:update",
+          "claims:delete",
+          "claims:assign",
+          "audits:run",
+          "findings:review",
+          "jobs:read",
+          "jobs:cancel",
+          "jobs:retry",
+          "views:manage",
+          "settings:manage",
+          "email:send",
+        ]),
+      ),
+      accessMode: zod.enum(["membership", "platform_lease"]),
+      accessExpiresAt: zod
+        .string()
+        .datetime({})
+        .nullable()
+        .describe(
+          "Lease expiration for platform access; null for membership-bound sessions.",
+        ),
+    })
+    .describe(
+      "Tenant context bound to the authenticated session. Membership mode is\nresolved server-side from exactly one organization membership;\nplatform-lease mode is established only through the reason-required\ntenant-access endpoints.\n",
+    )
+    .nullable(),
 });
 
 /**
@@ -1952,21 +2045,26 @@ export const ListPlatformTenantsResponse = zod.array(
 );
 
 /**
- * Requires platform administrator access and a specific operational
-reason. Creates a time-limited tenant-access lease and binds it to the
-authenticated session, replacing any prior lease for that session.
+ * Requires platform administrator access. Creates a time-limited
+tenant-access lease and binds it to the authenticated session,
+replacing any prior lease for that session. The optional reason is
+recorded in the audit trail.
 
- * @summary Start temporary audited tenant access
+ * @summary Start session-bound audited tenant access
  */
 export const enterPlatformTenantBodyReasonMax = 500;
 
 export const EnterPlatformTenantBody = zod
   .object({
     organizationId: zod.string().uuid(),
-    reason: zod.string().min(1).max(enterPlatformTenantBodyReasonMax),
+    reason: zod
+      .string()
+      .min(1)
+      .max(enterPlatformTenantBodyReasonMax)
+      .optional(),
   })
   .describe(
-    "Explicit, reasoned request by a platform administrator for temporary audited tenant access.",
+    "Request by a platform administrator for session-bound tenant access.\nThe optional reason is recorded in the audit trail; when omitted, an\nautomatic workspace-switch reason is recorded instead.\n",
   );
 
 export const EnterPlatformTenantResponse = zod.object({

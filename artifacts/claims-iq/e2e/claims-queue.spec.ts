@@ -145,6 +145,17 @@ async function mockAuthenticatedApi(page: Page) {
       await fulfillJson(route, authenticatedSession)
       return
     }
+    if (url.pathname === "/api/auth/organizations") {
+      await fulfillJson(route, [
+        {
+          id: authenticatedSession.organization.id,
+          name: authenticatedSession.organization.name,
+          slug: null,
+          role: authenticatedSession.organization.role,
+        },
+      ])
+      return
+    }
     if (url.pathname === "/api/dashboard") {
       await fulfillJson(route, {
         stats: {
@@ -453,26 +464,34 @@ test("reviewer can follow evidence, approve, and complete a rerun", async ({ pag
   expect(reprocessBodies).toEqual([{ carrierEntityId }])
 })
 
-test("platform access requires a reason and clears tenant-scoped state", async ({ page }) => {
-  const accessRequests: Array<{ organizationId: string; reason: string }> = []
-  let accessActive = false
-  const platformUser = {
-    id: "user-platform-admin",
-    email: "platform-admin@example.com",
-    firstName: "Pat",
-    lastName: "Platform",
+test("sign-in lands in a tenant and switching needs no reason", async ({ page }) => {
+  const switchRequests: Array<Record<string, unknown>> = []
+  const memberUser = {
+    id: "user-multi-tenant",
+    email: "lead@carriers.example",
+    firstName: "Morgan",
+    lastName: "Multi",
     profileImageUrl: null,
     role: "reviewer",
-    platformRole: "admin",
+    platformRole: "none",
   }
-  const leasedOrganization = {
+  const andover = {
     id: "org-andover",
     name: "Andover Companies",
-    role: "platform_admin",
-    permissions: ["claims:read", "claims:create"],
-    accessMode: "platform_lease",
-    accessExpiresAt: "2026-08-11T01:00:00.000Z",
+    role: "admin",
+    permissions: ["claims:read", "claims:create", "settings:manage"],
+    accessMode: "membership",
+    accessExpiresAt: null,
   }
+  const allstate = {
+    id: "org-allstate",
+    name: "Allstate",
+    role: "reviewer",
+    permissions: ["claims:read"],
+    accessMode: "membership",
+    accessExpiresAt: null,
+  }
+  let activeOrganization = andover
 
   await page.addInitScript(() => {
     window.localStorage.setItem(
@@ -485,31 +504,21 @@ test("platform access requires a reason and clears tenant-scoped state", async (
     const url = new URL(route.request().url())
     const method = route.request().method()
     if (url.pathname === "/api/auth/user") {
-      await fulfillJson(route, {
-        user: platformUser,
-        organization: accessActive ? leasedOrganization : null,
-      })
+      await fulfillJson(route, { user: memberUser, organization: activeOrganization })
       return
     }
-    if (url.pathname === "/api/platform/tenants") {
+    if (url.pathname === "/api/auth/organizations") {
       await fulfillJson(route, [
-        { id: "org-andover", name: "Andover Companies", slug: "andover" },
-        { id: "org-allstate", name: "Allstate", slug: "allstate" },
+        { id: andover.id, name: andover.name, slug: "andover", role: andover.role },
+        { id: allstate.id, name: allstate.name, slug: "allstate", role: allstate.role },
       ])
       return
     }
-    if (url.pathname === "/api/platform/tenant-access" && method === "POST") {
-      accessRequests.push(route.request().postDataJSON() as {
-        organizationId: string
-        reason: string
-      })
-      accessActive = true
-      await fulfillJson(route, { user: platformUser, organization: leasedOrganization })
-      return
-    }
-    if (url.pathname === "/api/platform/tenant-access" && method === "DELETE") {
-      accessActive = false
-      await fulfillJson(route, { user: platformUser, organization: null })
+    if (url.pathname === "/api/auth/active-organization" && method === "POST") {
+      const body = route.request().postDataJSON() as Record<string, unknown>
+      switchRequests.push(body)
+      activeOrganization = body.organizationId === allstate.id ? allstate : andover
+      await fulfillJson(route, { user: memberUser, organization: activeOrganization })
       return
     }
     if (url.pathname === "/api/dashboard") {
@@ -537,49 +546,38 @@ test("platform access requires a reason and clears tenant-scoped state", async (
     await fulfillJson(route, { error: `Unhandled test endpoint: ${url.pathname}` }, 404)
   })
 
-  await page.goto("/claims?carrier=Andover")
-  await expect(page.getByRole("heading", { name: "Choose a tenant from the header" })).toBeVisible()
-  await expect(page).toHaveURL(/\/tenant-access$/)
-
-  await page.getByRole("button", { name: "Tenant menu. Select a tenant" }).click()
-  await page.getByRole("menuitem", { name: "Open Andover Companies" }).click()
-  const startAccess = page.getByRole("button", { name: "Open Andover Companies" })
-  await expect(startAccess).toBeDisabled()
-  await page.getByLabel("Reason for access").fill("Investigate support case CIQ-1842")
-  await startAccess.click()
-
+  await page.goto("/")
   await expect(
-    page.getByText("Viewing Andover Companies as platform administrator"),
+    page.getByRole("button", {
+      name: "Tenant menu. Current tenant: Andover Companies",
+    }),
   ).toBeVisible()
-  await expect(page.getByText(/Temporary access expires/)).toBeVisible()
   await expect(page).toHaveURL(/\/$/)
-  expect(accessRequests).toEqual([
-    {
-      organizationId: "org-andover",
-      reason: "Investigate support case CIQ-1842",
-    },
-  ])
-  expect(
-    await page.evaluate(() =>
-      Object.keys(window.localStorage).filter((key) =>
-        key.startsWith("complete-iq:intake-recovery"),
-      ),
-    ),
-  ).toEqual([])
   expect(await page.evaluate(() =>
     window.localStorage.getItem("complete-iq:selected-organization"),
   )).toBeNull()
 
   await page.evaluate(() => {
     window.localStorage.setItem(
-      "complete-iq:intake-recovery:v2:user-platform-admin:org-andover",
+      "complete-iq:intake-recovery:v2:user-multi-tenant:org-andover",
       JSON.stringify([{ claimId: "active-claim" }]),
     )
   })
-  await page.getByRole("button", { name: "Exit tenant" }).click()
 
-  await expect(page.getByRole("heading", { name: "Choose a tenant from the header" })).toBeVisible()
-  await expect(page).toHaveURL(/\/tenant-access$/)
+  await page
+    .getByRole("button", {
+      name: "Tenant menu. Current tenant: Andover Companies",
+    })
+    .click()
+  await page.getByRole("menuitem", { name: "Switch to Allstate" }).click()
+
+  await expect(
+    page.getByRole("button", {
+      name: "Tenant menu. Current tenant: Allstate",
+    }),
+  ).toBeVisible()
+  await expect(page.getByLabel("Reason for access")).toHaveCount(0)
+  expect(switchRequests).toEqual([{ organizationId: "org-allstate" }])
   expect(
     await page.evaluate(() =>
       Object.keys(window.localStorage).filter((key) =>
@@ -650,8 +648,8 @@ test("platform cache and recovery state stay isolated across tenant A to B", asy
     },
   }
   const tenants = [tenantA, tenantB]
-  let activeTenantId: string | null = null
-  const accessRequests: Array<{ organizationId: string; reason: string }> = []
+  let activeTenantId: string | null = tenantA.id
+  const accessRequests: Array<Record<string, unknown>> = []
   const tenantDataRequests: Array<{
     path: string
     tenantId: string | null
@@ -685,20 +683,22 @@ test("platform cache and recovery state stay isolated across tenant A to B", asy
       })
       return
     }
-    if (url.pathname === "/api/platform/tenants") {
+    if (url.pathname === "/api/auth/organizations") {
       await fulfillJson(
         route,
-        tenants.map(({ id, name, slug }) => ({ id, name, slug })),
+        tenants.map(({ id, name, slug }) => ({
+          id,
+          name,
+          slug,
+          role: "platform_admin",
+        })),
       )
       return
     }
-    if (url.pathname === "/api/platform/tenant-access" && method === "POST") {
-      const body = route.request().postDataJSON() as {
-        organizationId: string
-        reason: string
-      }
+    if (url.pathname === "/api/auth/active-organization" && method === "POST") {
+      const body = route.request().postDataJSON() as Record<string, unknown>
       accessRequests.push(body)
-      activeTenantId = body.organizationId
+      activeTenantId = String(body.organizationId)
       const activeTenant = tenants.find((tenant) => tenant.id === activeTenantId)!
       await fulfillJson(route, {
         user: platformUser,
@@ -711,11 +711,6 @@ test("platform cache and recovery state stay isolated across tenant A to B", asy
           accessExpiresAt: new Date(Date.now() + 60_000).toISOString(),
         },
       })
-      return
-    }
-    if (url.pathname === "/api/platform/tenant-access" && method === "DELETE") {
-      activeTenantId = null
-      await fulfillJson(route, { user: platformUser, organization: null })
       return
     }
 
@@ -792,19 +787,12 @@ test("platform cache and recovery state stay isolated across tenant A to B", asy
     await fulfillJson(route, { error: `Unhandled test endpoint: ${url.pathname}` }, 404)
   })
 
-  await page.goto("/tenant-access")
-  await page.getByRole("button", { name: "Tenant menu. Select a tenant" }).click()
-  await page.getByRole("menuitem", { name: "Open Tenant A Insurance" }).click()
-  const startTenantA = page.getByRole("button", { name: "Open Tenant A Insurance" })
-  await page.getByLabel("Reason for access").fill("   ")
-  await expect(startTenantA).toBeDisabled()
-  await page.getByLabel("Reason for access").fill("Investigate Tenant A case")
-  await startTenantA.click()
-
+  await page.goto("/")
   await expect(
-    page.getByText("Viewing Tenant A Insurance as platform administrator"),
+    page.getByRole("button", {
+      name: "Tenant menu. Current tenant: Tenant A Insurance",
+    }),
   ).toBeVisible()
-  await expect(page.getByText(/Temporary access expires/)).toBeVisible()
   await page
     .getByRole("link", { name: "Claims", exact: true })
     .filter({ visible: true })
@@ -834,15 +822,13 @@ test("platform cache and recovery state stay isolated across tenant A to B", asy
     })
     .click()
   await page.getByRole("menuitem", { name: "Switch to Tenant B Insurance" }).click()
-  const startTenantB = page.getByRole("button", { name: "Switch to Tenant B Insurance" })
-  await expect(startTenantB).toBeDisabled()
-  await page.getByLabel("Reason for access").fill("Investigate Tenant B case")
-  await startTenantB.click()
 
   await expect(
-    page.getByText("Viewing Tenant B Insurance as platform administrator"),
+    page.getByRole("button", {
+      name: "Tenant menu. Current tenant: Tenant B Insurance",
+    }),
   ).toBeVisible()
-  await expect(page.getByText(/Temporary access expires/)).toBeVisible()
+  await expect(page.getByLabel("Reason for access")).toHaveCount(0)
   await page
     .getByRole("link", { name: "Claims", exact: true })
     .filter({ visible: true })
@@ -873,16 +859,7 @@ test("platform cache and recovery state stay isolated across tenant A to B", asy
         tenantId === tenantB.id && organizationHeader === undefined,
     ),
   ).toBe(true)
-  expect(accessRequests).toEqual([
-    {
-      organizationId: tenantA.id,
-      reason: "Investigate Tenant A case",
-    },
-    {
-      organizationId: tenantB.id,
-      reason: "Investigate Tenant B case",
-    },
-  ])
+  expect(accessRequests).toEqual([{ organizationId: tenantB.id }])
   expect(
     await page.evaluate(() =>
       Object.keys(window.localStorage).filter((key) =>

@@ -63,12 +63,10 @@ export function createPlatformTenantAccessRouter(
     if (!actor) return;
     if (
       typeof req.body?.organizationId !== "string" ||
-      !req.body.organizationId.trim() ||
-      typeof req.body?.reason !== "string" ||
-      !req.body.reason.trim()
+      !req.body.organizationId.trim()
     ) {
       res.status(400).json({
-        error: "Organization and reason are required for tenant access",
+        error: "Organization is required for tenant access",
       });
       return;
     }
@@ -76,7 +74,8 @@ export function createPlatformTenantAccessRouter(
       const access = await service.enterTenant({
         ...actor,
         organizationId: req.body.organizationId,
-        reason: req.body.reason,
+        reason:
+          typeof req.body.reason === "string" ? req.body.reason : undefined,
       });
       res.json(
         authSessionResponse(

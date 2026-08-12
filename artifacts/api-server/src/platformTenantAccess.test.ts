@@ -170,11 +170,19 @@ test("platform routes require admin and return tenant identity only", async () =
   ]);
   assert.equal("metrics" in tenants.body[0], false);
 
-  const missingReason = await request(routeApp(service))
+  const missingOrganization = await request(routeApp(service))
+    .post("/api/platform/tenant-access")
+    .send({ reason: "No organization provided" });
+  assert.equal(missingOrganization.status, 400);
+  assert.equal(enterCalls, 0);
+
+  // Reasons are optional now: blank input succeeds and the service records
+  // an automatic workspace-switch reason instead.
+  const blankReason = await request(routeApp(service))
     .post("/api/platform/tenant-access")
     .send({ organizationId, reason: "  " });
-  assert.equal(missingReason.status, 400);
-  assert.equal(enterCalls, 0);
+  assert.equal(blankReason.status, 200);
+  assert.equal(enterCalls, 1);
 });
 
 test("platform enter and exit responses update session tenant state", async () => {

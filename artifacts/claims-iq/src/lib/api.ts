@@ -22,7 +22,7 @@ import type {
   SettingsOverview,
   OrganizationSettingsInput,
   InvitationPreview,
-  PlatformTenantSummary,
+  AccessibleOrganization,
 } from "@/lib/types"
 
 export const API_BASE_URL = (import.meta.env.VITE_API_URL || "/api").replace(/\/$/, "")
@@ -167,8 +167,8 @@ export const queryKeys = {
   get settingsOverview() {
     return scopedQueryKey("settings", "overview")
   },
-  get platformTenants() {
-    return scopedQueryKey("platform", "tenants")
+  get organizations() {
+    return scopedQueryKey("organizations")
   },
 }
 
@@ -180,16 +180,12 @@ export const api = {
       body: JSON.stringify({ email, password }),
     }),
   logout: () => apiRequest<void>("/auth/logout", { method: "POST" }),
-  getPlatformTenants: () =>
-    apiRequest<PlatformTenantSummary[]>("/platform/tenants"),
-  enterPlatformTenant: (organizationId: string, reason: string) =>
-    apiRequest<AuthSession>("/platform/tenant-access", {
+  getOrganizations: () =>
+    apiRequest<AccessibleOrganization[]>("/auth/organizations"),
+  switchOrganization: (organizationId: string) =>
+    apiRequest<AuthSession>("/auth/active-organization", {
       method: "POST",
-      body: JSON.stringify({ organizationId, reason }),
-    }),
-  exitPlatformTenant: () =>
-    apiRequest<AuthSession | undefined>("/platform/tenant-access", {
-      method: "DELETE",
+      body: JSON.stringify({ organizationId }),
     }),
   forgotPassword: (email: string) =>
     apiRequest<{ message: string }>("/auth/password/forgot", {

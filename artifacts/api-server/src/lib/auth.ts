@@ -2,7 +2,10 @@ import crypto from "crypto";
 import { type Request, type Response } from "express";
 import { identityDb, sessionsTable, usersTable } from "@workspace/db";
 import { and, eq, inArray, sql } from "drizzle-orm";
-import { resolveActivePlatformTenantAccess } from "../services/platformTenantAccess";
+import {
+  renewPlatformTenantAccess,
+  resolveActivePlatformTenantAccess,
+} from "../services/platformTenantAccess";
 
 export const SESSION_COOKIE = "sid";
 export const SESSION_TTL = 7 * 24 * 60 * 60 * 1000;
@@ -35,6 +38,8 @@ export interface ActivePlatformTenantAccess {
 export interface SessionData {
   user: SessionUser;
   authVersion: number;
+  /** The tenant this session is currently working in. */
+  activeOrganizationId?: string;
   platformTenantAccess?: StoredPlatformTenantAccess;
 }
 
@@ -151,6 +156,25 @@ export async function getSession(
       expiresAt: storedAccess.expiresAt,
     });
   }
+
+  // Platform-admin tenant access is renewed silently so administrators are
+  // never bounced out of a tenant mid-session when a lease expires.
+  const renewalOrganizationId =
+    storedAccess?.organizationId ??
+    (typeof stored.activeOrganizationId === "string"
+      ? stored.activeOrganizationId
+      : undefined);
+  if (
+    user.platformRole === "admin" &&
+    !activePlatformTenantAccess &&
+    renewalOrganizationId
+  ) {
+    activePlatformTenantAccess = await renewPlatformTenantAccess({
+      userId: user.id,
+      sessionId: row.sid,
+      organizationId: renewalOrganizationId,
+    });
+  }
   if (
     stored.platformTenantAccess &&
     (!storedAccess || !activePlatformTenantAccess)
@@ -158,11 +182,19 @@ export async function getSession(
     await clearSessionPlatformTenantAccess(row.sid, user.id);
   }
 
+  const activeOrganizationId =
+    user.platformRole === "admin"
+      ? activePlatformTenantAccess?.organizationId
+      : typeof stored.activeOrganizationId === "string"
+        ? stored.activeOrganizationId
+        : undefined;
+
   return {
     databaseSessionId: row.sid,
     authVersion: currentUser.authVersion,
     user,
     activePlatformTenantAccess,
+    ...(activeOrganizationId ? { activeOrganizationId } : {}),
     ...(activePlatformTenantAccess
       ? {
           platformTenantAccess: {
@@ -201,6 +233,31 @@ export async function setSessionPlatformTenantAccess(
         ${sessionsTable.sess},
         '{platformTenantAccess}',
         ${JSON.stringify(access)}::jsonb,
+        true
+      )`,
+    })
+    .where(
+      and(
+        eq(sessionsTable.sid, databaseSessionId),
+        eq(sessionsTable.userId, userId),
+      ),
+    )
+    .returning({ sid: sessionsTable.sid });
+  return Boolean(updated);
+}
+
+export async function setSessionActiveOrganization(
+  databaseSessionId: string,
+  userId: string,
+  organizationId: string,
+): Promise<boolean> {
+  const [updated] = await identityDb
+    .update(sessionsTable)
+    .set({
+      sess: sql`jsonb_set(
+        ${sessionsTable.sess},
+        '{activeOrganizationId}',
+        ${JSON.stringify(organizationId)}::jsonb,
         true
       )`,
     })

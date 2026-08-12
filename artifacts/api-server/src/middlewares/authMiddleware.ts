@@ -15,6 +15,7 @@ declare global {
       isAuthenticated(): this is AuthedRequest;
       user?: User | undefined;
       databaseSessionId?: string;
+      activeOrganizationId?: string;
       activePlatformTenantAccess?: ActivePlatformTenantAccess | null;
     }
 
@@ -50,6 +51,7 @@ export async function authMiddleware(
 
     req.user = session.user;
     req.databaseSessionId = session.databaseSessionId;
+    req.activeOrganizationId = session.activeOrganizationId;
     req.activePlatformTenantAccess = session.activePlatformTenantAccess;
     next();
   } catch (error) {

@@ -554,10 +554,11 @@ export interface AuthSession {
   organization: AuthOrganization | null
 }
 
-export interface PlatformTenantSummary {
+export interface AccessibleOrganization {
   id: string
   name: string
   slug?: string | null
+  role: string
 }
 
 export interface InvitationPreview {

@@ -4,17 +4,18 @@
  * Api
  * Typed contract for the Complete iQ Carrier Audit API.
 
-Authenticated requests use the `sid` HTTP-only session cookie. Ordinary
-tenant context is bound by the server from exactly one organization
-membership; accounts with zero or multiple memberships cannot access
-tenant routes. Tenant-selection headers and request-body overrides are
-rejected.
+Authenticated requests use the `sid` HTTP-only session cookie. Tenant
+context is bound by the server from the session's active organization,
+which must be one of the user's organization memberships. Users switch
+between their memberships with `/auth/active-organization`.
+Tenant-selection headers and request-body overrides are rejected.
 
-Platform administrators have no tenant context by default. They use the
-reason-required `/platform/tenant-access` endpoints to create or revoke a
-temporary, audited lease bound to the authenticated session. Tenant-scoped
-lookups deliberately return `404` when a resource belongs to another
-tenant so that cross-tenant identifiers are not disclosed.
+Platform administrators are placed into a tenant workspace at sign-in and
+switch tenants with the same `/auth/active-organization` endpoint; the
+server maintains a session-bound, audited tenant-access lease behind the
+scenes and renews it automatically. Tenant-scoped lookups deliberately
+return `404` when a resource belongs to another tenant so that
+cross-tenant identifiers are not disclosed.
 
 Job-enqueueing operations that accept `X-Idempotency-Key` scope that value
 to the authenticated session-bound tenant and operation inputs. Repeating
@@ -25,7 +26,10 @@ an equivalent request returns the existing durable processing job and sets
  */
 
 /**
- * Explicit, reasoned request by a platform administrator for temporary audited tenant access.
+ * Request by a platform administrator for session-bound tenant access.
+The optional reason is recorded in the audit trail; when omitted, an
+automatic workspace-switch reason is recorded instead.
+
  */
 export interface PlatformTenantAccessRequest {
   organizationId: string;
@@ -33,5 +37,5 @@ export interface PlatformTenantAccessRequest {
    * @minLength 1
    * @maxLength 500
    */
-  reason: string;
+  reason?: string;
 }

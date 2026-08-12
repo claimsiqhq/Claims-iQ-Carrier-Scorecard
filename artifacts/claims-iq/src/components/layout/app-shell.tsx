@@ -15,7 +15,6 @@ import {
   Plus,
   Search,
   Settings,
-  ShieldAlert,
   ShieldCheck,
 } from "lucide-react"
 import { BrandMark } from "@/components/complete-iq/brand-mark"
@@ -367,57 +366,6 @@ export function UtilityBar() {
   )
 }
 
-function PlatformAccessBanner() {
-  const { organization, isPlatformAccessActive, exitTenant } = useAuth()
-  const [, setLocation] = useLocation()
-  const [exiting, setExiting] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  if (!isPlatformAccessActive || !organization) return null
-
-  const expiresAt = organization.accessExpiresAt
-    ? formatAccessExpiration(organization.accessExpiresAt)
-    : null
-
-  const leaveTenant = async () => {
-    setExiting(true)
-    setError(null)
-    try {
-      await exitTenant()
-      setLocation("/tenant-access", { replace: true })
-    } catch (exitError) {
-      setError(exitError instanceof Error ? exitError.message : "Tenant access could not be exited.")
-      setExiting(false)
-    }
-  }
-
-  return (
-    <section
-      className="flex flex-wrap items-center gap-3 border-b border-[#d0a64f] bg-[var(--ciq-warning-soft)] px-4 py-2.5 text-[var(--ciq-ink)] sm:px-5"
-      aria-label="Active platform tenant access"
-    >
-      <ShieldAlert className="h-5 w-5 shrink-0 text-[var(--ciq-warning)]" aria-hidden="true" />
-      <div className="min-w-0 flex-1">
-        <strong className="block text-sm">
-          Viewing {organization.name} as platform administrator
-        </strong>
-        <span className="block text-xs text-[var(--ciq-ink-muted)]">
-          {expiresAt ? `Temporary access expires ${expiresAt}` : "Temporary audited access is active"}
-        </span>
-        {error && (
-          <span className="mt-1 block text-xs font-semibold text-[var(--ciq-critical)]" role="alert">
-            {error}
-          </span>
-        )}
-      </div>
-      <Button variant="outline" size="sm" onClick={() => void leaveTenant()} disabled={exiting}>
-        <LogOut aria-hidden="true" />
-        {exiting ? "Exiting…" : "Exit tenant"}
-      </Button>
-    </section>
-  )
-}
-
 export function AppShell({ children }: { children: ReactNode }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [location] = useLocation()
@@ -439,7 +387,6 @@ export function AppShell({ children }: { children: ReactNode }) {
       <PrimaryNav />
       <div className="ciq-app-shell__workspace">
         <UtilityBar />
-        <PlatformAccessBanner />
         <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
           <SheetTrigger asChild>
             <button
@@ -465,15 +412,6 @@ export function AppShell({ children }: { children: ReactNode }) {
       <MobileNav />
     </div>
   )
-}
-
-function formatAccessExpiration(value: string) {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date)
 }
 
 export function PageHeader({

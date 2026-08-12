@@ -25,14 +25,9 @@ an equivalent request returns the existing durable processing job and sets
  * OpenAPI spec version: 1.0.0
  */
 
-export type ProcessingJobStatus =
-  (typeof ProcessingJobStatus)[keyof typeof ProcessingJobStatus];
-
-export const ProcessingJobStatus = {
-  queued: "queued",
-  running: "running",
-  succeeded: "succeeded",
-  degraded: "degraded",
-  failed: "failed",
-  cancelled: "cancelled",
-} as const;
+/**
+ * Selects the session's active organization.
+ */
+export interface SwitchOrganizationRequest {
+  organizationId: string;
+}

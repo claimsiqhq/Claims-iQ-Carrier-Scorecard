@@ -18,13 +18,11 @@ interface AuthContextValue {
   loading: boolean;
   isPlatformAdmin: boolean;
   isTenantAdmin: boolean;
-  isPlatformAccessActive: boolean;
   canManageSettings: boolean;
   canCreateClaims: boolean;
   login: (email: string, password: string) => Promise<string | null>;
   logout: () => Promise<void>;
-  enterTenant: (organizationId: string, reason: string) => Promise<void>;
-  exitTenant: () => Promise<void>;
+  switchTenant: (organizationId: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue>({
@@ -33,13 +31,11 @@ const AuthContext = createContext<AuthContextValue>({
   loading: true,
   isPlatformAdmin: false,
   isTenantAdmin: false,
-  isPlatformAccessActive: false,
   canManageSettings: false,
   canCreateClaims: false,
   login: async () => null,
   logout: async () => {},
-  enterTenant: async () => {},
-  exitTenant: async () => {},
+  switchTenant: async () => {},
 });
 
 export function useAuth() {
@@ -94,34 +90,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, [queryClient]);
 
-  useEffect(() => {
-    if (
-      !user
-      || organization?.accessMode !== "platform_lease"
-      || !organization.accessExpiresAt
-    ) {
-      return;
-    }
-
-    const expiresAt = Date.parse(organization.accessExpiresAt);
-    if (!Number.isFinite(expiresAt)) return;
-
-    const timeout = window.setTimeout(() => {
-      void applyTenantTransition({
-        user,
-        organization: null,
-      });
-    }, Math.max(0, expiresAt - Date.now()));
-
-    return () => window.clearTimeout(timeout);
-  }, [
-    applyTenantTransition,
-    organization?.accessExpiresAt,
-    organization?.accessMode,
-    organization?.id,
-    user,
-  ]);
-
   const login = useCallback(async (email: string, password: string): Promise<string | null> => {
     try {
       await api.login(email, password);
@@ -148,14 +116,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     window.sessionStorage.removeItem(SESSION_EXPIRED_EVENT);
   }, [queryClient]);
 
-  const enterTenant = useCallback(async (organizationId: string, reason: string) => {
-    const session = await api.enterPlatformTenant(organizationId, reason.trim());
-    await applyTenantTransition(session);
-  }, [applyTenantTransition]);
-
-  const exitTenant = useCallback(async () => {
-    const response = await api.exitPlatformTenant();
-    const session = response ?? await api.getSession();
+  const switchTenant = useCallback(async (organizationId: string) => {
+    const session = await api.switchOrganization(organizationId);
     await applyTenantTransition(session);
   }, [applyTenantTransition]);
 
@@ -168,10 +130,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       || organization.role === "admin"
       || organization.permissions.includes("settings:manage")
     ),
-  );
-  const isPlatformAccessActive = Boolean(
-    isPlatformAdmin
-    && organization?.accessMode === "platform_lease",
   );
   const canManageSettings = Boolean(
     organization?.permissions.includes("settings:manage"),
@@ -186,13 +144,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         loading,
         isPlatformAdmin,
         isTenantAdmin,
-        isPlatformAccessActive,
         canManageSettings,
         canCreateClaims,
         login,
         logout,
-        enterTenant,
-        exitTenant,
+        switchTenant,
       }}
     >
       {children}

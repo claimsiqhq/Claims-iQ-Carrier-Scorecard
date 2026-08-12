@@ -5,8 +5,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { TenantSwitcher } from "./tenant-switcher"
 
 const mocks = vi.hoisted(() => ({
-  enterTenant: vi.fn().mockResolvedValue(undefined),
-  getPlatformTenants: vi.fn(),
+  switchTenant: vi.fn().mockResolvedValue(undefined),
+  getOrganizations: vi.fn(),
   auth: {
     organization: {
       id: "org-allstate",
@@ -21,16 +21,15 @@ const mocks = vi.hoisted(() => ({
       permissions: string[]
       accessMode: "membership" | "platform_lease"
     } | null,
-    isPlatformAdmin: false,
   },
 }))
 
 vi.mock("@/lib/api", () => ({
   queryKeys: {
-    platformTenants: ["test", "platform", "tenants"],
+    organizations: ["test", "organizations"],
   },
   api: {
-    getPlatformTenants: mocks.getPlatformTenants,
+    getOrganizations: mocks.getOrganizations,
   },
   apiErrorMessage: (error: unknown, fallback = "Request failed") =>
     error instanceof Error ? error.message : fallback,
@@ -39,15 +38,14 @@ vi.mock("@/lib/api", () => ({
 vi.mock("@/lib/auth-context", () => ({
   useAuth: () => ({
     organization: mocks.auth.organization,
-    isPlatformAdmin: mocks.auth.isPlatformAdmin,
-    enterTenant: mocks.enterTenant,
+    switchTenant: mocks.switchTenant,
   }),
 }))
 
 describe("TenantSwitcher", () => {
   beforeEach(() => {
-    mocks.enterTenant.mockClear()
-    mocks.getPlatformTenants.mockReset()
+    mocks.switchTenant.mockClear()
+    mocks.getOrganizations.mockReset()
     mocks.auth.organization = {
       id: "org-allstate",
       name: "Allstate",
@@ -55,10 +53,12 @@ describe("TenantSwitcher", () => {
       permissions: ["claims:read"],
       accessMode: "membership",
     }
-    mocks.auth.isPlatformAdmin = false
   })
 
-  it("shows an ordinary user's sole tenant without requesting a platform list", async () => {
+  it("shows a single-tenant user's sole tenant with no switch options", async () => {
+    mocks.getOrganizations.mockResolvedValue([
+      { id: "org-allstate", name: "Allstate", slug: "allstate", role: "reviewer" },
+    ])
     const user = userEvent.setup()
     renderSwitcher()
 
@@ -74,21 +74,13 @@ describe("TenantSwitcher", () => {
       }),
     ).toBeInTheDocument()
     expect(screen.queryByRole("menuitem", { name: /switch to/i })).not.toBeInTheDocument()
-    expect(mocks.getPlatformTenants).not.toHaveBeenCalled()
+    expect(screen.getByText("Your assigned tenant.")).toBeInTheDocument()
   })
 
-  it("lists platform tenants and requires an audited reason before switching", async () => {
-    mocks.auth.isPlatformAdmin = true
-    mocks.auth.organization = {
-      id: "org-allstate",
-      name: "Allstate",
-      role: "platform_admin",
-      permissions: ["claims:read"],
-      accessMode: "platform_lease",
-    }
-    mocks.getPlatformTenants.mockResolvedValue([
-      { id: "org-allstate", name: "Allstate", slug: "allstate" },
-      { id: "org-andover", name: "Andover", slug: "andover" },
+  it("switches tenants immediately without asking for a reason", async () => {
+    mocks.getOrganizations.mockResolvedValue([
+      { id: "org-allstate", name: "Allstate", slug: "allstate", role: "reviewer" },
+      { id: "org-andover", name: "Andover", slug: "andover", role: "admin" },
     ])
     const user = userEvent.setup()
     renderSwitcher()
@@ -100,37 +92,55 @@ describe("TenantSwitcher", () => {
     )
     await user.click(await screen.findByRole("menuitem", { name: "Switch to Andover" }))
 
-    const submit = screen.getByRole("button", { name: "Switch to Andover" })
-    expect(submit).toBeDisabled()
-    await user.type(screen.getByLabelText("Reason for access"), "Investigate support case CIQ-1842")
-    await user.click(submit)
-
     await waitFor(() => {
-      expect(mocks.enterTenant).toHaveBeenCalledWith(
-        "org-andover",
-        "Investigate support case CIQ-1842",
-      )
+      expect(mocks.switchTenant).toHaveBeenCalledWith("org-andover")
     })
+    expect(screen.queryByLabelText("Reason for access")).not.toBeInTheDocument()
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
   })
 
-  it("lets a platform administrator choose a tenant from the header before entering one", async () => {
-    mocks.auth.isPlatformAdmin = true
-    mocks.auth.organization = null
-    mocks.getPlatformTenants.mockResolvedValue([
-      { id: "org-wawanesa", name: "Wawanesa", slug: "wawanesa" },
+  it("selecting the current tenant is a no-op", async () => {
+    mocks.getOrganizations.mockResolvedValue([
+      { id: "org-allstate", name: "Allstate", slug: "allstate", role: "reviewer" },
+      { id: "org-andover", name: "Andover", slug: "andover", role: "admin" },
     ])
     const user = userEvent.setup()
     renderSwitcher()
 
     await user.click(
       screen.getByRole("button", {
-        name: "Tenant menu. Select a tenant",
+        name: "Tenant menu. Current tenant: Allstate",
       }),
     )
-    await user.click(await screen.findByRole("menuitem", { name: "Open Wawanesa" }))
+    await user.click(
+      await screen.findByRole("menuitem", { name: "Allstate, current tenant" }),
+    )
 
-    expect(screen.getByRole("heading", { name: "Open tenant workspace" })).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "Open Wawanesa" })).toBeDisabled()
+    expect(mocks.switchTenant).not.toHaveBeenCalled()
+  })
+
+  it("surfaces a failed switch without losing the menu", async () => {
+    mocks.getOrganizations.mockResolvedValue([
+      { id: "org-allstate", name: "Allstate", slug: "allstate", role: "reviewer" },
+      { id: "org-andover", name: "Andover", slug: "andover", role: "admin" },
+    ])
+    mocks.switchTenant.mockRejectedValueOnce(new Error("Switch failed upstream"))
+    const user = userEvent.setup()
+    renderSwitcher()
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "Tenant menu. Current tenant: Allstate",
+      }),
+    )
+    await user.click(await screen.findByRole("menuitem", { name: "Switch to Andover" }))
+
+    await waitFor(() => {
+      expect(mocks.switchTenant).toHaveBeenCalledWith("org-andover")
+    })
+    expect(
+      await screen.findByRole("menuitem", { name: "Switch to Andover" }),
+    ).toBeInTheDocument()
   })
 })
 

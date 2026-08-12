@@ -8,10 +8,7 @@ import { BrandMark } from "@/components/complete-iq/brand-mark";
 import { AppShell } from "@/components/layout/app-shell";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
 import { ApiError } from "@/lib/api";
-import TenantAccessPage, {
-  NoTenantAccessPage,
-  PlatformAdminShell,
-} from "@/features/platform/tenant-access-page";
+import { NoTenantAccessPage } from "@/features/platform/tenant-access-page";
 const LoginPage = lazy(() => import("@/features/auth/login-page"));
 const ForgotPasswordPage = lazy(() => import("@/features/auth/forgot-password-page"));
 const ResetPasswordPage = lazy(() => import("@/features/auth/reset-password-page"));
@@ -54,7 +51,7 @@ function AppLoading() {
 }
 
 function AuthGate() {
-  const { user, organization, loading, isPlatformAdmin } = useAuth();
+  const { user, organization, loading } = useAuth();
 
   if (loading) return <AppLoading />;
 
@@ -63,7 +60,7 @@ function AuthGate() {
   }
 
   if (!organization) {
-    return isPlatformAdmin ? <OutsidePlatformRoutes /> : <NoTenantAccessPage />;
+    return <NoTenantAccessPage />;
   }
 
   return <AppLayout key={`${user.id}:${organization.id}`} />;
@@ -100,21 +97,6 @@ function PlatformAdminRoute({ component: Component }: { component: React.Compone
   }, [isPlatformAdmin, setLocation]);
   if (!isPlatformAdmin) return null;
   return <Component />;
-}
-
-function OutsidePlatformRoutes() {
-  return (
-    <PlatformAdminShell>
-      <Switch>
-        <Route path="/tenant-access" component={TenantAccessPage} />
-        <Route path="/platform/carriers/:key">
-          {(params) => <CarrierEditorPage carrierKey={params.key} />}
-        </Route>
-        <Route path="/platform/carriers" component={CarriersPage} />
-        <Route>{() => <LegacyRedirect to="/tenant-access" />}</Route>
-      </Switch>
-    </PlatformAdminShell>
-  );
 }
 
 function AppLayout() {

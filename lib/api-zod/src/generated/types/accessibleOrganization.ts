@@ -25,14 +25,13 @@ an equivalent request returns the existing durable processing job and sets
  * OpenAPI spec version: 1.0.0
  */
 
-export type ProcessingJobStatus =
-  (typeof ProcessingJobStatus)[keyof typeof ProcessingJobStatus];
-
-export const ProcessingJobStatus = {
-  queued: "queued",
-  running: "running",
-  succeeded: "succeeded",
-  degraded: "degraded",
-  failed: "failed",
-  cancelled: "cancelled",
-} as const;
+/**
+ * An organization the authenticated user can work in, with their tenant role.
+ */
+export interface AccessibleOrganization {
+  id: string;
+  name: string;
+  /** @nullable */
+  slug: string | null;
+  role: string;
+}

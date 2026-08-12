@@ -1,17 +1,21 @@
 import { render, screen } from "@testing-library/react"
-import { describe, expect, it } from "vitest"
-import TenantAccessPage from "./tenant-access-page"
+import { describe, expect, it, vi } from "vitest"
+import { NoTenantAccessPage } from "./tenant-access-page"
 
-describe("TenantAccessPage", () => {
-  it("directs platform administrators to the persistent header tenant menu", () => {
-    render(<TenantAccessPage />)
+vi.mock("@/lib/auth-context", () => ({
+  useAuth: () => ({
+    logout: vi.fn(),
+  }),
+}))
+
+describe("NoTenantAccessPage", () => {
+  it("explains the missing tenant workspace and offers sign-out", () => {
+    render(<NoTenantAccessPage />)
 
     expect(
-      screen.getByRole("heading", {
-        name: "Choose a tenant from the header",
-      }),
+      screen.getByRole("heading", { name: "No tenant workspace assigned" }),
     ).toBeInTheDocument()
-    expect(screen.getByText(/tenant menu in the top-right corner/i)).toBeInTheDocument()
-    expect(screen.queryByRole("button", { name: /access/i })).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /sign out/i })).toBeInTheDocument()
+    expect(screen.queryByText(/reason/i)).not.toBeInTheDocument()
   })
 })

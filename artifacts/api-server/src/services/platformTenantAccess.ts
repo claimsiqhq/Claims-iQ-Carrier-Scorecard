@@ -257,7 +257,7 @@ export interface PlatformTenantAccessService {
   enterTenant(
     actor: PlatformActor & {
       organizationId: string;
-      reason: string;
+      reason?: string;
     },
   ): Promise<ActivePlatformTenantAccess>;
   exitTenant(actor: PlatformActor): Promise<void>;
@@ -269,6 +269,12 @@ export interface PlatformTenantAccessService {
     },
   ): Promise<ActivePlatformTenantAccess | null>;
 }
+
+/**
+ * Recorded in the audit trail when a platform administrator opens or renews
+ * tenant access through the frictionless workspace switcher.
+ */
+export const WORKSPACE_SWITCH_REASON = "Tenant session via workspace switcher";
 
 function tenantAccessTtlMinutes(): number {
   return env.PLATFORM_TENANT_ACCESS_TTL_MINUTES;
@@ -285,14 +291,9 @@ export function createPlatformTenantAccessService(
 
     async enterTenant(actor) {
       const organizationId = actor.organizationId.trim();
-      const reason = actor.reason.trim();
+      const reason = actor.reason?.trim() || WORKSPACE_SWITCH_REASON;
       if (!organizationId) {
         throw new PlatformAccessInputError("Organization is required.");
-      }
-      if (!reason) {
-        throw new PlatformAccessInputError(
-          "A reason for tenant access is required.",
-        );
       }
       if (reason.length > 500) {
         throw new PlatformAccessInputError(
@@ -367,4 +368,36 @@ export function resolveActivePlatformTenantAccess(
   },
 ): Promise<ActivePlatformTenantAccess | null> {
   return platformTenantAccessService.resolveActive(input);
+}
+
+const inFlightRenewals = new Map<
+  string,
+  Promise<ActivePlatformTenantAccess | null>
+>();
+
+/**
+ * Silently re-grant a platform administrator's tenant access when their lease
+ * has expired mid-session. Renewals are deduplicated per session so a burst of
+ * concurrent requests produces a single replacement lease. Failures resolve to
+ * null so the caller degrades to a tenant-less session instead of erroring.
+ */
+export function renewPlatformTenantAccess(
+  input: PlatformActor & { organizationId: string },
+): Promise<ActivePlatformTenantAccess | null> {
+  const key = `${input.userId}:${input.sessionId}`;
+  const existing = inFlightRenewals.get(key);
+  if (existing) return existing;
+
+  const renewal = platformTenantAccessService
+    .enterTenant({
+      userId: input.userId,
+      sessionId: input.sessionId,
+      organizationId: input.organizationId,
+    })
+    .catch(() => null)
+    .finally(() => {
+      inFlightRenewals.delete(key);
+    });
+  inFlightRenewals.set(key, renewal);
+  return renewal;
 }

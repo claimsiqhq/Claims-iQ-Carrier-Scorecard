@@ -5,17 +5,18 @@ info:
   description: |
     Typed contract for the Complete iQ Carrier Audit API.
 
-    Authenticated requests use the `sid` HTTP-only session cookie. Ordinary
-    tenant context is bound by the server from exactly one organization
-    membership; accounts with zero or multiple memberships cannot access
-    tenant routes. Tenant-selection headers and request-body overrides are
-    rejected.
+    Authenticated requests use the `sid` HTTP-only session cookie. Tenant
+    context is bound by the server from the session's active organization,
+    which must be one of the user's organization memberships. Users switch
+    between their memberships with `/auth/active-organization`.
+    Tenant-selection headers and request-body overrides are rejected.
 
-    Platform administrators have no tenant context by default. They use the
-    reason-required `/platform/tenant-access` endpoints to create or revoke a
-    temporary, audited lease bound to the authenticated session. Tenant-scoped
-    lookups deliberately return `404` when a resource belongs to another
-    tenant so that cross-tenant identifiers are not disclosed.
+    Platform administrators are placed into a tenant workspace at sign-in and
+    switch tenants with the same `/auth/active-organization` endpoint; the
+    server maintains a session-bound, audited tenant-access lease behind the
+    scenes and renews it automatically. Tenant-scoped lookups deliberately
+    return `404` when a resource belongs to another tenant so that
+    cross-tenant identifiers are not disclosed.
 
     Job-enqueueing operations that accept `X-Idempotency-Key` scope that value
     to the authenticated session-bound tenant and operation inputs. Repeating
@@ -187,6 +188,67 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Success"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /auth/organizations:
+    get:
+      operationId: listAccessibleOrganizations
+      tags: [Authentication]
+      summary: List organizations the session can work in
+      description: |
+        Returns the user's organization memberships with their tenant role.
+        Platform administrators receive every tenant with the
+        `platform_admin` role.
+      responses:
+        "200":
+          description: Organizations available to the authenticated user.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AccessibleOrganization"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /auth/active-organization:
+    post:
+      operationId: switchActiveOrganization
+      tags: [Authentication]
+      summary: Switch the session's active organization
+      description: |
+        Rebinds the authenticated session to another organization the user can
+        access. Ordinary users may select any of their memberships. Platform
+        administrators may select any tenant; the server records an audited
+        session-bound tenant-access lease automatically.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SwitchOrganizationRequest"
+      responses:
+        "200":
+          description: Session metadata bound to the selected organization.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthSession"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -1426,11 +1488,12 @@ paths:
     post:
       operationId: enterPlatformTenant
       tags: [Authentication, Administration]
-      summary: Start temporary audited tenant access
+      summary: Start session-bound audited tenant access
       description: |
-        Requires platform administrator access and a specific operational
-        reason. Creates a time-limited tenant-access lease and binds it to the
-        authenticated session, replacing any prior lease for that session.
+        Requires platform administrator access. Creates a time-limited
+        tenant-access lease and binds it to the authenticated session,
+        replacing any prior lease for that session. The optional reason is
+        recorded in the audit trail.
       requestBody:
         required: true
         content:
@@ -2764,8 +2827,11 @@ components:
 
     PlatformTenantAccessRequest:
       type: object
-      description: Explicit, reasoned request by a platform administrator for temporary audited tenant access.
-      required: [organizationId, reason]
+      description: |
+        Request by a platform administrator for session-bound tenant access.
+        The optional reason is recorded in the audit trail; when omitted, an
+        automatic workspace-switch reason is recorded instead.
+      required: [organizationId]
       properties:
         organizationId:
           type: string
@@ -2774,6 +2840,33 @@ components:
           type: string
           minLength: 1
           maxLength: 500
+      additionalProperties: false
+
+    AccessibleOrganization:
+      type: object
+      description: An organization the authenticated user can work in, with their tenant role.
+      required: [id, name, slug, role]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+          nullable: true
+        role:
+          type: string
+      additionalProperties: false
+
+    SwitchOrganizationRequest:
+      type: object
+      description: Selects the session's active organization.
+      required: [organizationId]
+      properties:
+        organizationId:
+          type: string
+          format: uuid
       additionalProperties: false
 
     LoginResponse:

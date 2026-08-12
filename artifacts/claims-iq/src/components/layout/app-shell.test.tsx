@@ -5,17 +5,23 @@ import type { ReactNode } from "react"
 import { describe, expect, it, vi } from "vitest"
 import { AppShell } from "./app-shell"
 
-const authState = vi.hoisted(() => ({ leasedPlatformAccess: false }))
+const authState = vi.hoisted(() => ({ platformAdminInTenant: false }))
 
 vi.mock("@/lib/api", () => ({
   queryKeys: {
-    platformTenants: ["test", "platform", "tenants"],
+    organizations: ["test", "organizations"],
   },
   api: {
-    getPlatformTenants: vi.fn().mockResolvedValue([
-      { id: "org-wawanesa", name: "Wawanesa", slug: "wawanesa" },
-      { id: "org-allstate", name: "Allstate", slug: "allstate" },
-    ]),
+    getOrganizations: vi.fn().mockImplementation(() =>
+      Promise.resolve(
+        authState.platformAdminInTenant
+          ? [
+              { id: "org-wawanesa", name: "Wawanesa", slug: "wawanesa", role: "platform_admin" },
+              { id: "org-allstate", name: "Allstate", slug: "allstate", role: "platform_admin" },
+            ]
+          : [{ id: "org-allstate", name: "Allstate", slug: "allstate", role: "reviewer" }],
+      ),
+    ),
   },
   apiErrorMessage: (error: unknown, fallback = "Request failed") =>
     error instanceof Error ? error.message : fallback,
@@ -29,9 +35,9 @@ vi.mock("@/lib/auth-context", () => ({
       firstName: "Alex",
       lastName: "Reviewer",
       role: "reviewer",
-      platformRole: authState.leasedPlatformAccess ? "admin" : "none",
+      platformRole: authState.platformAdminInTenant ? "admin" : "none",
     },
-    organization: authState.leasedPlatformAccess
+    organization: authState.platformAdminInTenant
       ? {
           id: "org-wawanesa",
           name: "Wawanesa",
@@ -46,14 +52,12 @@ vi.mock("@/lib/auth-context", () => ({
           permissions: ["claims:read"],
           accessMode: "membership",
         },
-    isPlatformAdmin: authState.leasedPlatformAccess,
+    isPlatformAdmin: authState.platformAdminInTenant,
     isTenantAdmin: false,
-    isPlatformAccessActive: authState.leasedPlatformAccess,
-    canManageSettings: authState.leasedPlatformAccess,
+    canManageSettings: authState.platformAdminInTenant,
     canCreateClaims: false,
     logout: vi.fn(),
-    enterTenant: vi.fn(),
-    exitTenant: vi.fn(),
+    switchTenant: vi.fn(),
   }),
 }))
 
@@ -81,19 +85,30 @@ describe("AppShell tenant navigation", () => {
     expect(screen.queryByText("New intake")).not.toBeInTheDocument()
   })
 
-  it("shows settings during leased platform access without tenant-admin status", async () => {
-    authState.leasedPlatformAccess = true
+  it("shows settings and other tenants for a platform administrator", async () => {
+    authState.platformAdminInTenant = true
     try {
+      const user = userEvent.setup()
       renderShell(
         <AppShell>
-          <p>Leased tenant workspace</p>
+          <p>Platform tenant workspace</p>
         </AppShell>,
       )
 
       expect(screen.getAllByText("Settings").length).toBeGreaterThan(0)
       expect(screen.getAllByText("Wawanesa").length).toBeGreaterThan(0)
+
+      await user.click(
+        screen.getByRole("button", {
+          name: "Tenant menu. Current tenant: Wawanesa",
+        }),
+      )
+      expect(
+        await screen.findByRole("menuitem", { name: "Switch to Allstate" }),
+      ).toBeInTheDocument()
+      expect(screen.queryByLabelText("Reason for access")).not.toBeInTheDocument()
     } finally {
-      authState.leasedPlatformAccess = false
+      authState.platformAdminInTenant = false
     }
   })
 })

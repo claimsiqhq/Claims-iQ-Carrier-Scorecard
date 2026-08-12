@@ -7,6 +7,7 @@ import {
   pgTable,
   timestamp,
   unique,
+  uuid,
   varchar,
 } from "drizzle-orm/pg-core";
 
@@ -23,6 +24,7 @@ export const usersTable = pgTable("users", {
   profileImageUrl: varchar("profile_image_url"),
   role: varchar("role").notNull().default("user"),
   platformRole: platformRoleEnum("platform_role"),
+  lastActiveOrganizationId: uuid("last_active_organization_id"),
   authVersion: integer("auth_version").notNull().default(1),
   passwordChangedAt: timestamp("password_changed_at", { withTimezone: true }),
   emailVerifiedAt: timestamp("email_verified_at", { withTimezone: true }),

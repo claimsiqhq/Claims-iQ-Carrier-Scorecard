@@ -6,7 +6,6 @@ import {
 } from "@workspace/db";
 import {
   hasOrganizationPermission,
-  MultipleOrganizationMembershipsError,
   platformLeaseOrganizationContext,
   resolveOrganizationContext,
   type OrganizationContext,
@@ -77,7 +76,10 @@ export async function organizationContextMiddleware(
           })
         : req.user.platformRole === "admin"
           ? null
-          : await resolveOrganizationContext(req.user.id);
+          : await resolveOrganizationContext(
+              req.user.id,
+              req.activeOrganizationId,
+            );
 
     req.organization = context ?? undefined;
     if (!context) {
@@ -88,8 +90,8 @@ export async function organizationContextMiddleware(
       res.status(403).json({
         error:
           req.user.platformRole === "admin"
-            ? "A current platform tenant access lease is required"
-            : "Exactly one organization membership is required",
+            ? "A current platform tenant workspace is required"
+            : "An organization membership is required",
       });
       return;
     }
@@ -111,13 +113,6 @@ export async function organizationContextMiddleware(
     releaseOnResponseEnd(res, lease);
     runWithTenantDatabase(lease, next);
   } catch (err) {
-    if (err instanceof MultipleOrganizationMembershipsError) {
-      res.status(403).json({
-        error:
-          "Multiple organization memberships are not valid for tenant sessions",
-      });
-      return;
-    }
     logger.error(
       {
         errorName: err instanceof Error ? err.name : "UnknownError",

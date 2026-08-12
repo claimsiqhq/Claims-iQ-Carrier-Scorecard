@@ -8,16 +8,16 @@ import {
   type SessionUser,
 } from "./lib/auth";
 import {
-  MultipleOrganizationMembershipsError,
   platformLeaseOrganizationContext,
-  resolveSingleMembershipContext,
+  resolveMembershipContext,
+  type MembershipContextRow,
 } from "./lib/authorization";
 import { organizationContextMiddleware } from "./middlewares/organizationContext";
 
 const organizationId = "10000000-0000-4000-8000-000000000001";
 
 test("single organization membership resolves server-side", () => {
-  const context = resolveSingleMembershipContext("user-1", [
+  const context = resolveMembershipContext("user-1", [
     {
       membershipId: "20000000-0000-4000-8000-000000000001",
       organizationId,
@@ -33,7 +33,7 @@ test("single organization membership resolves server-side", () => {
 });
 
 test("ordinary tenant owners retain settings management", () => {
-  const context = resolveSingleMembershipContext("owner-1", [
+  const context = resolveMembershipContext("owner-1", [
     {
       membershipId: "20000000-0000-4000-8000-000000000002",
       organizationId,
@@ -48,27 +48,57 @@ test("ordinary tenant owners retain settings management", () => {
   assert.equal(context?.permissions.includes("settings:manage"), true);
 });
 
-test("multiple organization memberships fail closed", () => {
-  assert.throws(
-    () =>
-      resolveSingleMembershipContext("user-1", [
-        {
-          membershipId: "membership-1",
-          organizationId,
-          organizationName: "Tenant A",
-          role: "viewer",
-          explicitPermissions: [],
-        },
-        {
-          membershipId: "membership-2",
-          organizationId: "10000000-0000-4000-8000-000000000002",
-          organizationName: "Tenant B",
-          role: "viewer",
-          explicitPermissions: [],
-        },
-      ]),
-    MultipleOrganizationMembershipsError,
+const multiTenantMemberships: MembershipContextRow[] = [
+  {
+    membershipId: "membership-1",
+    organizationId,
+    organizationName: "Tenant A",
+    role: "viewer",
+    explicitPermissions: [],
+  },
+  {
+    membershipId: "membership-2",
+    organizationId: "10000000-0000-4000-8000-000000000002",
+    organizationName: "Tenant B",
+    role: "reviewer",
+    explicitPermissions: [],
+  },
+];
+
+test("multi-membership sessions resolve the selected tenant", () => {
+  const context = resolveMembershipContext(
+    "user-1",
+    multiTenantMemberships,
+    "10000000-0000-4000-8000-000000000002",
   );
+
+  assert.equal(
+    context?.organizationId,
+    "10000000-0000-4000-8000-000000000002",
+  );
+  assert.equal(context?.role, "reviewer");
+  assert.equal(context?.accessMode, "membership");
+});
+
+test("an unknown selected tenant falls back to the default membership", () => {
+  const context = resolveMembershipContext(
+    "user-1",
+    multiTenantMemberships,
+    "99999999-0000-4000-8000-000000000009",
+  );
+
+  assert.equal(context?.organizationId, organizationId);
+  assert.equal(context?.role, "viewer");
+});
+
+test("sessions without a selection use the default membership ordering", () => {
+  const context = resolveMembershipContext("user-1", multiTenantMemberships);
+
+  assert.equal(context?.organizationId, organizationId);
+});
+
+test("users without any membership resolve to no tenant", () => {
+  assert.equal(resolveMembershipContext("user-1", []), null);
 });
 
 test("validated platform leases receive temporary settings management", () => {
@@ -136,7 +166,7 @@ test("platform admin has no tenant by default and normal routes are denied", asy
   assert.equal(session.status, 200);
   assert.equal(session.body.organization, null);
   assert.equal(claims.status, 403);
-  assert.match(claims.body.error, /lease/i);
+  assert.match(claims.body.error, /tenant workspace/i);
 });
 
 test("session database ID is derived from the actual cookie token", () => {
