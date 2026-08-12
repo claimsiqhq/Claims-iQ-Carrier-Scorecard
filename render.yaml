@@ -1,11 +1,11 @@
-# Render Blueprint for Complete iQ Carrier Audit.
+# Render Blueprint for Complete iQ Carrier Scorecard.
 # The API and durable worker are paid Starter services so processing does not
-# spin down mid-audit. Supabase remains the managed database and object store.
+# spin down mid-processing. Supabase remains the managed database and object store.
 
 services:
   # Public Express API.
   - type: web
-    name: complete-iq-carrier-audit-api
+    name: complete-iq-carrier-scorecard-api
     runtime: node
     plan: starter
     region: oregon
@@ -86,7 +86,7 @@ services:
 
   # Dedicated Postgres-backed queue consumer.
   - type: worker
-    name: complete-iq-carrier-audit-worker
+    name: complete-iq-carrier-scorecard-worker
     runtime: node
     plan: starter
     region: oregon
@@ -102,44 +102,44 @@ services:
         value: "24.6.0"
       - key: OPERATIONS_DATABASE_URL
         fromService:
-          name: complete-iq-carrier-audit-api
+          name: complete-iq-carrier-scorecard-api
           type: web
           envVarKey: OPERATIONS_DATABASE_URL
       - key: SUPABASE_URL
         fromService:
-          name: complete-iq-carrier-audit-api
+          name: complete-iq-carrier-scorecard-api
           type: web
           envVarKey: SUPABASE_URL
       - key: SUPABASE_PUBLISHABLE_KEY
         fromService:
-          name: complete-iq-carrier-audit-api
+          name: complete-iq-carrier-scorecard-api
           type: web
           envVarKey: SUPABASE_PUBLISHABLE_KEY
       - key: SUPABASE_JWT_SECRET
         fromService:
-          name: complete-iq-carrier-audit-api
+          name: complete-iq-carrier-scorecard-api
           type: web
           envVarKey: SUPABASE_JWT_SECRET
       - key: SUPABASE_STORAGE_JWT_TTL_SECONDS
         value: "60"
       - key: GEMINI_API_KEY
         fromService:
-          name: complete-iq-carrier-audit-api
+          name: complete-iq-carrier-scorecard-api
           type: web
           envVarKey: GEMINI_API_KEY
       - key: GEMINI_MODEL
         fromService:
-          name: complete-iq-carrier-audit-api
+          name: complete-iq-carrier-scorecard-api
           type: web
           envVarKey: GEMINI_MODEL
       - key: GEMINI_BASE_URL
         fromService:
-          name: complete-iq-carrier-audit-api
+          name: complete-iq-carrier-scorecard-api
           type: web
           envVarKey: GEMINI_BASE_URL
       - key: GEMINI_VISION_MAX_PDF_PAGES
         fromService:
-          name: complete-iq-carrier-audit-api
+          name: complete-iq-carrier-scorecard-api
           type: web
           envVarKey: GEMINI_VISION_MAX_PDF_PAGES
       - key: LOG_LEVEL
@@ -147,7 +147,7 @@ services:
 
   # React/Vite frontend served from Render's CDN.
   - type: web
-    name: complete-iq-carrier-audit
+    name: complete-iq-carrier-scorecard
     runtime: static
     branch: main
     autoDeployTrigger: checksPass
