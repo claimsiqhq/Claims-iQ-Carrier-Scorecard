@@ -50,7 +50,10 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { api, apiErrorMessage, queryKeys } from "@/lib/api"
 import { useAuth } from "@/lib/auth-context"
-import { carrierEntitiesForOrganization } from "@/lib/carrier-entities"
+import {
+  carrierEntitiesForOrganization,
+  defaultCarrierEntityId,
+} from "@/lib/carrier-entities"
 import type {
   AuditResult,
   CarrierOption,
@@ -151,15 +154,12 @@ export default function ClaimWorkbench({ claimId }: { claimId: string }) {
 
   useEffect(() => {
     if (!reprocessOpen) return
-    if (carrierEntities.length === 1) {
-      setReprocessCarrierEntityId(carrierEntities[0].id)
+    if (carrierEntities.length === 0) {
+      if (reprocessCarrierEntityId) setReprocessCarrierEntityId("")
       return
     }
-    if (
-      reprocessCarrierEntityId
-      && !carrierEntities.some((option) => option.id === reprocessCarrierEntityId)
-    ) {
-      setReprocessCarrierEntityId("")
+    if (!carrierEntities.some((option) => option.id === reprocessCarrierEntityId)) {
+      setReprocessCarrierEntityId(defaultCarrierEntityId(carrierEntities))
     }
   }, [carrierEntities, reprocessCarrierEntityId, reprocessOpen])
 
@@ -735,9 +735,6 @@ export default function ClaimWorkbench({ claimId }: { claimId: string }) {
               {!carrierQuery.isLoading && carrierEntities.length === 0 && (
                 <option value="">No active carrier entity available</option>
               )}
-              {carrierEntities.length > 1 && (
-                <option value="">Select a carrier entity…</option>
-              )}
               {carrierEntities.map((option: CarrierOption) => (
                 <option key={option.id} value={option.id}>
                   {option.displayName}
@@ -746,7 +743,7 @@ export default function ClaimWorkbench({ claimId }: { claimId: string }) {
             </select>
             <span className="text-xs text-[var(--ciq-ink-muted)]">
               {carrierEntities.length > 1
-                ? "Only entities returned for the active tenant are available."
+                ? "Preselected to this tenant's primary entity. Every option is audited under this tenant's ruleset."
                 : carrierEntities.length === 1
                   ? "Locked to the active entity returned for this tenant."
                   : "Reprocessing requires an active entity in the current tenant."}

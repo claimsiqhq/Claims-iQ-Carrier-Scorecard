@@ -120,19 +120,8 @@ describe("UploadClaimsDialog", () => {
     expect(screen.queryByRole("option", { name: "Andover" })).not.toBeInTheDocument()
   })
 
-  it("uses entity IDs for a multi-entity tenant selector", async () => {
+  it("preselects the primary entity so multi-entity tenants are never forced to choose", async () => {
     mocks.getCarrierOptions.mockResolvedValue([
-      {
-        id: "10000000-0000-4000-8000-000000000001",
-        key: "allstate-property",
-        entityKey: "allstate-property",
-        carrierKey: "allstate",
-        displayName: "Allstate Property",
-        organizationId: "org-allstate",
-        isPrimary: true,
-        active: true,
-        logoUrl: null,
-      },
       {
         id: "10000000-0000-4000-8000-000000000002",
         key: "allstate-indemnity",
@@ -144,18 +133,34 @@ describe("UploadClaimsDialog", () => {
         active: true,
         logoUrl: null,
       },
+      {
+        id: "10000000-0000-4000-8000-000000000001",
+        key: "allstate-property",
+        entityKey: "allstate-property",
+        carrierKey: "allstate",
+        displayName: "Allstate Property",
+        organizationId: "org-allstate",
+        isPrimary: true,
+        active: true,
+        logoUrl: null,
+      },
     ])
     const user = userEvent.setup()
     renderDialog()
     await user.click(screen.getByRole("button", { name: "Add files" }))
 
     const selector = await screen.findByLabelText("Carrier entity")
+    // The primary entity is preselected even when it is not listed first.
+    await waitFor(() => {
+      expect(selector).toHaveValue("10000000-0000-4000-8000-000000000001")
+    })
+    expect(screen.queryByRole("option", { name: /select a carrier/i })).not.toBeInTheDocument()
+    expect(
+      screen.getByText(/audited under this tenant's ruleset/i),
+    ).toBeInTheDocument()
+
     await waitFor(() => expect(selector).toBeEnabled())
     await user.selectOptions(selector, "10000000-0000-4000-8000-000000000002")
-
     expect(selector).toHaveValue("10000000-0000-4000-8000-000000000002")
-    expect(screen.getByRole("option", { name: "Allstate Indemnity" })).toHaveValue(
-      "10000000-0000-4000-8000-000000000002",
-    )
   })
 })

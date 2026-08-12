@@ -30,7 +30,10 @@ import {
 } from "@/components/ui/dialog"
 import { api, apiErrorMessage, queryKeys } from "@/lib/api"
 import { useAuth } from "@/lib/auth-context"
-import { carrierEntitiesForOrganization } from "@/lib/carrier-entities"
+import {
+  carrierEntitiesForOrganization,
+  defaultCarrierEntityId,
+} from "@/lib/carrier-entities"
 import { intakeRecoveryKey } from "@/lib/tenant-state"
 import type { CarrierOption } from "@/lib/types"
 import { cn } from "@/lib/utils"
@@ -127,15 +130,12 @@ export function UploadClaimsDialog({
   }, [initialOpen])
 
   useEffect(() => {
-    if (carrierEntities.length === 1) {
-      setCarrierEntityId(carrierEntities[0].id)
+    if (carrierEntities.length === 0) {
+      if (carrierEntityId) setCarrierEntityId("")
       return
     }
-    if (
-      carrierEntityId
-      && !carrierEntities.some((option) => option.id === carrierEntityId)
-    ) {
-      setCarrierEntityId("")
+    if (!carrierEntities.some((option) => option.id === carrierEntityId)) {
+      setCarrierEntityId(defaultCarrierEntityId(carrierEntities))
     }
   }, [carrierEntities, carrierEntityId])
 
@@ -442,9 +442,6 @@ export function UploadClaimsDialog({
               {!carriers.isLoading && carrierEntities.length === 0 && (
                 <option value="">Assigned from the tenant session</option>
               )}
-              {carrierEntities.length > 1 && (
-                <option value="">Select a carrier entity…</option>
-              )}
               {carrierEntities.map((option: CarrierOption) => (
                 <option key={option.id} value={option.id}>
                   {option.displayName}
@@ -453,7 +450,7 @@ export function UploadClaimsDialog({
             </select>
             <span className="text-xs text-[var(--ciq-ink-muted)]">
               {carrierEntities.length > 1
-                ? "Choose an entity within the current tenant for this batch."
+                ? `Preselected to this tenant's primary entity. Every option is a ${organization?.name || "tenant"} entity audited under this tenant's ruleset.`
                 : carrierEntities.length === 1
                   ? "Locked to the active entity returned for this tenant."
                   : "The server will use the entity assigned to this tenant session."}
@@ -562,12 +559,7 @@ export function UploadClaimsDialog({
             </Button>
             <Button
               onClick={() => void startBatch()}
-              disabled={
-                !queuedCount
-                || processingBatch
-                || carriers.isLoading
-                || (carrierEntities.length > 1 && !carrierEntityId)
-              }
+              disabled={!queuedCount || processingBatch || carriers.isLoading}
             >
               {processingBatch ? (
                 <>
