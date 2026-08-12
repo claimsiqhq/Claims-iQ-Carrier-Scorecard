@@ -9,12 +9,12 @@ interface BrandMarkProps {
 export function BrandMark({ compact = false, inverse = false, className }: BrandMarkProps) {
   return (
     <span className={cn("ciq-wordmark", inverse && "ciq-wordmark--inverse", className)}>
-      <span className="ciq-mark" aria-hidden="true">
-        <span className="ciq-mark__rail" />
-        <span className="ciq-mark__entry ciq-mark__entry--one" />
-        <span className="ciq-mark__entry ciq-mark__entry--two" />
-        <span className="ciq-mark__entry ciq-mark__entry--three" />
-      </span>
+      <img
+        className="ciq-mark-image"
+        src={`${import.meta.env.BASE_URL}images/complete-iq-mark.png?v=4`}
+        alt=""
+        aria-hidden="true"
+      />
       {!compact && (
         <span className="ciq-wordmark__text">
           <span>Complete iQ</span>

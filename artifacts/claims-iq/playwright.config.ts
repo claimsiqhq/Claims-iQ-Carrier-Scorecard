@@ -1,5 +1,8 @@
 import { defineConfig } from "@playwright/test"
 
+const port = process.env.PLAYWRIGHT_PORT || "4173"
+const baseURL = `http://127.0.0.1:${port}`
+
 const viewports = [
   { name: "mobile-320", width: 320, height: 800 },
   { name: "mobile-375", width: 375, height: 812 },
@@ -17,7 +20,7 @@ export default defineConfig({
   reporter: [["list"], ["html", { open: "never" }]],
   outputDir: "test-results",
   use: {
-    baseURL: "http://127.0.0.1:4173",
+    baseURL,
     reducedMotion: "reduce",
     trace: "retain-on-failure",
   },
@@ -26,8 +29,8 @@ export default defineConfig({
     use: { viewport: { width, height } },
   })),
   webServer: {
-    command: "PORT=4173 pnpm dev",
-    url: "http://127.0.0.1:4173",
+    command: `PORT=${port} pnpm dev`,
+    url: baseURL,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
   },

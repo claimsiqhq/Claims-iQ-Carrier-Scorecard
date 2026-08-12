@@ -1,11 +1,12 @@
-const CACHE_NAME = "complete-iq-v3";
+const CACHE_NAME = "complete-iq-v4";
 const scopeUrl = new URL(self.registration.scope);
 const scoped = (path) => new URL(path, scopeUrl).toString();
 const STATIC_ASSETS = [
   scoped("./"),
   scoped("manifest.json"),
-  scoped("favicon.svg"),
-  scoped("icons/icon.svg"),
+  scoped("favicon.png"),
+  scoped("icons/icon-192.png"),
+  scoped("icons/icon-512.png"),
 ];
 
 self.addEventListener("install", (event) => {

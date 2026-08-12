@@ -365,8 +365,8 @@ export function UploadClaimsDialog({
   return (
     <Dialog open={open} onOpenChange={setDialogOpen}>
       {trigger && <DialogTrigger asChild>{trigger}</DialogTrigger>}
-      <DialogContent className="max-h-[92dvh] overflow-hidden p-0 sm:max-w-2xl">
-        <DialogHeader className="border-b border-[var(--ciq-border)] px-5 pb-4 pt-5 text-left">
+      <DialogContent className="flex max-h-[92dvh] w-[calc(100%-1rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
+        <DialogHeader className="shrink-0 border-b border-[var(--ciq-border)] px-5 pb-4 pt-5 text-left">
           <span className="ciq-eyebrow !mb-1 !text-[var(--ciq-financial)]">Claim intake</span>
           <DialogTitle className="font-[var(--ciq-font-serif)] text-2xl">
             Add source packages to the ledger
@@ -377,7 +377,7 @@ export function UploadClaimsDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="max-h-[calc(92dvh-12rem)] space-y-4 overflow-y-auto px-5 py-4">
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-5 py-4">
           <input
             ref={inputRef}
             type="file"
@@ -549,7 +549,7 @@ export function UploadClaimsDialog({
           )}
         </div>
 
-        <DialogFooter className="flex-row items-center justify-between gap-3 border-t border-[var(--ciq-border)] bg-[var(--ciq-surface-subtle)] px-5 py-4 sm:justify-between sm:space-x-0">
+        <DialogFooter className="shrink-0 flex-row items-center justify-between gap-3 border-t border-[var(--ciq-border)] bg-[var(--ciq-surface-subtle)] px-5 py-4 sm:justify-between sm:space-x-0">
           <div className="hidden text-xs text-[var(--ciq-ink-muted)] sm:block">
             Progress can recover after a refresh.
           </div>

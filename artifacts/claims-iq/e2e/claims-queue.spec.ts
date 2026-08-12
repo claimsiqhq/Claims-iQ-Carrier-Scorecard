@@ -431,6 +431,36 @@ test("batch intake reaches a recoverable ready state", async ({ page }) => {
   expect(ingestBodies[0]).not.toContain('name="carrierKey"')
 })
 
+test("large batch keeps intake actions visible while the queue scrolls", async ({ page }) => {
+  await mockAuthenticatedApi(page)
+  await page.goto("/claims?upload=1")
+
+  await page.getByLabel("Choose claim PDF files").setInputFiles(
+    Array.from({ length: 12 }, (_, index) => ({
+      name: `synthetic-claim-${index + 1}.pdf`,
+      mimeType: "application/pdf",
+      buffer: Buffer.from(`%PDF-1.7 synthetic browser fixture ${index + 1}`),
+    })),
+  )
+
+  const dialog = page.getByRole("dialog")
+  const startButton = dialog.getByRole("button", { name: "Start 12 intakes" })
+  await expect(startButton).toBeVisible()
+
+  const buttonBounds = await startButton.boundingBox()
+  const viewport = page.viewportSize()
+  expect(buttonBounds).not.toBeNull()
+  expect(viewport).not.toBeNull()
+  expect(buttonBounds!.y + buttonBounds!.height).toBeLessThanOrEqual(viewport!.height)
+
+  const scrollRegion = dialog.locator(".overflow-y-auto").first()
+  const scrollMetrics = await scrollRegion.evaluate((element) => ({
+    clientHeight: element.clientHeight,
+    scrollHeight: element.scrollHeight,
+  }))
+  expect(scrollMetrics.scrollHeight).toBeGreaterThan(scrollMetrics.clientHeight)
+})
+
 test("reviewer can follow evidence, approve, and complete a rerun", async ({ page }) => {
   const reprocessBodies: Array<Record<string, unknown>> = []
   page.on("request", (request) => {
