@@ -253,7 +253,11 @@ async function renderSinglePdfPage(
     str?: string;
     hasEOL?: boolean;
   }>)
-    .map((item) => `${item.str ?? ""}${item.hasEOL ? "\n" : " "}`)
+    .map((item) =>
+      `${(item.str ?? "").replace(/[\u0000-\u001f\u007f]/g, " ")}${
+        item.hasEOL ? "\n" : " "
+      }`
+    )
     .join("")
     .replace(/[ \t]+\n/g, "\n")
     .replace(/[ \t]{2,}/g, " ")
@@ -282,6 +286,9 @@ async function renderSinglePdfPage(
     PAGE_RENDITION_JPEG_QUALITY,
   );
   page.cleanup();
+  context.reset();
+  canvas.width = 1;
+  canvas.height = 1;
 
   return {
     pageNumber,
@@ -488,12 +495,14 @@ async function _extractPdfTextWithVisionPagesInner(params: {
     "Starting page-by-page PDF vision extraction",
   );
 
-  const loadingTask = pdfjs.getDocument({
-    data: new Uint8Array(params.pdfBuffer),
-    useSystemFonts: true,
-    disableFontFace: true,
-  });
-  const pdf = await loadingTask.promise;
+  const loadPdf = () =>
+    pdfjs.getDocument({
+      data: new Uint8Array(params.pdfBuffer),
+      useSystemFonts: true,
+      disableFontFace: true,
+    });
+  let loadingTask = loadPdf();
+  let pdf = await loadingTask.promise;
   const totalPages = pdf.numPages;
   logger.info({ total_pages: totalPages }, "PDF loaded for page rendering");
 
@@ -520,6 +529,7 @@ async function _extractPdfTextWithVisionPagesInner(params: {
   }> = [];
 
   const CONCURRENCY = 2;
+  const DOCUMENT_CHUNK_SIZE = 24;
   const MIN_NATIVE_TEXT_CHARACTERS = 40;
 
   async function processOnePage(pageNumber: number) {
@@ -696,22 +706,48 @@ async function _extractPdfTextWithVisionPagesInner(params: {
   }
 
   for (
-    let batchStart = 1;
-    batchStart <= totalPages;
-    batchStart += CONCURRENCY
+    let chunkStart = 1;
+    chunkStart <= totalPages;
+    chunkStart += DOCUMENT_CHUNK_SIZE
   ) {
-    const batchEnd = Math.min(batchStart + CONCURRENCY - 1, totalPages);
-    const batchPages = Array.from(
-      { length: batchEnd - batchStart + 1 },
-      (_, i) => batchStart + i,
+    if (chunkStart > 1) {
+      loadingTask = loadPdf();
+      pdf = await loadingTask.promise;
+    }
+    const chunkEnd = Math.min(
+      chunkStart + DOCUMENT_CHUNK_SIZE - 1,
+      totalPages,
     );
-    const results = await Promise.all(batchPages.map(processOnePage));
-    extractedPages.push(...results);
+    for (
+      let batchStart = chunkStart;
+      batchStart <= chunkEnd;
+      batchStart += CONCURRENCY
+    ) {
+      const batchEnd = Math.min(
+        batchStart + CONCURRENCY - 1,
+        chunkEnd,
+      );
+      const batchPages = Array.from(
+        { length: batchEnd - batchStart + 1 },
+        (_, i) => batchStart + i,
+      );
+      const results = await Promise.all(batchPages.map(processOnePage));
+      extractedPages.push(...results);
+      clearAllCache();
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+    await loadingTask.destroy();
     clearAllCache();
     await new Promise<void>((resolve) => setImmediate(resolve));
+    logger.info(
+      {
+        requestId: params.requestId,
+        completedPages: chunkEnd,
+        totalPages,
+      },
+      "Released PDF extraction chunk",
+    );
   }
-
-  await loadingTask.destroy();
 
   if (filteredPages.length > 0 || failedPages.length > 0) {
     logger.warn(

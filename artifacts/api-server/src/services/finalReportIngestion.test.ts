@@ -122,3 +122,27 @@ test("text-native PDF pages bypass the vision provider", async () => {
   assert.match(result.text, /CLM-12345/);
   assert.equal(result.extractionDocument.failedPages.length, 0);
 });
+
+test("large text-native PDFs release and reopen document chunks", async () => {
+  const pdf = new PDFDocument({ title: "Chunked extraction test" });
+  for (let pageNumber = 1; pageNumber <= 25; pageNumber += 1) {
+    const context = pdf.beginPage(612, 792);
+    context.fillStyle = "#111111";
+    context.font = "18px sans-serif";
+    context.fillText(
+      `Claim page ${pageNumber} contains enough native text to avoid vision processing entirely.`,
+      48,
+      96,
+    );
+    pdf.endPage();
+  }
+
+  const result = await extractPdfTextWithVisionPages({
+    pdfBuffer: pdf.close(),
+    fileName: "chunked-native-text.pdf",
+    requestId: "chunked-native-text-test",
+  });
+
+  assert.equal(result.extractionDocument.page_count, 25);
+  assert.match(result.text, /Claim page 25/);
+});
