@@ -5,6 +5,7 @@ import type { ScopedDatabaseLease } from "@workspace/db";
 import { createTenantStorageCapability } from "../lib/supabaseStorage";
 import {
   createFinalReportIngestionCapability,
+  extractPdfTextWithVisionPages,
   renderPdfPageRenditions,
 } from "./finalReportIngestion";
 
@@ -95,7 +96,29 @@ test("page rendition backfill renders optimized JPEG pages without vision calls"
   assert.deepEqual(summary.rendered_pages, [1, 2]);
   assert.deepEqual(summary.failed_pages, []);
   assert.equal(pages.length, 2);
-  assert.equal(pages[0]?.width, 1800);
+  assert.equal(pages[0]?.width, 1400);
   assert.equal(pages[0]?.jpegBuffer[0], 0xff);
   assert.equal(pages[0]?.jpegBuffer[1], 0xd8);
+});
+
+test("text-native PDF pages bypass the vision provider", async () => {
+  const pdf = new PDFDocument({ title: "Native text test" });
+  const context = pdf.beginPage(612, 792);
+  context.fillStyle = "#111111";
+  context.font = "18px sans-serif";
+  context.fillText(
+    "Claim Number CLM-12345 Insured Synthetic Example Policy ABC123 Water Loss",
+    48,
+    96,
+  );
+  pdf.endPage();
+
+  const result = await extractPdfTextWithVisionPages({
+    pdfBuffer: pdf.close(),
+    fileName: "native-text.pdf",
+    requestId: "native-text-test",
+  });
+
+  assert.match(result.text, /CLM-12345/);
+  assert.equal(result.extractionDocument.failedPages.length, 0);
 });

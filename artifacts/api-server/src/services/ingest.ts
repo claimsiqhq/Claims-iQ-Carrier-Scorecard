@@ -17,15 +17,6 @@ export interface ParsedClaimData {
   summary: string;
 }
 
-export class ClaimParsingError extends Error {
-  readonly code = "claim_parse_failed";
-
-  constructor(message: string) {
-    super(message);
-    this.name = "ClaimParsingError";
-  }
-}
-
 const PARSE_SYSTEM_PROMPT = `You are a structured data extraction engine for insurance claim documents.
 You receive the full text of a combined claim PDF package (which may include a DA report, Statement of Loss, payment letter, FA report, estimate, photos descriptions, and other documents).
 
@@ -98,12 +89,78 @@ export function parseClaimMetadataResponse(
         candidate.replace(/,\s*([}\]])/g, "$1"),
       );
       const validated = parsedClaimSchema.safeParse(parsed);
-      if (validated.success) return validated.data;
+      if (
+        validated.success
+        && Object.values(validated.data).some((value) => value.trim())
+      ) {
+        return validated.data;
+      }
     } catch {
       // Try the bounded object candidate before declaring the response invalid.
     }
   }
   return null;
+}
+
+function firstLineMatch(text: string, patterns: RegExp[]): string {
+  for (const pattern of patterns) {
+    const match = pattern.exec(text);
+    const value = match?.[1]?.replace(/\s+/g, " ").trim();
+    if (value) return value;
+  }
+  return "";
+}
+
+export function parseClaimMetadataFallback(
+  extractedText: string,
+): ParsedClaimData {
+  const text = extractedText.substring(0, 60000);
+  const claimNumber = firstLineMatch(text, [
+    /\bclaim\s*(?:number|no\.?|#)\s*[:#-]?\s*([A-Za-z0-9][A-Za-z0-9._/-]{2,64})/i,
+    /\bfile\s*(?:number|no\.?|#)\s*[:#-]?\s*([A-Za-z0-9][A-Za-z0-9._/-]{2,64})/i,
+  ]);
+  const insuredName = firstLineMatch(text, [
+    /\binsured(?:\s+name)?\s*[:#-]\s*([^\n\r]+)/i,
+    /\bpolicyholder\s*[:#-]\s*([^\n\r]+)/i,
+  ]);
+  const policyNumber = firstLineMatch(text, [
+    /\bpolicy\s*(?:number|no\.?|#)\s*[:#-]?\s*([A-Za-z0-9][A-Za-z0-9._/-]{2,64})/i,
+  ]);
+  const dateOfLoss = firstLineMatch(text, [
+    /\bdate\s+of\s+loss\s*[:#-]\s*(\d{1,4}[/-]\d{1,2}[/-]\d{1,4})/i,
+    /\bloss\s+date\s*[:#-]\s*(\d{1,4}[/-]\d{1,2}[/-]\d{1,4})/i,
+  ]);
+  const lossType = firstLineMatch(text, [
+    /\b(?:loss\s+type|cause\s+of\s+loss|peril)\s*[:#-]\s*([^\n\r]+)/i,
+  ]);
+  const propertyAddress = firstLineMatch(text, [
+    /\b(?:loss\s+location|property\s+address|risk\s+address)\s*[:#-]\s*([^\n\r]+)/i,
+  ]);
+  const adjusterName = firstLineMatch(text, [
+    /\b(?:adjuster|examiner)\s*(?:name)?\s*[:#-]\s*([^\n\r]+)/i,
+  ]);
+  const totalClaimAmount = firstLineMatch(text, [
+    /\b(?:total\s+claim\s+amount|replacement\s+cost|total\s+rcv|payment\s+amount)\s*[:#-]?\s*(\$?[\d,]+(?:\.\d{2})?)/i,
+  ]);
+  const deductible = firstLineMatch(text, [
+    /\bdeductible\s*[:#-]?\s*(\$?[\d,]+(?:\.\d{2})?)/i,
+  ]);
+  return {
+    claimNumber,
+    insuredName,
+    carrier: "",
+    dateOfLoss,
+    policyNumber,
+    lossType,
+    propertyAddress,
+    adjusterName,
+    adjusterCompany: "",
+    totalClaimAmount,
+    deductible,
+    summary:
+      [lossType, propertyAddress].filter(Boolean).join(" loss at ")
+      || "Claim metadata was recovered from deterministic document fields.",
+  };
 }
 
 export async function parseClaimFromText(
@@ -151,9 +208,13 @@ export async function parseClaimFromText(
     );
   }
 
-  throw new ClaimParsingError(
-    receivedContent
-      ? "Claim metadata provider returned invalid JSON"
-      : "Claim metadata provider returned an empty response",
+  const fallback = parseClaimMetadataFallback(extractedText);
+  logger.warn(
+    {
+      providerReturnedContent: receivedContent,
+      recoveredFieldCount: Object.values(fallback).filter(Boolean).length,
+    },
+    "Using deterministic fallback for claim metadata",
   );
+  return fallback;
 }

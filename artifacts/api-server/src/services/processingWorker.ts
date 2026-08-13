@@ -132,13 +132,12 @@ async function processExtractionJob(
       && typeof metadata.extractionDocument === "object"
         ? metadata.extractionDocument as Record<string, unknown>
         : undefined;
-    degraded =
-      (
+    degraded = Boolean(
         metadata.pageRenditions
         && typeof metadata.pageRenditions === "object"
         && (metadata.pageRenditions as Record<string, unknown>).status
           === "degraded"
-      ) || false;
+    );
     logger.info(
       {
         jobId: job.id,

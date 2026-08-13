@@ -11,6 +11,7 @@ import {
   buildJobIdempotencyKey,
   ClaimJobStateError,
   enqueueProcessingJob,
+  retryOrganizationJob,
 } from "../services/jobQueue";
 import { getAuthorizedClaim } from "../lib/authorization";
 import { requireAuth } from "../middlewares/requireAuth";
@@ -100,7 +101,22 @@ router.post(
       type: "audit",
       idempotencyKey,
     });
-    if (queued.created) {
+    let job = queued.job;
+    let started = queued.created;
+    if (
+      !queued.created
+      && ["failed", "degraded", "cancelled"].includes(job.status)
+    ) {
+      const retried = await retryOrganizationJob(
+        req.organization!.organizationId,
+        job.id,
+      );
+      if (retried) {
+        job = retried;
+        started = true;
+      }
+    }
+    if (started) {
       await db.transaction(async (tx) => {
         await tx
           .update(claims)
@@ -118,18 +134,21 @@ router.post(
           claimId: id,
           actorUserId: req.user!.id,
           activityType: "audit_queued",
-          metadata: { processingJobId: queued.job.id },
+          metadata: {
+            processingJobId: job.id,
+            restartedExistingJob: !queued.created,
+          },
         });
       });
     }
 
     res.status(202).json({
       job: {
-        id: queued.job.id,
+        id: job.id,
         claimId: id,
-        status: queued.job.status,
-        stage: queued.job.stage,
-        progress: queued.job.progress,
+        status: job.status,
+        stage: job.stage,
+        progress: job.progress,
       },
       duplicate: !queued.created,
     });

@@ -215,7 +215,7 @@ const pageExtractionSchema = z
   })
   .strict();
 
-const TARGET_RENDER_WIDTH = 1800;
+const TARGET_RENDER_WIDTH = 1400;
 const PAGE_RENDITION_JPEG_QUALITY = 86;
 
 type RenderedPage = {
@@ -224,6 +224,7 @@ type RenderedPage = {
   height: number;
   pngBuffer: Buffer;
   jpegBuffer: Buffer;
+  nativeText: string;
 };
 
 export interface PageRenditionSummary {
@@ -247,6 +248,16 @@ async function renderSinglePdfPage(
   createCanvas: any,
 ): Promise<RenderedPage> {
   const page = await pdf.getPage(pageNumber);
+  const textContent = await page.getTextContent();
+  const nativeText = (textContent.items as Array<{
+    str?: string;
+    hasEOL?: boolean;
+  }>)
+    .map((item) => `${item.str ?? ""}${item.hasEOL ? "\n" : " "}`)
+    .join("")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
   const baseViewport = page.getViewport({ scale: 1 });
   const scale = TARGET_RENDER_WIDTH / Math.max(1, baseViewport.width);
   const viewport = page.getViewport({ scale });
@@ -272,7 +283,14 @@ async function renderSinglePdfPage(
   );
   page.cleanup();
 
-  return { pageNumber, width, height, pngBuffer, jpegBuffer };
+  return {
+    pageNumber,
+    width,
+    height,
+    pngBuffer,
+    jpegBuffer,
+    nativeText,
+  };
 }
 
 const DEFAULT_SYSTEM_PROMPT = [
@@ -458,7 +476,7 @@ async function _extractPdfTextWithVisionPagesInner(params: {
   };
 }> {
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
-  const { createCanvas } = await import("@napi-rs/canvas");
+  const { clearAllCache, createCanvas } = await import("@napi-rs/canvas");
 
   logger.info(
     {
@@ -501,7 +519,8 @@ async function _extractPdfTextWithVisionPagesInner(params: {
     reason: string;
   }> = [];
 
-  const CONCURRENCY = 5;
+  const CONCURRENCY = 2;
+  const MIN_NATIVE_TEXT_CHARACTERS = 40;
 
   async function processOnePage(pageNumber: number) {
     let page: RenderedPage;
@@ -565,6 +584,16 @@ async function _extractPdfTextWithVisionPagesInner(params: {
           "Page rendition persistence failed",
         );
       }
+    }
+
+    if (page.nativeText.length >= MIN_NATIVE_TEXT_CHARACTERS) {
+      return {
+        page_number: page.pageNumber,
+        width: page.width,
+        height: page.height,
+        extracted_text: page.nativeText,
+        char_count: page.nativeText.length,
+      };
     }
 
     try {
@@ -678,6 +707,8 @@ async function _extractPdfTextWithVisionPagesInner(params: {
     );
     const results = await Promise.all(batchPages.map(processOnePage));
     extractedPages.push(...results);
+    clearAllCache();
+    await new Promise<void>((resolve) => setImmediate(resolve));
   }
 
   await loadingTask.destroy();
@@ -746,7 +777,7 @@ export async function renderPdfPageRenditions(params: {
   await acquireExtractionSlot();
   try {
     const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
-    const { createCanvas } = await import("@napi-rs/canvas");
+    const { clearAllCache, createCanvas } = await import("@napi-rs/canvas");
     const loadingTask = pdfjs.getDocument({
       data: new Uint8Array(params.pdfBuffer),
       useSystemFonts: true,
@@ -808,6 +839,8 @@ export async function renderPdfPageRenditions(params: {
             }
           }),
         );
+        clearAllCache();
+        await new Promise<void>((resolve) => setImmediate(resolve));
       }
     } finally {
       await loadingTask.destroy();
