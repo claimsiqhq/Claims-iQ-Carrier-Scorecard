@@ -21,7 +21,10 @@ import {
   getAuthorizedDocument,
 } from "../lib/authorization";
 import { requireAuth } from "../middlewares/requireAuth";
-import { requireOrganizationPermission } from "../middlewares/organizationContext";
+import {
+  requireOrganizationPermission,
+  withTenantDatabaseContext,
+} from "../middlewares/organizationContext";
 import logger from "../lib/logger";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -83,7 +86,7 @@ router.post(
   requireAuth,
   requireOrganizationPermission("claims:update"),
   upload.single("file"),
-  async (req, res) => {
+  withTenantDatabaseContext(async (req, res) => {
     let uploadedReference: CanonicalDocumentReference | null = null;
     try {
       const claimId = firstParam(req.params.id);
@@ -189,7 +192,7 @@ router.post(
       logger.error({ error }, "Document creation failed");
       res.status(500).json({ error: "Failed to create document" });
     }
-  },
+  }),
 );
 
 router.delete(

@@ -356,6 +356,10 @@ export async function getOrganizationCarrierPolicy(
       )
       .limit(1);
     if (!profile) {
+      logger.warn(
+        { organizationId },
+        "No active carrier profile is visible in the current tenant session",
+      );
       if (allowDefault) {
         return {
           organizationId,

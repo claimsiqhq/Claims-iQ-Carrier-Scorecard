@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   acquireScopedDatabase,
   createContextDatabaseProxy,
+  runWithTenantDatabase,
   runWithUnboundDatabaseRequest,
   type WorkspaceDatabase,
 } from "@workspace/db";
@@ -62,6 +63,28 @@ test("database facade fails closed in an unbound HTTP context", () => {
       /no validated tenant or operations context/,
     );
   });
+});
+
+test("runWithTenantDatabase keeps the store until a returned promise settles", async () => {
+  const operations = {
+    select: () => "operations",
+  } as unknown as WorkspaceDatabase;
+  const facade = createContextDatabaseProxy(operations);
+  const lease = {
+    database: { select: () => "tenant" },
+    client: {},
+    pool: {},
+    settings: {},
+    isReleased: false,
+    async release() {},
+  } as unknown as Awaited<ReturnType<typeof acquireScopedDatabase>>;
+
+  const seen = await runWithTenantDatabase(lease, async () => {
+    await new Promise((resolve) => setImmediate(resolve));
+    return (facade.select as unknown as () => string)();
+  });
+
+  assert.equal(seen, "tenant");
 });
 
 test("scoped clients serialize concurrent node-postgres queries", async () => {

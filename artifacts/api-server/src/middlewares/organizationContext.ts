@@ -17,6 +17,7 @@ declare global {
   namespace Express {
     interface Request {
       organization?: OrganizationContext;
+      tenantDatabaseLease?: ScopedDatabaseLease;
     }
   }
 }
@@ -110,6 +111,7 @@ export async function organizationContextMiddleware(
       await lease.release();
       return;
     }
+    req.tenantDatabaseLease = lease;
     releaseOnResponseEnd(res, lease);
     runWithTenantDatabase(lease, next);
   } catch (err) {
@@ -122,6 +124,26 @@ export async function organizationContextMiddleware(
     );
     res.status(500).json({ error: "Failed to resolve organization context" });
   }
+}
+
+/**
+ * Multer/busboy finishes the upload on a later EventEmitter tick, which drops
+ * `AsyncLocalStorage.run()` from organizationContextMiddleware. Re-enter the
+ * request lease here and keep it until the handler promise settles.
+ */
+export function withTenantDatabaseContext(
+  handler: (req: Request, res: Response) => Promise<void> | void,
+) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    const lease = req.tenantDatabaseLease;
+    if (!lease || lease.isReleased) {
+      res.status(500).json({ error: "Tenant database context is missing" });
+      return;
+    }
+    void Promise.resolve(
+      runWithTenantDatabase(lease, () => handler(req, res)),
+    ).catch(next);
+  };
 }
 
 export function requireOrganizationPermission(

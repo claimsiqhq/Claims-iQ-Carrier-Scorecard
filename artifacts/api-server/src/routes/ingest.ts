@@ -22,6 +22,7 @@ import {
 } from "../services/jobQueue";
 import {
   CarrierEntitySelectionError,
+  CarrierRulesetUnavailableError,
   resolveRequestedCarrierEntity,
 } from "../services/carrierRulesetService";
 import {
@@ -31,7 +32,10 @@ import {
 } from "../lib/supabaseStorage";
 import { getAuthorizedClaim } from "../lib/authorization";
 import { requireAuth } from "../middlewares/requireAuth";
-import { requireOrganizationPermission } from "../middlewares/organizationContext";
+import {
+  requireOrganizationPermission,
+  withTenantDatabaseContext,
+} from "../middlewares/organizationContext";
 import logger from "../lib/logger";
 
 const MAX_PDF_SIZE = 100 * 1024 * 1024;
@@ -69,7 +73,7 @@ router.post(
   requireAuth,
   requireOrganizationPermission("claims:create"),
   upload.single("file"),
-  async (req, res) => {
+  withTenantDatabaseContext(async (req, res) => {
     const organization = req.organization!;
     let storage: TenantStorageCapability | null = null;
     let uploadedReference: CanonicalDocumentReference | null = null;
@@ -336,10 +340,17 @@ router.post(
         });
         return;
       }
+      if (error instanceof CarrierRulesetUnavailableError) {
+        res.status(409).json({
+          error: error.message,
+          code: error.code,
+        });
+        return;
+      }
       logger.error({ error }, "Ingestion enqueue failed");
       res.status(500).json({ error: "Failed to store and queue claim file" });
     }
-  },
+  }),
 );
 
 router.get(
