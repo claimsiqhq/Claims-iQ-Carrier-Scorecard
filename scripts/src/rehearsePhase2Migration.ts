@@ -35,6 +35,7 @@ const fixtureAndStorageFiles = [
   "testing/carrier_tenant_cutover_legacy_fixture.sql",
   "20260810225039_carrier_tenant_storage.sql",
   "20260813082000_document_page_renditions.sql",
+  "20260813135000_reconcile_expired_claim_jobs.sql",
 ];
 const cutoverFile = "20260810232004_carrier_tenant_data_cutover.sql";
 const manifestFile = "testing/prepare_carrier_tenant_storage_manifest.sql";

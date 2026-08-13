@@ -10,6 +10,10 @@ import {
 } from "@workspace/db";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { SYSTEM_PROMPT as DEFAULT_SYSTEM, USER_PROMPT_TEMPLATE as DEFAULT_USER } from "../services/prompts";
+import {
+  AuditPromptConfigurationError,
+  normalizeAuditUserPromptTemplate,
+} from "../services/auditPromptService";
 import logger from "../lib/logger";
 import { requireAuth } from "../middlewares/requireAuth";
 import { requireOrganizationPermission } from "../middlewares/organizationContext";
@@ -341,7 +345,9 @@ router.get(
 
     res.json({
       system_prompt: systemRow?.value ?? DEFAULT_SYSTEM,
-      user_prompt_template: userRow?.value ?? DEFAULT_USER,
+      user_prompt_template: normalizeAuditUserPromptTemplate(
+        userRow?.value ?? DEFAULT_USER,
+      ),
       model_identifier: env.GEMINI_MODEL,
       updated_at:
         [systemRow?.updatedAt, userRow?.updatedAt]
@@ -374,19 +380,20 @@ router.put(
       return;
     }
 
-    const missingPlaceholders = [
-      "{{DA_QUESTIONS}}",
-      "{{FA_QUESTIONS}}",
-      "{{REPORT}}",
-    ].filter((placeholder) => !user_prompt_template.includes(placeholder));
-    if (missingPlaceholders.length > 0) {
-      res.status(400).json({
-        error: `User prompt is missing required placeholders: ${missingPlaceholders.join(", ")}`,
-      });
-      return;
+    let normalizedUserPrompt: string;
+    try {
+      normalizedUserPrompt = normalizeAuditUserPromptTemplate(
+        user_prompt_template,
+      );
+    } catch (error) {
+      if (error instanceof AuditPromptConfigurationError) {
+        res.status(400).json({ error: error.message });
+        return;
+      }
+      throw error;
     }
 
-    if (system_prompt.length > 100_000 || user_prompt_template.length > 200_000) {
+    if (system_prompt.length > 100_000 || normalizedUserPrompt.length > 200_000) {
       res.status(413).json({ error: "Prompt configuration is too large" });
       return;
     }
@@ -395,7 +402,7 @@ router.put(
     await db.transaction(async (tx) => {
       for (const { key, value } of [
         { key: "system_prompt", value: system_prompt.trim() },
-        { key: "user_prompt_template", value: user_prompt_template.trim() },
+        { key: "user_prompt_template", value: normalizedUserPrompt },
       ]) {
         await tx
           .insert(promptSettings)
@@ -413,7 +420,7 @@ router.put(
         metadata: {
           modelIdentifier: env.GEMINI_MODEL,
           systemPromptLength: system_prompt.trim().length,
-          userPromptLength: user_prompt_template.trim().length,
+          userPromptLength: normalizedUserPrompt.length,
         },
       });
     });

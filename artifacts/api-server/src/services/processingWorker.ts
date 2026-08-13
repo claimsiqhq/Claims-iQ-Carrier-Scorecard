@@ -21,6 +21,7 @@ import {
   updateJobStage,
   type ClaimedJob,
 } from "./jobQueue";
+import { shouldReusePersistedExtraction } from "./jobPolicy";
 import {
   listActiveCarrierEntities,
   resolveDetectedCarrierEntity,
@@ -107,20 +108,6 @@ async function processExtractionJob(
 }> {
   const document = await loadJobDocument(job);
   await updateJobStage(jobDatabase, job, "scanning", 10);
-
-  const fileBuffer = await storage.downloadDocument({
-    claimId: job.claimId!,
-    documentId: document.id,
-    storagePath: document.fileUrl!,
-  });
-  if (fileBuffer.length > MAX_SOURCE_SIZE) {
-    throw new ProcessingFailure(
-      "source_too_large",
-      `Source document exceeds the ${MAX_SOURCE_SIZE / 1024 / 1024}MB processing limit`,
-    );
-  }
-
-  await updateJobStage(jobDatabase, job, "extracting", 25);
   const metadata = (document.metadata as Record<string, unknown> | null) ?? {};
   const fileName =
     typeof metadata.fileName === "string" ? metadata.fileName : "claim.pdf";
@@ -132,32 +119,74 @@ async function processExtractionJob(
   let extractionDocument: Record<string, unknown> | undefined;
   let renditionDocument: PageRenditionSummary | undefined;
   let degraded = false;
+  const reusableExtraction = shouldReusePersistedExtraction(
+    job,
+    document.extractedText,
+  );
 
-  if (
-    contentType.toLowerCase() === "application/pdf"
-    || fileName.toLowerCase().endsWith(".pdf")
-  ) {
-    const vision = await extractPdfTextWithVisionPages({
-      pdfBuffer: fileBuffer,
-      fileName,
-      requestId: job.id,
-      onPageRendered: async (page) => {
-        await storage.uploadPageRendition({
-          claimId: job.claimId!,
-          documentId: document.id,
-          pageNumber: page.pageNumber,
-          body: page.jpegBuffer,
-        });
-      },
-    });
-    extractedText = vision.text;
-    extractionDocument = vision.extractionDocument as unknown as Record<string, unknown>;
-    renditionDocument = vision.renditionDocument;
+  if (reusableExtraction) {
+    await updateJobStage(jobDatabase, job, "extracting", 55);
+    extractedText = document.extractedText!;
+    extractionDocument =
+      metadata.extractionDocument
+      && typeof metadata.extractionDocument === "object"
+        ? metadata.extractionDocument as Record<string, unknown>
+        : undefined;
     degraded =
-      vision.extractionDocument.failedPages.length > 0
-      || vision.extractionDocument.filteredPages.length > 0;
+      (
+        metadata.pageRenditions
+        && typeof metadata.pageRenditions === "object"
+        && (metadata.pageRenditions as Record<string, unknown>).status
+          === "degraded"
+      ) || false;
+    logger.info(
+      {
+        jobId: job.id,
+        documentId: document.id,
+        extractedCharacters: extractedText.length,
+      },
+      "Retry reusing persisted document extraction",
+    );
   } else {
-    extractedText = fileBuffer.toString("utf-8");
+    const fileBuffer = await storage.downloadDocument({
+      claimId: job.claimId!,
+      documentId: document.id,
+      storagePath: document.fileUrl!,
+    });
+    if (fileBuffer.length > MAX_SOURCE_SIZE) {
+      throw new ProcessingFailure(
+        "source_too_large",
+        `Source document exceeds the ${MAX_SOURCE_SIZE / 1024 / 1024}MB processing limit`,
+      );
+    }
+    await updateJobStage(jobDatabase, job, "extracting", 25);
+    if (
+      contentType.toLowerCase() === "application/pdf"
+      || fileName.toLowerCase().endsWith(".pdf")
+    ) {
+      const vision = await extractPdfTextWithVisionPages({
+        pdfBuffer: fileBuffer,
+        fileName,
+        requestId: job.id,
+        onPageRendered: async (page) => {
+          await storage.uploadPageRendition({
+            claimId: job.claimId!,
+            documentId: document.id,
+            pageNumber: page.pageNumber,
+            body: page.jpegBuffer,
+          });
+        },
+      });
+      extractedText = vision.text;
+      extractionDocument =
+        vision.extractionDocument as unknown as Record<string, unknown>;
+      renditionDocument = vision.renditionDocument;
+      degraded =
+        vision.extractionDocument.failedPages.length > 0
+        || vision.extractionDocument.filteredPages.length > 0;
+    } else {
+      extractedText = fileBuffer.toString("utf-8");
+    }
   }
 
   if (!extractedText || extractedText.trim().length < 50) {
@@ -166,6 +195,19 @@ async function processExtractionJob(
       "Source document did not produce enough usable text",
     );
   }
+
+  const persistedPageRenditions = renditionDocument
+    ? {
+        version: renditionDocument.version,
+        format: renditionDocument.format,
+        status:
+          renditionDocument.failed_pages.length > 0 ? "degraded" : "ready",
+        pageCount: renditionDocument.page_count,
+        renderedPages: renditionDocument.rendered_pages,
+        failedPages: renditionDocument.failed_pages,
+        completedAt: new Date().toISOString(),
+      }
+    : (metadata.pageRenditions ?? null);
 
   await db
     .update(documents)
@@ -177,20 +219,7 @@ async function processExtractionJob(
         contentType,
         storagePath: document.fileUrl,
         extractionDocument,
-        pageRenditions: renditionDocument
-          ? {
-              version: renditionDocument.version,
-              format: renditionDocument.format,
-              status:
-                renditionDocument.failed_pages.length > 0
-                  ? "degraded"
-                  : "ready",
-              pageCount: renditionDocument.page_count,
-              renderedPages: renditionDocument.rendered_pages,
-              failedPages: renditionDocument.failed_pages,
-              completedAt: new Date().toISOString(),
-            }
-          : null,
+        pageRenditions: persistedPageRenditions,
       },
       pageCount:
         extractionDocument && typeof extractionDocument.page_count === "number"
@@ -294,20 +323,7 @@ async function processExtractionJob(
         storagePath: document.fileUrl,
         parsedData,
         extractionDocument,
-        pageRenditions: renditionDocument
-          ? {
-              version: renditionDocument.version,
-              format: renditionDocument.format,
-              status:
-                renditionDocument.failed_pages.length > 0
-                  ? "degraded"
-                  : "ready",
-              pageCount: renditionDocument.page_count,
-              renderedPages: renditionDocument.rendered_pages,
-              failedPages: renditionDocument.failed_pages,
-              completedAt: new Date().toISOString(),
-            }
-          : null,
+        pageRenditions: persistedPageRenditions,
       },
     })
     .where(

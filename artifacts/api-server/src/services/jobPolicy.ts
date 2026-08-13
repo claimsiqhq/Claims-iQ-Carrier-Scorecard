@@ -39,3 +39,14 @@ export function buildJobIdempotencyKey(input: {
 export function isTerminalJobState(status: DurableJobState): boolean {
   return ["succeeded", "degraded", "failed", "cancelled"].includes(status);
 }
+
+export function shouldReusePersistedExtraction(
+  job: { type: DurableJobType; attemptCount: number },
+  extractedText: string | null | undefined,
+): boolean {
+  return (
+    (job.type === "retry" || job.attemptCount > 1)
+    && typeof extractedText === "string"
+    && extractedText.trim().length >= 50
+  );
+}

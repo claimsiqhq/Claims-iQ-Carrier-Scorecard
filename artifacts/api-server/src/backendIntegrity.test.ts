@@ -7,6 +7,7 @@ import {
 import {
   buildJobIdempotencyKey,
   isTerminalJobState,
+  shouldReusePersistedExtraction,
 } from "./services/jobPolicy";
 import {
   hasOrganizationPermission,
@@ -76,6 +77,20 @@ test("duplicate job requests produce the same organization-scoped key", () => {
   assert.notEqual(rendition, nextRenditionVersion);
   assert.equal(isTerminalJobState("running"), false);
   assert.equal(isTerminalJobState("degraded"), true);
+  assert.equal(
+    shouldReusePersistedExtraction(
+      { type: "ingest", attemptCount: 2 },
+      "x".repeat(50),
+    ),
+    true,
+  );
+  assert.equal(
+    shouldReusePersistedExtraction(
+      { type: "ingest", attemptCount: 1 },
+      "x".repeat(50),
+    ),
+    false,
+  );
 });
 
 test("tenant isolation and granular role permissions deny cross-tenant writes", () => {
