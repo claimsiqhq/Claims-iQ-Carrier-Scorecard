@@ -1379,6 +1379,10 @@ paths:
               schema:
                 type: integer
                 format: int64
+            Content-Disposition:
+              description: Attachment filename derived from sanitized document metadata.
+              schema:
+                type: string
           content:
             application/octet-stream:
               schema:

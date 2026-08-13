@@ -583,8 +583,11 @@ test("reviewer can follow evidence, approve, and complete a rerun", async ({ pag
 
   await page.getByRole("tab", { name: "Findings" }).click()
   await page.getByRole("button", { name: "View extracted source" }).click()
-  await expect(page.getByRole("tab", { name: "Files" })).toHaveAttribute("data-state", "active")
-  await expect(page.getByText("Synthetic estimate support text.").first()).toBeVisible()
+  await expect(page.getByRole("tab", { name: "Findings" })).toHaveAttribute(
+    "data-state",
+    "active",
+  )
+  await expect(page.getByAltText("Page 1 of claim-package.pdf")).toBeVisible()
 
   await page.getByRole("button", { name: "Reprocess" }).click()
   await expect(page.getByLabel("Carrier entity")).toHaveCount(0)

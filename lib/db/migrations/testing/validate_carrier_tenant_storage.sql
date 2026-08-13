@@ -626,6 +626,24 @@ BEGIN
     RAISE EXCEPTION 'Traversal or encoded storage path was authorized';
   END IF;
 
+  IF NOT private.claim_document_path_is_authorized(
+       'organizations/a1000000-0000-4000-8000-000000000001/claims/a2000000-0000-4000-8000-000000000001/documents/a3000000-0000-4000-8000-000000000001/renditions/page-jpeg-v1/page-000001.jpg'
+     )
+     OR private.claim_document_path_is_authorized(
+       'organizations/a1000000-0000-4000-8000-000000000001/claims/a2000000-0000-4000-8000-000000000001/documents/a3000000-0000-4000-8000-000000000001/renditions/page-jpeg-v1/page-000000.jpg'
+     )
+     OR private.claim_document_path_is_authorized(
+       'organizations/a1000000-0000-4000-8000-000000000001/claims/a2000000-0000-4000-8000-000000000001/documents/a3000000-0000-4000-8000-000000000001/renditions/page-jpeg-v1/page-000001.png'
+     )
+     OR private.claim_document_path_is_authorized(
+       'organizations/a1000000-0000-4000-8000-000000000001/claims/a2000000-0000-4000-8000-000000000001/documents/a3000000-0000-4000-8000-000000000001/renditions/page-jpeg-v2/page-000001.jpg'
+     )
+     OR private.claim_document_path_is_authorized(
+       'organizations/b1000000-0000-4000-8000-000000000002/claims/b2000000-0000-4000-8000-000000000002/documents/b3000000-0000-4000-8000-000000000002/renditions/page-jpeg-v1/page-000001.jpg'
+     ) THEN
+    RAISE EXCEPTION 'Page rendition storage authorization is not fail-closed';
+  END IF;
+
   BEGIN
     INSERT INTO storage.objects (bucket_id, name)
     VALUES (

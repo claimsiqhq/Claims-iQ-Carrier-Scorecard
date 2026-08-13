@@ -562,6 +562,7 @@ export function DocumentViewer({
                         )}
                         alt={`Page ${pageNumber} of ${sourceName(document)}`}
                         loading={pageNumber <= 2 ? "eager" : "lazy"}
+                        decoding="async"
                         onError={() =>
                           setImageFailures((current) => {
                             const next = new Set(current)

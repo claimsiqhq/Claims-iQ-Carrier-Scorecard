@@ -255,11 +255,14 @@ async function renderSinglePdfPage(
   const height = Math.max(1, Math.floor(viewport.height));
   const canvas = createCanvas(width, height);
   const context = canvas.getContext("2d");
+  context.fillStyle = "#ffffff";
+  context.fillRect(0, 0, width, height);
 
   await (page as any).render({
     canvasContext: context,
     viewport,
     canvas,
+    background: "#ffffff",
   }).promise;
 
   const pngBuffer = canvas.toBuffer("image/png");

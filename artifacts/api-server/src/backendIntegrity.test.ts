@@ -56,6 +56,24 @@ test("duplicate job requests produce the same organization-scoped key", () => {
 
   assert.equal(first, duplicate);
   assert.notEqual(first, otherTenant);
+  const rendition = buildJobIdempotencyKey({
+    organizationId: "org-a",
+    type: "rendition",
+    claimId: "claim-1",
+    documentId: "document-1",
+    sourceHash: "source-hash",
+    callerKey: "page-jpeg-v1",
+  });
+  const nextRenditionVersion = buildJobIdempotencyKey({
+    organizationId: "org-a",
+    type: "rendition",
+    claimId: "claim-1",
+    documentId: "document-1",
+    sourceHash: "source-hash",
+    callerKey: "page-jpeg-v2",
+  });
+  assert.notEqual(first, rendition);
+  assert.notEqual(rendition, nextRenditionVersion);
   assert.equal(isTerminalJobState("running"), false);
   assert.equal(isTerminalJobState("degraded"), true);
 });

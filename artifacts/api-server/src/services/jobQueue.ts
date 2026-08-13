@@ -118,7 +118,10 @@ export async function enqueueProcessingJob(
       if (!claim) {
         throw new ClaimJobStateError("Claim not found", 404);
       }
-      if (claim.status === "archived" || claim.systemStatus === "archived") {
+      if (
+        input.type !== "rendition"
+        && (claim.status === "archived" || claim.systemStatus === "archived")
+      ) {
         throw new ClaimJobStateError(
           "Archived claims cannot start new processing",
           409,
@@ -292,7 +295,10 @@ export async function retryOrganizationJob(
       if (!claim) {
         throw new ClaimJobStateError("Claim not found", 404);
       }
-      if (claim.status === "archived" || claim.systemStatus === "archived") {
+      if (
+        existing.type !== "rendition"
+        && (claim.status === "archived" || claim.systemStatus === "archived")
+      ) {
         throw new ClaimJobStateError(
           "Archived claims cannot restart processing",
           409,

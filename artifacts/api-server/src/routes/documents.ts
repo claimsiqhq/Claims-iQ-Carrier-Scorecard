@@ -1,11 +1,12 @@
 import { Router, type IRouter } from "express";
 import { randomUUID } from "node:crypto";
 import multer from "multer";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import {
   claimActivity,
   db,
   documents,
+  processingJobs,
 } from "@workspace/db";
 import {
   buildJobIdempotencyKey,
@@ -231,6 +232,27 @@ router.delete(
         res.status(404).json({ error: "Document not found" });
         return;
       }
+      const [activeJob] = await db
+        .select({ id: processingJobs.id })
+        .from(processingJobs)
+        .where(
+          and(
+            eq(
+              processingJobs.organizationId,
+              req.organization!.organizationId,
+            ),
+            eq(processingJobs.documentId, documentId),
+            inArray(processingJobs.status, ["queued", "running"]),
+          ),
+        )
+        .limit(1);
+      if (activeJob) {
+        res.status(409).json({
+          error:
+            "Document processing is still active. Cancel or wait for it to finish before deleting the document.",
+        });
+        return;
+      }
 
       try {
         await db.transaction(async (tx) => {
@@ -265,11 +287,30 @@ router.delete(
       }
 
       if (storageReference) {
-        await storage.deletePageRenditions({
-          claimId: storageReference.claimId,
-          documentId: storageReference.documentId,
-        });
-        await storage.deleteDocument(storageReference);
+        const cleanup = await Promise.allSettled([
+          storage.deletePageRenditions({
+            claimId: storageReference.claimId,
+            documentId: storageReference.documentId,
+          }),
+          storage.deleteDocument(storageReference),
+        ]);
+        const failedCleanup = cleanup.filter(
+          (result) => result.status === "rejected",
+        );
+        if (failedCleanup.length > 0) {
+          logger.error(
+            {
+              documentId,
+              failedOperations: failedCleanup.length,
+              errorNames: failedCleanup.map((result) =>
+                result.reason instanceof Error
+                  ? result.reason.name
+                  : "UnknownError",
+              ),
+            },
+            "Document database row deleted with incomplete storage cleanup",
+          );
+        }
       }
       res.json({ success: true, message: "Document deleted" });
     } catch (error) {

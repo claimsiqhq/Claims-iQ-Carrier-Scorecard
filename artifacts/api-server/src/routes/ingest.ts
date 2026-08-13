@@ -379,6 +379,7 @@ router.get(
           and(
             eq(processingJobs.organizationId, req.organization!.organizationId),
             eq(processingJobs.claimId, claimId),
+            ne(processingJobs.type, "rendition"),
           ),
         )
         .orderBy(desc(processingJobs.createdAt))
@@ -455,6 +456,7 @@ async function enqueueExistingClaimJob(input: {
       and(
         eq(processingJobs.organizationId, input.organizationId),
         eq(processingJobs.claimId, input.claimId),
+        ne(processingJobs.type, "rendition"),
         eq(processingJobs.status, "queued"),
       ),
     )
@@ -469,6 +471,7 @@ async function enqueueExistingClaimJob(input: {
       and(
         eq(processingJobs.organizationId, input.organizationId),
         eq(processingJobs.claimId, input.claimId),
+        ne(processingJobs.type, "rendition"),
         eq(processingJobs.status, "running"),
       ),
     )
@@ -560,6 +563,7 @@ router.post(
           and(
             eq(processingJobs.organizationId, req.organization!.organizationId),
             eq(processingJobs.claimId, claimId),
+            ne(processingJobs.type, "rendition"),
           ),
         )
         .orderBy(desc(processingJobs.createdAt))

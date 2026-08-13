@@ -4,6 +4,7 @@ import { db, processingJobs } from "@workspace/db";
 import {
   createTenantStorageCapability,
   PAGE_RENDITION_VERSION,
+  sanitizeStorageFilename,
   type CanonicalDocumentReference,
 } from "../lib/supabaseStorage";
 import { getAuthorizedDocument } from "../lib/authorization";
@@ -186,6 +187,14 @@ router.get(
         typeof metadata.contentType === "string"
           ? metadata.contentType
           : "application/octet-stream",
+      );
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${sanitizeStorageFilename(
+          typeof metadata.fileName === "string"
+            ? metadata.fileName
+            : `document-${document!.id}.pdf`,
+        )}"`,
       );
       res.setHeader("Content-Length", buffer.length);
       res.send(buffer);

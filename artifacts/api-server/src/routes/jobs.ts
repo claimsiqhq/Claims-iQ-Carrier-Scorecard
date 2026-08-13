@@ -162,7 +162,7 @@ router.post(
         res.status(409).json({ error: "Only queued or running jobs can be cancelled" });
         return;
       }
-      if (cancelled.claimId) {
+      if (cancelled.claimId && cancelled.type !== "rendition") {
         const claim = await getAuthorizedClaim(
           req.organization!.organizationId,
           cancelled.claimId,
@@ -235,7 +235,7 @@ router.post(
         });
         return;
       }
-      if (retried.claimId) {
+      if (retried.claimId && retried.type !== "rendition") {
         await db.transaction(async (tx) => {
           await tx
             .update(claims)

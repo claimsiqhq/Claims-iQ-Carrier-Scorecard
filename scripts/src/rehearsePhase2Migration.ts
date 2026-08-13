@@ -28,11 +28,13 @@ const foundationFiles = [
   "testing/validate_phase2.sql",
   "20260810221123_carrier_tenant_isolation.sql",
   "20260810222350_carrier_tenant_rls.sql",
+  "20260813073500_grant_ingest_job_links.sql",
 ];
 const fixtureAndStorageFiles = [
   "testing/storage_test_support.sql",
   "testing/carrier_tenant_cutover_legacy_fixture.sql",
   "20260810225039_carrier_tenant_storage.sql",
+  "20260813082000_document_page_renditions.sql",
 ];
 const cutoverFile = "20260810232004_carrier_tenant_data_cutover.sql";
 const manifestFile = "testing/prepare_carrier_tenant_storage_manifest.sql";

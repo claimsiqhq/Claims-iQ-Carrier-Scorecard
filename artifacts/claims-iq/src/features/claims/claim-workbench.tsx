@@ -99,6 +99,7 @@ export interface WorkFinding {
   findingId?: string
   disposition?: FindingDisposition
   reviewNotes?: string | null
+  sourceDocumentId?: string | null
 }
 
 export default function ClaimWorkbench({ claimId }: { claimId: string }) {
@@ -234,8 +235,14 @@ export default function ClaimWorkbench({ claimId }: { claimId: string }) {
     documents.find((document) => document.id === selectedDocumentId) || documents[0]
   const readiness = audit?.readiness || audit?.approvalStatus
   const risk = audit?.technicalRisk || audit?.riskLevel
-  const openEvidence = (location?: string) => {
-    const match = location?.match(/\bpage\s+(\d+)\b/i)
+  const openEvidence = (location?: string, sourceDocumentId?: string | null) => {
+    const match = location?.match(/\b(?:page|pg\.?|p\.)\s*(\d+)\b/i)
+    if (
+      sourceDocumentId
+      && documents.some((document) => document.id === sourceDocumentId)
+    ) {
+      setSelectedDocumentId(sourceDocumentId)
+    }
     setSelectedEvidencePage(match ? Number.parseInt(match[1], 10) : null)
     if (
       typeof window !== "undefined"
@@ -1445,7 +1452,7 @@ function RequiredActions({
 }: {
   groups: RootIssueGroup[]
   findings: WorkFinding[]
-  onEvidence: (location?: string) => void
+  onEvidence: (location?: string, sourceDocumentId?: string | null) => void
 }) {
   const priorityFindings = findings.filter((finding) =>
     ["fail", "critical", "high", "partial"].includes(finding.severity.toLowerCase()),
@@ -1484,6 +1491,7 @@ function RequiredActions({
                 impact={finding.impact}
                 fix={finding.fix}
                 evidence={finding.evidence}
+                sourceDocumentId={finding.sourceDocumentId}
                 onEvidence={onEvidence}
               />
             ))}
@@ -1504,6 +1512,7 @@ function ActionRow({
   impact,
   fix,
   evidence,
+  sourceDocumentId,
   onEvidence,
 }: {
   title: string
@@ -1511,7 +1520,8 @@ function ActionRow({
   impact?: string
   fix?: string
   evidence: string[]
-  onEvidence: (location?: string) => void
+  sourceDocumentId?: string | null
+  onEvidence: (location?: string, sourceDocumentId?: string | null) => void
 }) {
   return (
     <article className="border-l-[3px] border-l-[var(--ciq-critical)] p-4">
@@ -1530,11 +1540,20 @@ function ActionRow({
       {evidence.length > 0 && (
         <div className="mt-3 flex flex-wrap items-center gap-1.5">
           {evidence.map((location) => (
-            <span key={location} className="ciq-status ciq-mono">
+            <button
+              type="button"
+              key={location}
+              className="ciq-status ciq-mono hover:border-[var(--ciq-brand)] hover:text-[var(--ciq-brand)]"
+              onClick={() => onEvidence(location, sourceDocumentId)}
+            >
               {location}
-            </span>
+            </button>
           ))}
-          <Button variant="ghost" size="sm" onClick={() => onEvidence(evidence[0])}>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => onEvidence(evidence[0], sourceDocumentId)}
+          >
             Open source
           </Button>
         </div>
@@ -1551,7 +1570,7 @@ function FindingLedger({
   onDisposition,
 }: {
   findings: WorkFinding[]
-  onEvidence: (location?: string) => void
+  onEvidence: (location?: string, sourceDocumentId?: string | null) => void
   reviewing: Record<string, boolean>
   canReview: boolean
   onDisposition: (
@@ -1616,14 +1635,26 @@ function FindingLedger({
               {finding.evidence.length > 0 && (
                 <div className="mt-3 flex flex-wrap items-center gap-1.5">
                   {finding.evidence.map((location) => (
-                    <span key={location} className="ciq-status ciq-mono">
+                    <button
+                      type="button"
+                      key={location}
+                      className="ciq-status ciq-mono hover:border-[var(--ciq-brand)] hover:text-[var(--ciq-brand)]"
+                      onClick={() =>
+                        onEvidence(location, finding.sourceDocumentId)
+                      }
+                    >
                       {location}
-                    </span>
+                    </button>
                   ))}
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => onEvidence(finding.evidence[0])}
+                    onClick={() =>
+                      onEvidence(
+                        finding.evidence[0],
+                        finding.sourceDocumentId,
+                      )
+                    }
                   >
                     View extracted source
                   </Button>
@@ -2044,6 +2075,7 @@ function collectFindings(audit?: AuditResult): WorkFinding[] {
       existing.findingId = finding.id
       existing.disposition = finding.disposition
       existing.reviewNotes = finding.reviewNotes
+      existing.sourceDocumentId = finding.sourceDocumentId
       return
     }
     findings.push({
@@ -2060,6 +2092,7 @@ function collectFindings(audit?: AuditResult): WorkFinding[] {
       confidence: finding.confidence,
       disposition: finding.disposition,
       reviewNotes: finding.reviewNotes,
+      sourceDocumentId: finding.sourceDocumentId,
     })
   })
 
