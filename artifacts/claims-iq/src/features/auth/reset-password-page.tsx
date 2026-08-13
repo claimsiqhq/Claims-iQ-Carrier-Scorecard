@@ -1,5 +1,5 @@
 import { useEffect, useId, useState } from "react"
-import { ArrowLeft, LockKeyhole } from "lucide-react"
+import { ArrowLeft, Lock } from "iconoir-react"
 import { Link } from "wouter"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -78,7 +78,7 @@ export default function ResetPasswordPage() {
     >
       <form
         onSubmit={submit}
-        className="ciq-panel space-y-5 border-t-[3px] border-t-[var(--ciq-aubergine)] p-6 sm:p-7"
+        className="ciq-panel space-y-5 border-t-[3px] border-t-[var(--ciq-brand)] p-6 sm:p-7"
       >
         {validating && (
           <p className="text-sm text-[var(--ciq-ink-muted)]" role="status">
@@ -87,7 +87,7 @@ export default function ResetPasswordPage() {
         )}
         {complete && (
           <p
-            className="rounded-md border border-[#aedbd5] bg-[var(--ciq-verified-soft)] px-3 py-2.5 text-sm text-[var(--ciq-verified-strong)]"
+            className="rounded-md border border-[var(--ciq-brand-light)] bg-[var(--ciq-verified-soft)] px-3 py-2.5 text-sm text-[var(--ciq-verified-strong)]"
             role="status"
           >
             Your password has been reset successfully.
@@ -98,7 +98,7 @@ export default function ResetPasswordPage() {
             <div className="ciq-field">
               <label htmlFor={passwordId}>New password</label>
               <div className="ciq-search">
-                <LockKeyhole aria-hidden="true" />
+                <Lock aria-hidden="true" />
                 <Input
                   id={passwordId}
                   type="password"
@@ -114,7 +114,7 @@ export default function ResetPasswordPage() {
             <div className="ciq-field">
               <label htmlFor={confirmationId}>Confirm new password</label>
               <div className="ciq-search">
-                <LockKeyhole aria-hidden="true" />
+                <Lock aria-hidden="true" />
                 <Input
                   id={confirmationId}
                   type="password"

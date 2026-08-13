@@ -1,10 +1,10 @@
 <svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
   <title>Complete iQ Carrier Audit</title>
-  <circle cx="32" cy="32" r="30" fill="#171321"/>
-  <circle cx="32" cy="32" r="29" stroke="#3BB9AE" stroke-opacity=".55" stroke-width="2"/>
-  <path d="M17 15v34" stroke="#3BB9AE" stroke-width="5" stroke-linecap="round"/>
-  <path d="M27 21h20M27 32h15M27 43h20" stroke="#F7F4EE" stroke-width="5" stroke-linecap="round"/>
-  <circle cx="47" cy="21" r="3.5" fill="#3BB9AE"/>
-  <circle cx="42" cy="32" r="3.5" fill="#3BB9AE"/>
-  <circle cx="47" cy="43" r="3.5" fill="#3BB9AE"/>
+  <circle cx="32" cy="32" r="30" fill="#342A4F"/>
+  <circle cx="32" cy="32" r="29" stroke="#C6A54E" stroke-opacity=".7" stroke-width="2"/>
+  <path d="M17 15v34" stroke="#7763B7" stroke-width="5" stroke-linecap="round"/>
+  <path d="M27 21h20M27 32h15M27 43h20" stroke="#F0EDF4" stroke-width="5" stroke-linecap="round"/>
+  <circle cx="47" cy="21" r="3.5" fill="#C6A54E"/>
+  <circle cx="42" cy="32" r="3.5" fill="#C6A54E"/>
+  <circle cx="47" cy="43" r="3.5" fill="#C6A54E"/>
 </svg>

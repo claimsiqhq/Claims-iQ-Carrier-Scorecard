@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { Archive, ShieldCheck, Trash2 } from "lucide-react"
+import { Archive, ShieldCheck, Trash } from "iconoir-react"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -79,7 +79,7 @@ export function ArchiveClaimsDialog({
       <AlertDialogContent>
         <AlertDialogHeader>
           <div className="mb-1 flex h-10 w-10 items-center justify-center rounded-full bg-[var(--ciq-critical-soft)] text-[var(--ciq-critical)]">
-            <Trash2 className="h-5 w-5" aria-hidden="true" />
+            <Trash className="h-5 w-5" aria-hidden="true" />
           </div>
           <AlertDialogTitle>
             Delete {claimCount === 1 ? claims[0]?.claimNumber || "this claim" : `${claimCount} claims`}?
@@ -134,7 +134,7 @@ export function ArchiveClaimsDialog({
             }}
             disabled={archiving || claimCount === 0}
           >
-            <Trash2 aria-hidden="true" />
+            <Trash aria-hidden="true" />
             {archiving
               ? "Deleting…"
               : `Delete ${claimCount === 1 ? "claim" : `${claimCount} claims`}`}

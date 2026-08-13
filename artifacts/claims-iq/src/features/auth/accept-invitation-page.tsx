@@ -1,5 +1,5 @@
 import { useEffect, useId, useState } from "react"
-import { ArrowLeft, LockKeyhole, UserRound } from "lucide-react"
+import { ArrowLeft, Lock, User } from "iconoir-react"
 import { Link } from "wouter"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -93,7 +93,7 @@ export default function AcceptInvitationPage() {
     >
       <form
         onSubmit={submit}
-        className="ciq-panel space-y-5 border-t-[3px] border-t-[var(--ciq-aubergine)] p-6 sm:p-7"
+        className="ciq-panel space-y-5 border-t-[3px] border-t-[var(--ciq-brand)] p-6 sm:p-7"
       >
         {validating && (
           <p className="text-sm text-[var(--ciq-ink-muted)]" role="status">
@@ -102,7 +102,7 @@ export default function AcceptInvitationPage() {
         )}
         {complete && (
           <p
-            className="rounded-md border border-[#aedbd5] bg-[var(--ciq-verified-soft)] px-3 py-2.5 text-sm text-[var(--ciq-verified-strong)]"
+            className="rounded-md border border-[var(--ciq-brand-light)] bg-[var(--ciq-verified-soft)] px-3 py-2.5 text-sm text-[var(--ciq-verified-strong)]"
             role="status"
           >
             Invitation accepted successfully.
@@ -113,7 +113,7 @@ export default function AcceptInvitationPage() {
             <div className="ciq-field">
               <label htmlFor={firstNameId}>First name</label>
               <div className="ciq-search">
-                <UserRound aria-hidden="true" />
+                <User aria-hidden="true" />
                 <Input
                   id={firstNameId}
                   autoComplete="given-name"
@@ -143,7 +143,7 @@ export default function AcceptInvitationPage() {
                 {preview.accountExists ? "Current password" : "Create password"}
               </label>
               <div className="ciq-search">
-                <LockKeyhole aria-hidden="true" />
+                <Lock aria-hidden="true" />
                 <Input
                   id={passwordId}
                   type="password"
@@ -165,7 +165,7 @@ export default function AcceptInvitationPage() {
               <div className="ciq-field">
                 <label htmlFor={confirmationId}>Confirm password</label>
                 <div className="ciq-search">
-                  <LockKeyhole aria-hidden="true" />
+                  <Lock aria-hidden="true" />
                   <Input
                     id={confirmationId}
                     type="password"

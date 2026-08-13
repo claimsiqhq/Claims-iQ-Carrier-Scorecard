@@ -1,23 +1,24 @@
 import { useEffect, useState, type ReactNode } from "react"
 import { Link, useLocation } from "wouter"
 import {
-  BarChart3,
-  Building2,
-  ChevronDown,
-  ChevronRight,
-  Files,
-  LayoutDashboard,
-  KeyRound,
+  Building,
+  Key,
   LogOut,
   Menu,
-  PanelLeftClose,
-  PanelLeftOpen,
+  MultiplePages,
+  NavArrowDown,
+  NavArrowRight,
   Plus,
   Search,
   Settings,
   ShieldCheck,
-} from "lucide-react"
+  SidebarCollapse,
+  SidebarExpand,
+  StatsReport,
+  ViewGrid,
+} from "iconoir-react"
 import { BrandMark } from "@/components/complete-iq/brand-mark"
+import { BrandShapes } from "@/components/complete-iq/brand-shapes"
 import { Button } from "@/components/ui/button"
 import {
   CommandDialog,
@@ -58,19 +59,19 @@ const NAV_COLLAPSED_KEY = "complete-iq-primary-nav-collapsed"
 interface NavItem {
   href: string
   label: string
-  icon: typeof LayoutDashboard
+  icon: typeof ViewGrid
   settingsManager?: boolean
   platformAdmin?: boolean
 }
 
 const navItems: NavItem[] = [
-  { href: "/", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/claims", label: "Claims", icon: Files },
-  { href: "/insights", label: "Insights", icon: BarChart3 },
+  { href: "/", label: "Dashboard", icon: ViewGrid },
+  { href: "/claims", label: "Claims", icon: MultiplePages },
+  { href: "/insights", label: "Insights", icon: StatsReport },
   {
     href: "/platform/carriers",
     label: "Platform administration",
-    icon: Building2,
+    icon: Building,
     platformAdmin: true,
   },
   { href: "/settings", label: "Settings", icon: Settings, settingsManager: true },
@@ -162,7 +163,7 @@ export function PrimaryNav({
             onClick={toggle}
             aria-label={isCollapsed ? "Expand primary navigation" : "Collapse primary navigation"}
           >
-            {isCollapsed ? <PanelLeftOpen aria-hidden="true" /> : <PanelLeftClose aria-hidden="true" />}
+            {isCollapsed ? <SidebarExpand aria-hidden="true" /> : <SidebarCollapse aria-hidden="true" />}
             {!isCollapsed && <span>Collapse rail</span>}
           </button>
         )}
@@ -257,7 +258,7 @@ export function UtilityBar() {
           <span>Complete iQ Carrier Audit</span>
           <div>
             <Link href="/">Workspace</Link>
-            <ChevronRight aria-hidden="true" />
+            <NavArrowRight aria-hidden="true" />
             <strong>{pageName(location)}</strong>
           </div>
         </nav>
@@ -293,7 +294,7 @@ export function UtilityBar() {
                   <strong>{user?.firstName || "Account"}</strong>
                   <small>{organization?.role || user?.role || "reviewer"}</small>
                 </span>
-                <ChevronDown aria-hidden="true" />
+                <NavArrowDown aria-hidden="true" />
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-64">
@@ -311,7 +312,7 @@ export function UtilityBar() {
                 </DropdownMenuItem>
               )}
               <DropdownMenuItem onSelect={() => setPasswordOpen(true)}>
-                <KeyRound aria-hidden="true" />
+                <Key aria-hidden="true" />
                 Change password
               </DropdownMenuItem>
               <DropdownMenuSeparator />
@@ -386,37 +387,37 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <IntakeDialogProvider>
-    <div className="ciq-app-shell">
-      <a className="ciq-skip-link" href="#main-content">
-        Skip to main content
-      </a>
-      <PrimaryNav />
-      <div className="ciq-app-shell__workspace">
-        <UtilityBar />
-        <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
-          <SheetTrigger asChild>
-            <button
-              type="button"
-              className="ciq-mobile-menu-trigger"
-              aria-label="Open navigation menu"
-            >
-              <Menu aria-hidden="true" />
-            </button>
-          </SheetTrigger>
-          <SheetContent side="left" className="ciq-mobile-menu-sheet">
-            <SheetTitle className="sr-only">Complete iQ navigation</SheetTitle>
-            <SheetDescription className="sr-only">
-              Navigate between carrier-audit workspaces.
-            </SheetDescription>
-            <PrimaryNav collapsible={false} />
-          </SheetContent>
-        </Sheet>
-        <main id="main-content" className="ciq-app-shell__main" tabIndex={-1}>
-          {children}
-        </main>
+      <div className="ciq-app-shell">
+        <a className="ciq-skip-link" href="#main-content">
+          Skip to main content
+        </a>
+        <PrimaryNav />
+        <div className="ciq-app-shell__workspace">
+          <UtilityBar />
+          <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
+            <SheetTrigger asChild>
+              <button
+                type="button"
+                className="ciq-mobile-menu-trigger"
+                aria-label="Open navigation menu"
+              >
+                <Menu aria-hidden="true" />
+              </button>
+            </SheetTrigger>
+            <SheetContent side="left" className="ciq-mobile-menu-sheet">
+              <SheetTitle className="sr-only">Complete iQ navigation</SheetTitle>
+              <SheetDescription className="sr-only">
+                Navigate between carrier-audit workspaces.
+              </SheetDescription>
+              <PrimaryNav collapsible={false} />
+            </SheetContent>
+          </Sheet>
+          <main id="main-content" className="ciq-app-shell__main" tabIndex={-1}>
+            {children}
+          </main>
+        </div>
+        <MobileNav />
       </div>
-      <MobileNav />
-    </div>
     </IntakeDialogProvider>
   )
 }
@@ -438,6 +439,7 @@ export function PageHeader({
 }) {
   return (
     <section className={cn("ciq-context-band", compact && "ciq-context-band--compact")}>
+      <BrandShapes className="ciq-context-band__shapes" />
       <div className="ciq-context-band__copy">
         {eyebrow && <span className="ciq-eyebrow">{eyebrow}</span>}
         <h1>{title}</h1>

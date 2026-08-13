@@ -1,5 +1,5 @@
 import { useId, useState } from "react"
-import { LockKeyhole } from "lucide-react"
+import { Lock } from "iconoir-react"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -79,7 +79,7 @@ export function ChangePasswordDialog({
           <div className="ciq-field">
             <label htmlFor={currentId}>Current password</label>
             <div className="ciq-search">
-              <LockKeyhole aria-hidden="true" />
+              <Lock aria-hidden="true" />
               <Input
                 id={currentId}
                 type="password"

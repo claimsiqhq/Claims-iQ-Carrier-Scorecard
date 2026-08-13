@@ -1,5 +1,5 @@
 import { useId, useState } from "react"
-import { KeyRound, MailPlus, RefreshCw, UserPlus, XCircle } from "lucide-react"
+import { Key, MailIn, Refresh, UserPlus, XmarkCircle } from "iconoir-react"
 import { StatusPill } from "@/components/complete-iq/status"
 import {
   AlertDialog,
@@ -201,7 +201,7 @@ export function UsersRolesPanel({
                           onClick={() => void resend(invitation.id)}
                           disabled={actionDisabled}
                         >
-                          <RefreshCw
+                          <Refresh
                             className={actionId === invitation.id ? "animate-spin" : ""}
                             aria-hidden="true"
                           />
@@ -217,7 +217,7 @@ export function UsersRolesPanel({
                           disabled={actionDisabled}
                           aria-label={`Revoke invitation for ${invitation.email}`}
                         >
-                          <XCircle aria-hidden="true" />
+                          <XmarkCircle aria-hidden="true" />
                           Revoke
                         </Button>
                       </div>
@@ -302,7 +302,7 @@ export function UsersRolesPanel({
                             )
                           }
                         >
-                          <KeyRound aria-hidden="true" />
+                          <Key aria-hidden="true" />
                           Send reset
                         </Button>
                       </td>
@@ -338,7 +338,7 @@ export function UsersRolesPanel({
             <div className="ciq-field">
               <label htmlFor={inviteEmailId}>Work email</label>
               <div className="ciq-search">
-                <MailPlus aria-hidden="true" />
+                <MailIn aria-hidden="true" />
                 <Input
                   id={inviteEmailId}
                   type="email"

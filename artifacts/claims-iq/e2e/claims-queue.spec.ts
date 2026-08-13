@@ -428,7 +428,7 @@ test("batch intake reaches a recoverable ready state", async ({ page }) => {
   await page.getByRole("button", { name: "Start 1 intake" }).click()
 
   await expect(page.getByText("Ready for review")).toBeVisible()
-  await expect(page.getByRole("link", { name: "Review" })).toBeVisible()
+  await expect(page.getByRole("dialog").getByRole("link", { name: "Review" })).toBeVisible()
   expect(ingestBodies).toHaveLength(1)
   expect(ingestBodies[0]).not.toContain('name="carrierEntityId"')
   expect(ingestBodies[0]).not.toContain('name="carrier"')
@@ -491,7 +491,7 @@ test("reviewer can follow evidence, approve, and complete a rerun", async ({ pag
 
   await page.getByRole("button", { name: "Reprocess" }).click()
   await expect(page.getByLabel("Carrier entity")).toHaveCount(0)
-  await expect(page.getByText(/assigned prompt and ruleset/i)).toBeVisible()
+  await expect(page.getByRole("dialog")).toContainText("assigned prompt and ruleset")
   await page.getByRole("button", { name: "Reprocess claim" }).click()
   await expect(page.getByRole("dialog")).not.toBeVisible()
   await expect(page.getByText("AI: Succeeded")).toBeVisible()

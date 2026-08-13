@@ -2,16 +2,16 @@ import { useEffect, useRef, useState } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   Bell,
-  Clock3,
-  FileCode2,
-  FileClock,
-  KeyRound,
-  Link2,
-  RefreshCw,
-  Save,
+  Clock,
+  Code,
+  FloppyDisk,
+  Group,
+  Key,
+  Link,
+  PageFlip,
+  Refresh,
   ShieldCheck,
-  Users,
-} from "lucide-react"
+} from "iconoir-react"
 import { PageState, StatusPill } from "@/components/complete-iq/status"
 import { PageBody, PageHeader } from "@/components/layout/app-shell"
 import {
@@ -46,13 +46,13 @@ type SettingsSection =
   | "history"
 
 const sections = [
-  { id: "prompts" as const, label: "Assigned prompt", icon: FileCode2 },
-  { id: "users" as const, label: "Users & Roles", icon: Users },
-  { id: "integrations" as const, label: "Integrations", icon: Link2 },
+  { id: "prompts" as const, label: "Assigned prompt", icon: Code },
+  { id: "users" as const, label: "Users & Roles", icon: Group },
+  { id: "integrations" as const, label: "Integrations", icon: Link },
   { id: "notifications" as const, label: "Notifications", icon: Bell },
   { id: "security" as const, label: "Security", icon: ShieldCheck },
-  { id: "retention" as const, label: "Retention", icon: Clock3 },
-  { id: "history" as const, label: "Audit History", icon: FileClock },
+  { id: "retention" as const, label: "Retention", icon: Clock },
+  { id: "history" as const, label: "Audit History", icon: PageFlip },
 ]
 
 export default function SettingsPage() {
@@ -258,7 +258,7 @@ export default function SettingsPage() {
                 onClick={() => setResetOpen(true)}
                 disabled={saving || resetting}
               >
-                <RefreshCw aria-hidden="true" />
+                <Refresh aria-hidden="true" />
                 Reset defaults
               </Button>
               <Button
@@ -266,7 +266,7 @@ export default function SettingsPage() {
                 onClick={() => void save()}
                 disabled={!dirty || saving}
               >
-                <Save aria-hidden="true" />
+                <FloppyDisk aria-hidden="true" />
                 {saving ? "Saving…" : "Save assigned prompt"}
               </Button>
             </>
@@ -276,7 +276,7 @@ export default function SettingsPage() {
               onClick={() => void saveOrganization()}
               disabled={!organizationDirty || savingOrganization}
             >
-              <Save aria-hidden="true" />
+              <FloppyDisk aria-hidden="true" />
               {savingOrganization ? "Saving…" : "Save policy"}
             </Button>
           ) : undefined
@@ -289,7 +289,7 @@ export default function SettingsPage() {
             className={`mb-4 rounded-md border p-3 text-sm ${
               error
                 ? "border-[#e5b3b3] bg-[var(--ciq-critical-soft)] text-[var(--ciq-critical)]"
-                : "border-[#aedbd5] bg-[var(--ciq-verified-soft)] text-[var(--ciq-verified-strong)]"
+                : "border-[var(--ciq-brand-light)] bg-[var(--ciq-verified-soft)] text-[var(--ciq-verified-strong)]"
             }`}
             role={error ? "alert" : "status"}
           >
@@ -380,7 +380,7 @@ export default function SettingsPage() {
               }}
               disabled={resetting}
             >
-              <RefreshCw className={resetting ? "animate-spin" : ""} aria-hidden="true" />
+              <Refresh className={resetting ? "animate-spin" : ""} aria-hidden="true" />
               {resetting ? "Resetting…" : "Reset to defaults"}
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -402,7 +402,7 @@ function PromptSettingsPanel({
       <section className="ciq-panel p-4">
         <div className="flex items-start gap-3">
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-[var(--ciq-info-soft)] text-[var(--ciq-info)]">
-            <KeyRound className="h-4 w-4" aria-hidden="true" />
+            <Key className="h-4 w-4" aria-hidden="true" />
           </span>
           <div>
             <h2 className="text-sm font-semibold">Assigned prompt for this tenant</h2>
@@ -703,7 +703,7 @@ function SettingsSectionPanel({
           {overview.auditHistory.map((event) => (
             <article key={event.id} className="flex flex-wrap items-start gap-3 p-4">
               <span className="mt-0.5 flex h-8 w-8 items-center justify-center rounded-full bg-[var(--ciq-info-soft)] text-[var(--ciq-info)]">
-                <FileClock className="h-4 w-4" aria-hidden="true" />
+                <PageFlip className="h-4 w-4" aria-hidden="true" />
               </span>
               <div className="min-w-0 flex-1">
                 <h3 className="text-sm font-semibold">{humanizeSetting(event.eventType)}</h3>

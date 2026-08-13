@@ -2,24 +2,21 @@ import { useEffect, useMemo, useState, type ReactNode } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link, useLocation } from "wouter"
 import {
-  AlertTriangle,
   Archive,
   ArrowLeft,
   ArrowRight,
-  CheckCircle2,
+  CheckCircle,
   ClipboardCheck,
+  ClockRotateRight,
   Download,
-  FileDown,
-  FileText,
-  History,
-  LoaderCircle,
   Mail,
-  RefreshCw,
-  ReceiptText,
+  Page,
+  Refresh,
   ShieldCheck,
-  Trash2,
-  UserRoundCheck,
-} from "lucide-react"
+  Trash,
+  UserBadgeCheck,
+  WarningTriangle,
+} from "iconoir-react"
 import {
   PageState,
   StatusPill,
@@ -461,7 +458,7 @@ export default function ClaimWorkbench({ claimId }: { claimId: string }) {
               onClick={downloadCsv}
               disabled={!findings.length}
             >
-              <FileDown aria-hidden="true" />
+              <Download aria-hidden="true" />
               CSV
             </Button>
             {audit && (
@@ -479,7 +476,7 @@ export default function ClaimWorkbench({ claimId }: { claimId: string }) {
                 className="border-white/15 bg-white text-[var(--ciq-aubergine)] hover:bg-[#f7f3ed]"
                 onClick={() => setReprocessOpen(true)}
               >
-                <RefreshCw aria-hidden="true" />
+                <Refresh aria-hidden="true" />
                 Reprocess
               </Button>
             )}
@@ -505,7 +502,7 @@ export default function ClaimWorkbench({ claimId }: { claimId: string }) {
             className="mb-4 flex items-start gap-2 rounded-md border border-[#e5b3b3] bg-[var(--ciq-critical-soft)] p-3 text-sm text-[var(--ciq-critical)]"
             role="alert"
           >
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+            <WarningTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
             <span className="flex-1">{actionError}</span>
             <button type="button" className="font-semibold underline" onClick={() => setActionError(null)}>
               Dismiss
@@ -529,13 +526,13 @@ export default function ClaimWorkbench({ claimId }: { claimId: string }) {
                 <WorkbenchTabTrigger value="findings" icon={<ShieldCheck />}>
                   Findings
                 </WorkbenchTabTrigger>
-                <WorkbenchTabTrigger value="estimate" icon={<ReceiptText />}>
+                <WorkbenchTabTrigger value="estimate" icon={<Page />}>
                   Estimate
                 </WorkbenchTabTrigger>
-                <WorkbenchTabTrigger value="files" icon={<FileText />}>
+                <WorkbenchTabTrigger value="files" icon={<Page />}>
                   Files
                 </WorkbenchTabTrigger>
-                <WorkbenchTabTrigger value="timeline" icon={<History />}>
+                <WorkbenchTabTrigger value="timeline" icon={<ClockRotateRight />}>
                   Timeline
                 </WorkbenchTabTrigger>
               </TabsList>
@@ -695,7 +692,7 @@ export default function ClaimWorkbench({ claimId }: { claimId: string }) {
           </p>
           {reprocessing && (
             <p className="flex items-center gap-2 text-sm text-[var(--ciq-ink-muted)]" role="status">
-              <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+              <Refresh className="h-4 w-4 animate-spin" aria-hidden="true" />
               Reprocessing and waiting for the automatic audit…
             </p>
           )}
@@ -707,7 +704,7 @@ export default function ClaimWorkbench({ claimId }: { claimId: string }) {
               onClick={() => void reprocess()}
               disabled={reprocessing}
             >
-              <RefreshCw className={reprocessing ? "animate-spin" : ""} aria-hidden="true" />
+              <Refresh className={reprocessing ? "animate-spin" : ""} aria-hidden="true" />
               {reprocessing ? "Reprocessing" : "Reprocess claim"}
             </Button>
           </DialogFooter>
@@ -799,7 +796,7 @@ export default function ClaimWorkbench({ claimId }: { claimId: string }) {
               }}
               disabled={deleting}
             >
-              <Trash2 aria-hidden="true" />
+              <Trash aria-hidden="true" />
               {deleting ? "Deleting…" : "Delete claim"}
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -1012,7 +1009,7 @@ function ClaimLedger({
             className="w-full justify-start text-[var(--ciq-critical)]"
             onClick={onDelete}
           >
-            <Trash2 aria-hidden="true" />
+            <Trash aria-hidden="true" />
             Delete claim
           </Button>
         </div>
@@ -1221,7 +1218,7 @@ function WorkflowActions({
                   disabled={!currentUserId || saving || assigneeUserId === currentUserId}
                   onClick={() => currentUserId && void onAssignment(currentUserId)}
                 >
-                  <UserRoundCheck aria-hidden="true" />
+                  <UserBadgeCheck aria-hidden="true" />
                   Assign to me
                 </Button>
               </div>
@@ -1315,7 +1312,7 @@ function RequiredActions({
         </div>
       ) : (
         <div className="flex items-start gap-3 p-4 text-sm text-[var(--ciq-ink-muted)]">
-          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-[var(--ciq-verified)]" aria-hidden="true" />
+          <CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-[var(--ciq-verified)]" aria-hidden="true" />
           No root issues or required actions were returned by this audit.
         </div>
       )}
@@ -1612,7 +1609,7 @@ function VisionLedger({ vision }: { vision: VisionAnalysis }) {
         ))}
         {sequenceIssues.map((issue, index) => (
           <div key={index} className="flex items-start gap-3 p-4 text-sm">
-            <AlertTriangle className="mt-0.5 h-4 w-4 text-[var(--ciq-warning)]" aria-hidden="true" />
+            <WarningTriangle className="mt-0.5 h-4 w-4 text-[var(--ciq-warning)]" aria-hidden="true" />
             <span>{issue}</span>
           </div>
         ))}

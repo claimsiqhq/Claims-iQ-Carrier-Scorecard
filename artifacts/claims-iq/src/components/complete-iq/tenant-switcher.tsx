@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { Building2, Check, ChevronDown, LoaderCircle, RefreshCw } from "lucide-react"
+import { Building, Check, NavArrowDown, Refresh } from "iconoir-react"
 import { useLocation } from "wouter"
 import {
   DropdownMenu,
@@ -70,13 +70,13 @@ export function TenantSwitcher({ className }: { className?: string }) {
           }
         >
           <span className="ciq-tenant-switcher__icon" aria-hidden="true">
-            {switchingTo ? <LoaderCircle className="animate-spin" /> : <Building2 />}
+            {switchingTo ? <Refresh className="animate-spin" /> : <Building />}
           </span>
           <span className="ciq-tenant-switcher__copy">
             <small>Tenant workspace</small>
             <strong>{currentTenantName}</strong>
           </span>
-          <ChevronDown className="ciq-tenant-switcher__chevron" aria-hidden="true" />
+          <NavArrowDown className="ciq-tenant-switcher__chevron" aria-hidden="true" />
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-72">
@@ -98,13 +98,13 @@ export function TenantSwitcher({ className }: { className?: string }) {
         <DropdownMenuSeparator />
         {organizations.isLoading && availableTenants.length === 0 && (
           <DropdownMenuItem disabled>
-            <LoaderCircle className="animate-spin" aria-hidden="true" />
+            <Refresh className="animate-spin" aria-hidden="true" />
             Loading tenants…
           </DropdownMenuItem>
         )}
         {organizations.isError && availableTenants.length === 0 && (
           <DropdownMenuItem onSelect={() => void organizations.refetch()}>
-            <RefreshCw aria-hidden="true" />
+            <Refresh aria-hidden="true" />
             Retry tenant list
           </DropdownMenuItem>
         )}
@@ -134,9 +134,9 @@ export function TenantSwitcher({ className }: { className?: string }) {
                 )}
               >
                 {switchingTo === tenant.id ? (
-                  <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+                  <Refresh className="h-4 w-4 animate-spin" aria-hidden="true" />
                 ) : (
-                  <Building2 className="h-4 w-4" aria-hidden="true" />
+                  <Building className="h-4 w-4" aria-hidden="true" />
                 )}
               </span>
               <span className="min-w-0 flex-1">

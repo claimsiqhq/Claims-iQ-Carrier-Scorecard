@@ -1,3 +1,4 @@
+import { IconoirProvider } from "iconoir-react";
 import { lazy, Suspense, useEffect } from "react";
 import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -43,7 +44,7 @@ function AppLoading() {
     <div className="flex h-[100dvh] items-center justify-center bg-[var(--ciq-canvas)]">
       <div className="text-center" role="status" aria-live="polite">
         <BrandMark className="mb-5" />
-        <div className="mx-auto mb-3 h-6 w-6 animate-spin rounded-full border-2 border-[var(--ciq-border-strong)] border-t-[var(--ciq-verified)]" />
+        <div className="mx-auto mb-3 h-6 w-6 animate-spin rounded-full border-2 border-[var(--ciq-border-strong)] border-t-[var(--ciq-brand)]" />
         <p className="text-sm text-[var(--ciq-ink-muted)]">Opening protected workspace…</p>
       </div>
     </div>
@@ -146,6 +147,7 @@ function PlatformCarrierEditor({ carrierKey }: { carrierKey: string }) {
 function App() {
   return (
     <ErrorBoundary>
+      <IconoirProvider iconProps={{ strokeWidth: 1.5 }}>
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
           <TooltipProvider>
@@ -158,6 +160,7 @@ function App() {
           </TooltipProvider>
         </AuthProvider>
       </QueryClientProvider>
+      </IconoirProvider>
     </ErrorBoundary>
   );
 }

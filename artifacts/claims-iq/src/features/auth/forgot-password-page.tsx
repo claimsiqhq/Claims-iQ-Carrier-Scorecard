@@ -1,5 +1,5 @@
 import { useId, useState } from "react"
-import { ArrowLeft, Mail } from "lucide-react"
+import { ArrowLeft, Mail } from "iconoir-react"
 import { Link } from "wouter"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -43,7 +43,7 @@ export default function ForgotPasswordPage() {
     >
       <form
         onSubmit={submit}
-        className="ciq-panel space-y-5 border-t-[3px] border-t-[var(--ciq-aubergine)] p-6 sm:p-7"
+        className="ciq-panel space-y-5 border-t-[3px] border-t-[var(--ciq-brand)] p-6 sm:p-7"
       >
         <div className="ciq-field">
           <label htmlFor={emailId}>Work email</label>
@@ -64,7 +64,7 @@ export default function ForgotPasswordPage() {
         </div>
         {message && (
           <p
-            className="rounded-md border border-[#aedbd5] bg-[var(--ciq-verified-soft)] px-3 py-2.5 text-sm text-[var(--ciq-verified-strong)]"
+            className="rounded-md border border-[var(--ciq-brand-light)] bg-[var(--ciq-verified-soft)] px-3 py-2.5 text-sm text-[var(--ciq-verified-strong)]"
             role="status"
           >
             {message}

@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link } from "wouter"
-import { Archive, ArrowRight, Building2, FileCode2, Plus } from "lucide-react"
+import { Archive, ArrowRight, Building, Code, Plus } from "iconoir-react"
 import { PageState, StatusPill, formatDate } from "@/components/complete-iq/status"
 import { PageBody, PageHeader } from "@/components/layout/app-shell"
 import {
@@ -131,7 +131,7 @@ export default function CarriersPage() {
                             className="h-full w-full object-contain p-1.5"
                           />
                         ) : (
-                          <Building2 className="h-5 w-5 text-[var(--ciq-aubergine)]" aria-hidden="true" />
+                          <Building className="h-5 w-5 text-[var(--ciq-brand)]" aria-hidden="true" />
                         )}
                       </span>
                       <div className="min-w-0">
@@ -166,7 +166,7 @@ export default function CarriersPage() {
                     <div className="flex items-center gap-2 md:justify-end">
                       <Button variant="outline" asChild>
                         <Link href={`/platform/carriers/${profile.carrierKey}`}>
-                          <FileCode2 aria-hidden="true" />
+                          <Code aria-hidden="true" />
                           Edit profile
                           <ArrowRight aria-hidden="true" />
                         </Link>

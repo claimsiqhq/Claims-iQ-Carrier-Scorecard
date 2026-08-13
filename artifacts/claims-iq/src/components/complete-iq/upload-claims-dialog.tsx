@@ -9,13 +9,12 @@ import {
 import { useQueryClient } from "@tanstack/react-query"
 import {
   Check,
-  FileText,
-  LoaderCircle,
-  RotateCcw,
-  Trash2,
-  UploadCloud,
-  X,
-} from "lucide-react"
+  CloudUpload,
+  Page,
+  Refresh,
+  Trash,
+  Xmark,
+} from "iconoir-react"
 import { Link } from "wouter"
 import { Button } from "@/components/ui/button"
 import {
@@ -389,7 +388,7 @@ export function UploadClaimsDialog({
               addFiles(Array.from(event.dataTransfer.files))
             }}
           >
-            <UploadCloud className="mb-2 h-7 w-7 text-[var(--ciq-aubergine)]" aria-hidden="true" />
+            <CloudUpload className="mb-2 h-7 w-7 text-[var(--ciq-brand)]" aria-hidden="true" />
             <strong className="text-sm text-[var(--ciq-ink)]">
               {dragging ? "Release to add files" : "Drop claim PDFs or browse"}
             </strong>
@@ -439,11 +438,11 @@ export function UploadClaimsDialog({
                       )}
                     >
                       {["uploading", "extracting", "auditing"].includes(item.stage) ? (
-                        <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+                        <Refresh className="h-4 w-4 animate-spin" aria-hidden="true" />
                       ) : item.stage === "ready" ? (
                         <Check className="h-4 w-4" aria-hidden="true" />
                       ) : (
-                        <FileText className="h-4 w-4" aria-hidden="true" />
+                        <Page className="h-4 w-4" aria-hidden="true" />
                       )}
                     </span>
                     <span className="min-w-0">
@@ -468,7 +467,7 @@ export function UploadClaimsDialog({
                           onClick={() => void cancelItem(item)}
                           aria-label={`Cancel processing for ${item.fileName}`}
                         >
-                          <X aria-hidden="true" />
+                          <Xmark aria-hidden="true" />
                         </Button>
                       )}
                       {(item.stage === "error" || item.stage === "cancelled") && (
@@ -478,7 +477,7 @@ export function UploadClaimsDialog({
                           onClick={() => void retryItem(item)}
                           aria-label={`Retry ${item.fileName}`}
                         >
-                          <RotateCcw aria-hidden="true" />
+                          <Refresh aria-hidden="true" />
                         </Button>
                       )}
                       {(
@@ -493,7 +492,7 @@ export function UploadClaimsDialog({
                           onClick={() => setQueue((items) => items.filter((entry) => entry.id !== item.id))}
                           aria-label={`Remove ${item.fileName} from queue`}
                         >
-                          {item.stage === "queued" ? <X aria-hidden="true" /> : <Trash2 aria-hidden="true" />}
+                          {item.stage === "queued" ? <Xmark aria-hidden="true" /> : <Trash aria-hidden="true" />}
                         </Button>
                       )}
                     </span>
@@ -518,12 +517,12 @@ export function UploadClaimsDialog({
             >
               {processingBatch ? (
                 <>
-                  <LoaderCircle className="animate-spin" aria-hidden="true" />
+                  <Refresh className="animate-spin" aria-hidden="true" />
                   Processing
                 </>
               ) : (
                 <>
-                  <UploadCloud aria-hidden="true" />
+                  <CloudUpload aria-hidden="true" />
                   Start {queuedCount || ""} intake{queuedCount === 1 ? "" : "s"}
                 </>
               )}

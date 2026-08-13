@@ -1,5 +1,5 @@
 import { useCallback, useId, useState } from "react"
-import { LockKeyhole, Mail, ShieldCheck } from "lucide-react"
+import { Lock, Mail, ShieldCheck } from "iconoir-react"
 import { Link } from "wouter"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -47,7 +47,7 @@ export default function LoginPage() {
     >
       <form
         onSubmit={handleSubmit}
-        className="ciq-panel space-y-5 border-t-[3px] border-t-[var(--ciq-aubergine)] p-6 sm:p-7"
+        className="ciq-panel space-y-5 border-t-[3px] border-t-[var(--ciq-brand)] p-6 sm:p-7"
         noValidate
       >
             <div className="ciq-field">
@@ -74,13 +74,13 @@ export default function LoginPage() {
                 <label htmlFor={passwordId}>Password</label>
                 <Link
                   href="/forgot-password"
-                  className="text-xs font-semibold text-[var(--ciq-verified-strong)] hover:underline"
+                  className="text-xs font-semibold text-[var(--ciq-brand)] hover:underline"
                 >
                   Forgot password?
                 </Link>
               </div>
               <div className="ciq-search">
-                <LockKeyhole aria-hidden="true" />
+                <Lock aria-hidden="true" />
                 <Input
                   id={passwordId}
                   type="password"
@@ -121,7 +121,7 @@ export default function LoginPage() {
             </Button>
 
             <div className="flex items-start gap-2 border-t border-[var(--ciq-border)] pt-4 text-xs leading-5 text-[var(--ciq-ink-muted)]">
-              <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-[var(--ciq-verified)]" aria-hidden="true" />
+              <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-[var(--ciq-gold)]" aria-hidden="true" />
               Complete iQ never asks you to share credentials in a claim note, email, or
               uploaded document.
             </div>

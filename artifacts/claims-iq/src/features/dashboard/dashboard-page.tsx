@@ -3,14 +3,14 @@ import { useQuery } from "@tanstack/react-query"
 import { Link } from "wouter"
 import {
   ArrowRight,
-  BarChart3,
-  Clock3,
-  CircleDollarSign,
-  Files,
+  Clock,
+  DollarCircle,
+  GraphUp,
+  MultiplePages,
   ShieldAlert,
-  Trash2,
-  TrendingUp,
-} from "lucide-react"
+  StatsReport,
+  Trash,
+} from "iconoir-react"
 import { useIntakeDialog } from "@/components/complete-iq/intake-dialog-context"
 import {
   ArchiveClaimsDialog,
@@ -139,28 +139,28 @@ export default function DashboardPage() {
             value={stats.backlogCount.toLocaleString()}
             detail={`${stats.totalClaims.toLocaleString()} total claims in this organization`}
             tone={stats.backlogCount > 0 ? "warning" : "verified"}
-            icon={<Clock3 />}
+            icon={<Clock />}
           />
           <MetricTile
             label="Dollars at risk"
             value={formatCurrency(stats.dollarsAtRisk)}
             detail="Exposure on high-risk or not-ready audits"
             tone="financial"
-            icon={<CircleDollarSign />}
+            icon={<DollarCircle />}
           />
           <MetricTile
             label="Average aging"
             value={`${stats.averageAgeDays}d`}
             detail="Claims not fully approved and ready"
             tone={stats.averageAgeDays > 7 ? "warning" : "neutral"}
-            icon={<Clock3 />}
+            icon={<Clock />}
           />
           <MetricTile
             label="7-day throughput"
             value={stats.completedLast7Days.toLocaleString()}
             detail={`${stats.openFindingCount.toLocaleString()} open findings remain`}
             tone="verified"
-            icon={<TrendingUp />}
+            icon={<GraphUp />}
           />
         </section>
 
@@ -178,7 +178,7 @@ export default function DashboardPage() {
                     size="sm"
                     onClick={() => setArchiveTargets(selectedPriorityClaims)}
                   >
-                    <Trash2 aria-hidden="true" />
+                    <Trash aria-hidden="true" />
                     Delete {selectedPriorityClaims.length} selected
                   </Button>
                 )}
@@ -273,7 +273,7 @@ export default function DashboardPage() {
                                 onClick={() => setArchiveTargets([claim])}
                                 aria-label={`Delete claim ${claim.claimNumber}`}
                               >
-                                <Trash2 aria-hidden="true" />
+                                <Trash aria-hidden="true" />
                               </Button>
                             </td>
                           )}
@@ -326,7 +326,7 @@ export default function DashboardPage() {
                           className="mt-3 w-full border-[var(--ciq-critical)]/30 text-[var(--ciq-critical)] hover:bg-[var(--ciq-critical-soft)] hover:text-[var(--ciq-critical)]"
                           onClick={() => setArchiveTargets([claim])}
                         >
-                          <Trash2 aria-hidden="true" />
+                          <Trash aria-hidden="true" />
                           Delete claim
                         </Button>
                       )}
@@ -417,7 +417,7 @@ export default function DashboardPage() {
                 recentActivity.slice(0, 6).map((activity) => (
                   <div key={activity.id} className="flex items-start gap-3 px-4 py-3">
                     <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--ciq-info-soft)] text-[var(--ciq-info)]">
-                      <Files className="h-3.5 w-3.5" aria-hidden="true" />
+                      <MultiplePages className="h-3.5 w-3.5" aria-hidden="true" />
                     </span>
                     <div className="min-w-0 flex-1">
                       <p className="text-sm text-[var(--ciq-ink)]">
@@ -451,13 +451,13 @@ export default function DashboardPage() {
             <div className="grid gap-2 p-3">
               <Button variant="outline" className="justify-start" asChild>
                 <Link href="/claims">
-                  <Files aria-hidden="true" />
+                  <MultiplePages aria-hidden="true" />
                   Triage review queue
                 </Link>
               </Button>
               <Button variant="outline" className="justify-start" asChild>
                 <Link href="/insights">
-                  <BarChart3 aria-hidden="true" />
+                  <StatsReport aria-hidden="true" />
                   Inspect corpus quality
                 </Link>
               </Button>

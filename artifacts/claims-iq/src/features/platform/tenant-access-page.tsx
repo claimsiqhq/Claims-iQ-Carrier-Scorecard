@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { Building2, LoaderCircle, LogOut } from "lucide-react"
+import { Building, LogOut, Refresh } from "iconoir-react"
 import { BrandMark } from "@/components/complete-iq/brand-mark"
 import { Button } from "@/components/ui/button"
 import { api, apiErrorMessage, queryKeys } from "@/lib/api"
@@ -50,9 +50,9 @@ export function NoTenantAccessPage() {
                   >
                     <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-[var(--ciq-info-soft)] text-[var(--ciq-aubergine)]">
                       {opening === tenant.id ? (
-                        <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+                        <Refresh className="h-4 w-4 animate-spin" aria-hidden="true" />
                       ) : (
-                        <Building2 className="h-4 w-4" aria-hidden="true" />
+                        <Building className="h-4 w-4" aria-hidden="true" />
                       )}
                     </span>
                     <strong className="min-w-0 flex-1 truncate text-sm">{tenant.name}</strong>

@@ -2,20 +2,20 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useLocation } from "wouter"
 import {
-  AlertTriangle,
   ArrowLeft,
-  Braces,
-  CheckCircle2,
-  ChevronDown,
-  FlaskConical,
-  GitCompareArrows,
-  History,
+  CheckCircle,
+  ClockRotateRight,
+  CodeBrackets,
+  Flask,
+  FloppyDisk,
+  GitCompare,
+  NavArrowDown,
   Play,
   Plus,
-  RotateCcw,
-  Save,
-  Trash2,
-} from "lucide-react"
+  Refresh,
+  Trash,
+  WarningTriangle,
+} from "iconoir-react"
 import { PageState, StatusPill } from "@/components/complete-iq/status"
 import { PageBody, PageHeader } from "@/components/layout/app-shell"
 import {
@@ -432,7 +432,7 @@ export default function CarrierEditorPage({ carrierKey }: { carrierKey: string }
                 className="border-white/20 bg-transparent text-white hover:bg-white/10"
                 onClick={() => setDeleteOpen(true)}
               >
-                <Trash2 aria-hidden="true" />
+                <Trash aria-hidden="true" />
                 Deactivate
               </Button>
             )}
@@ -443,7 +443,7 @@ export default function CarrierEditorPage({ carrierKey }: { carrierKey: string }
                 onClick={() => void publishVersion(draftVersion.id)}
                 disabled={Boolean(publishingId) || Boolean(validation.errors.length)}
               >
-                <CheckCircle2 aria-hidden="true" />
+                <CheckCircle aria-hidden="true" />
                 {publishingId === draftVersion.id ? "Publishing…" : "Approve & publish"}
               </Button>
             )}
@@ -452,7 +452,7 @@ export default function CarrierEditorPage({ carrierKey }: { carrierKey: string }
               onClick={() => void saveProfile()}
               disabled={!dirty || saving || Boolean(validation.errors.length)}
             >
-              <Save aria-hidden="true" />
+              <FloppyDisk aria-hidden="true" />
               {saving ? "Saving…" : "Save new draft"}
             </Button>
           </>
@@ -465,14 +465,14 @@ export default function CarrierEditorPage({ carrierKey }: { carrierKey: string }
             className={`mb-4 flex items-start gap-2 rounded-md border p-3 text-sm ${
               error
                 ? "border-[#e5b3b3] bg-[var(--ciq-critical-soft)] text-[var(--ciq-critical)]"
-                : "border-[#aedbd5] bg-[var(--ciq-verified-soft)] text-[var(--ciq-verified-strong)]"
+                : "border-[var(--ciq-brand-light)] bg-[var(--ciq-verified-soft)] text-[var(--ciq-verified-strong)]"
             }`}
             role={error ? "alert" : "status"}
           >
             {error ? (
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+              <WarningTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
             ) : (
-              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+              <CheckCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
             )}
             {error || message}
           </div>
@@ -539,11 +539,11 @@ export default function CarrierEditorPage({ carrierKey }: { carrierKey: string }
             <Tabs value={mode} onValueChange={switchMode}>
               <TabsList className="grid h-auto w-full grid-cols-2 border border-[var(--ciq-border)] bg-[var(--ciq-surface)] p-1">
                 <TabsTrigger value="form">
-                  <ChevronDown aria-hidden="true" />
+                  <NavArrowDown aria-hidden="true" />
                   Structured form
                 </TabsTrigger>
                 <TabsTrigger value="code">
-                  <Braces aria-hidden="true" />
+                  <CodeBrackets aria-hidden="true" />
                   Ruleset code
                 </TabsTrigger>
               </TabsList>
@@ -656,7 +656,7 @@ export default function CarrierEditorPage({ carrierKey }: { carrierKey: string }
                     />
                     <div className="flex flex-wrap gap-2">
                       <Button onClick={applyCode}>
-                        <Braces aria-hidden="true" />
+                        <CodeBrackets aria-hidden="true" />
                         Parse and apply
                       </Button>
                       <Button
@@ -740,7 +740,7 @@ export default function CarrierEditorPage({ carrierKey }: { carrierKey: string }
               }}
               disabled={deleting}
             >
-              <Trash2 aria-hidden="true" />
+              <Trash aria-hidden="true" />
               {deleting ? "Deactivating…" : "Deactivate carrier"}
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -772,7 +772,7 @@ export default function CarrierEditorPage({ carrierKey }: { carrierKey: string }
               }}
               disabled={rollingBack}
             >
-              <RotateCcw aria-hidden="true" />
+              <Refresh aria-hidden="true" />
               {rollingBack ? "Restoring…" : "Create rollback publication"}
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -818,7 +818,7 @@ function EditorSection({
           <strong className="ciq-section-title block">{title}</strong>
           <span className="mt-1 block text-xs text-[var(--ciq-ink-muted)]">{description}</span>
         </span>
-        <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" aria-hidden="true" />
+        <NavArrowDown className="h-4 w-4 transition-transform group-open:rotate-180" aria-hidden="true" />
       </summary>
       <div className="p-4">{children}</div>
     </details>
@@ -870,7 +870,7 @@ function CategoryEditor({
             onClick={() => onChange(categories.filter((_, itemIndex) => itemIndex !== index))}
             aria-label={`Remove category ${category.label || index + 1}`}
           >
-            <Trash2 aria-hidden="true" />
+            <Trash aria-hidden="true" />
           </Button>
         </div>
       ))}
@@ -920,7 +920,7 @@ function QuestionEditor({
               onClick={() => onChange(questions.filter((_, itemIndex) => itemIndex !== index))}
               aria-label={`Remove question ${question.id || index + 1}`}
             >
-              <Trash2 aria-hidden="true" />
+              <Trash aria-hidden="true" />
             </Button>
           </div>
           <div className="grid gap-3 md:grid-cols-2">
@@ -1150,7 +1150,7 @@ function SourceReferenceEditor({
             aria-label={`Remove source ${reference.label || index + 1}`}
             onClick={() => onChange(references.filter((_, itemIndex) => itemIndex !== index))}
           >
-            <Trash2 aria-hidden="true" />
+            <Trash aria-hidden="true" />
           </Button>
         </div>
       ))}
@@ -1219,7 +1219,7 @@ function VersionDiffPanel({ diff }: { diff: RulesetDiff }) {
           <h2>Version impact</h2>
           <p>{diff.baselineAvailable ? "Draft vs live publication" : "No published baseline"}</p>
         </div>
-        <GitCompareArrows className="h-4 w-4 text-[var(--ciq-aubergine)]" aria-hidden="true" />
+        <GitCompare className="h-4 w-4 text-[var(--ciq-brand)]" aria-hidden="true" />
       </div>
       <dl className="grid grid-cols-2 gap-px bg-[var(--ciq-border)]">
         {[
@@ -1271,7 +1271,7 @@ function RulesetTestPanel({
               : "Temporary tenant access is required to select a claim"}
           </p>
         </div>
-        <FlaskConical className="h-4 w-4 text-[var(--ciq-info)]" aria-hidden="true" />
+        <Flask className="h-4 w-4 text-[var(--ciq-info)]" aria-hidden="true" />
       </div>
       <div className="space-y-3 p-4">
         <label className="ciq-label" htmlFor="carrier-test-claim">
@@ -1354,7 +1354,7 @@ function VersionHistoryPanel({
           <h2>Publication history</h2>
           <p>Immutable versions and approval actions</p>
         </div>
-        <History className="h-4 w-4 text-[var(--ciq-aubergine)]" aria-hidden="true" />
+        <ClockRotateRight className="h-4 w-4 text-[var(--ciq-brand)]" aria-hidden="true" />
       </div>
       {versions.length ? (
         <div className="max-h-80 divide-y divide-[var(--ciq-border)] overflow-y-auto">
@@ -1383,7 +1383,7 @@ function VersionHistoryPanel({
                   onClick={() => onPublish(version.id)}
                   disabled={Boolean(publishingId)}
                 >
-                  <CheckCircle2 aria-hidden="true" />
+                  <CheckCircle aria-hidden="true" />
                   {publishingId === version.id ? "Publishing…" : "Approve & publish"}
                 </Button>
               )}
@@ -1394,7 +1394,7 @@ function VersionHistoryPanel({
                   className="mt-2 w-full"
                   onClick={() => onRollback(version)}
                 >
-                  <RotateCcw aria-hidden="true" />
+                  <Refresh aria-hidden="true" />
                   Restore as new version
                 </Button>
               )}

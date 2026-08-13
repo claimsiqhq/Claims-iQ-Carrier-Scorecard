@@ -1,7 +1,7 @@
 import { useMemo } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { Link } from "wouter"
-import { BarChart3, CheckCircle2, Files, Gauge, ShieldAlert } from "lucide-react"
+import { CheckCircle, DashboardSpeed, MultiplePages, ShieldAlert, StatsReport } from "iconoir-react"
 import {
   MetricTile,
   PageState,
@@ -131,21 +131,21 @@ export default function InsightsPage() {
             value={formatPercent(analytics.summary.processingSuccessRate)}
             detail={`${analytics.summary.failedCount} failed · ${analytics.summary.degradedCount} degraded`}
             tone="verified"
-            icon={<CheckCircle2 />}
+            icon={<CheckCircle />}
           />
           <MetricTile
             label="Mapped citations"
             value={formatPercent(analytics.summary.citationMappingRate)}
             detail="Evidence anchors verified to source pages"
             tone="verified"
-            icon={<Files />}
+            icon={<MultiplePages />}
           />
           <MetricTile
             label="Reviewer agreement"
             value={formatPercent(analytics.summary.reviewAgreementRate)}
             detail="Accepted or remediated reviewed findings"
             tone="financial"
-            icon={<Gauge />}
+            icon={<DashboardSpeed />}
           />
           <MetricTile
             label="Override rate"
@@ -190,7 +190,7 @@ export default function InsightsPage() {
               <h2>Carrier workload and quality</h2>
               <p>Current corpus count and mean audit score</p>
             </div>
-            <BarChart3 className="h-4 w-4 text-[var(--ciq-aubergine)]" aria-hidden="true" />
+            <StatsReport className="h-4 w-4 text-[var(--ciq-brand)]" aria-hidden="true" />
           </div>
           {analytics.carrierPerformance.length ? (
             <div className="overflow-x-auto">

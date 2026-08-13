@@ -2,19 +2,18 @@ import { useDeferredValue, useEffect, useMemo, useState } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link, useLocation } from "wouter"
 import {
-  ArrowDownUp,
   ArrowRight,
-  Columns3,
   Eye,
-  Files,
   Filter,
-  LayoutList,
-  RotateCcw,
-  Save,
+  FloppyDisk,
+  List,
+  Refresh,
   Search,
-  Trash2,
-  UserRoundCheck,
-} from "lucide-react"
+  Sort,
+  Trash,
+  UserBadgeCheck,
+  ViewColumns3,
+} from "iconoir-react"
 import { useIntakeDialog } from "@/components/complete-iq/intake-dialog-context"
 import {
   ArchiveClaimsDialog,
@@ -439,7 +438,7 @@ export default function ClaimsPage() {
               </select>
             </div>
             <Button variant="outline" onClick={() => setSaveViewOpen(true)}>
-              <Save aria-hidden="true" />
+              <FloppyDisk aria-hidden="true" />
               Save current view
             </Button>
             {(savedViewsQuery.data?.views || []).map((view) => (
@@ -460,7 +459,7 @@ export default function ClaimsPage() {
                   onClick={() => void removeSavedView(view)}
                   aria-label={`Delete saved view ${view.name}`}
                 >
-                  <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                  <Trash className="h-3.5 w-3.5" aria-hidden="true" />
                 </button>
               </span>
             ))}
@@ -534,7 +533,7 @@ export default function ClaimsPage() {
               label="Sort"
               value={sort}
               onChange={(value) => setSort(value as SortKey)}
-              icon={<ArrowDownUp />}
+              icon={<Sort />}
               options={[
                 ["received", "Newest received"],
                 ["claim", "Claim number"],
@@ -547,7 +546,7 @@ export default function ClaimsPage() {
               label="Density"
               value={density}
               onChange={(value) => setDensity(value as Density)}
-              icon={<LayoutList />}
+              icon={<List />}
               options={[
                 ["comfortable", "Comfortable"],
                 ["compact", "Compact"],
@@ -558,7 +557,7 @@ export default function ClaimsPage() {
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" className="justify-between">
-                    <Columns3 aria-hidden="true" />
+                    <ViewColumns3 aria-hidden="true" />
                     Configure
                   </Button>
                 </DropdownMenuTrigger>
@@ -615,7 +614,7 @@ export default function ClaimsPage() {
                         disabled={!user?.id || bulkSaving}
                         onClick={() => user?.id && void bulkAssign(user.id)}
                       >
-                        <UserRoundCheck aria-hidden="true" />
+                        <UserBadgeCheck aria-hidden="true" />
                         Assign to me
                       </Button>
                       <select
@@ -652,7 +651,7 @@ export default function ClaimsPage() {
                       disabled={bulkSaving}
                       onClick={openBulkArchive}
                     >
-                      <Trash2 aria-hidden="true" />
+                      <Trash aria-hidden="true" />
                       Delete selected
                     </Button>
                   )}
@@ -810,7 +809,7 @@ export default function ClaimsPage() {
                               onClick={() => void retryClaim(claim.id)}
                               disabled={retrying[claim.id]}
                             >
-                              <RotateCcw className={retrying[claim.id] ? "animate-spin" : ""} aria-hidden="true" />
+                              <Refresh className={retrying[claim.id] ? "animate-spin" : ""} aria-hidden="true" />
                               {retrying[claim.id] ? "Retrying" : "Retry"}
                             </Button>
                           ) : (
@@ -839,7 +838,7 @@ export default function ClaimsPage() {
                                   onClick={() => setArchiveTargets([claim])}
                                   aria-label={`Delete claim ${claim.claimNumber}`}
                                 >
-                                  <Trash2 aria-hidden="true" />
+                                  <Trash aria-hidden="true" />
                                 </Button>
                               )}
                           </div>
@@ -904,7 +903,7 @@ export default function ClaimsPage() {
                             className="w-full border-[var(--ciq-critical)]/30 text-[var(--ciq-critical)] hover:bg-[var(--ciq-critical-soft)] hover:text-[var(--ciq-critical)]"
                             onClick={() => setArchiveTargets([claim])}
                           >
-                            <Trash2 aria-hidden="true" />
+                            <Trash aria-hidden="true" />
                             Delete claim
                           </Button>
                         )}
@@ -1002,7 +1001,7 @@ export default function ClaimsPage() {
               Cancel
             </Button>
             <Button onClick={() => void saveCurrentView()} disabled={!viewName.trim() || savingView}>
-              <Save aria-hidden="true" />
+              <FloppyDisk aria-hidden="true" />
               {savingView ? "Saving…" : "Save view"}
             </Button>
           </DialogFooter>
