@@ -65,10 +65,11 @@ BEGIN
       AND path_segments[7] NOT IN ('.', '..');
   END IF;
 
-  IF pg_catalog.array_length(path_segments, 1) = 8
-     AND path_segments[7] = 'pages'
-     AND path_segments[8] ~ '^page-[0-9]{6}\.jpg$' THEN
-    page_number := pg_catalog.substr(path_segments[8], 6, 6)::integer;
+  IF pg_catalog.array_length(path_segments, 1) = 9
+     AND path_segments[7] = 'renditions'
+     AND path_segments[8] = 'page-jpeg-v1'
+     AND path_segments[9] ~ '^page-[0-9]{6}\.jpg$' THEN
+    page_number := pg_catalog.substr(path_segments[9], 6, 6)::integer;
     RETURN page_number BETWEEN 1 AND 999999;
   END IF;
 

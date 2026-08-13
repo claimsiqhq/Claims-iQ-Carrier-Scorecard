@@ -235,7 +235,8 @@ export function buildCanonicalPageRenditionPath(input: {
     claimId,
     "documents",
     documentId,
-    "pages",
+    "renditions",
+    PAGE_RENDITION_VERSION,
     renditionFileName(input.pageNumber),
   ].join("/");
 }
@@ -286,16 +287,17 @@ export function parseCanonicalPageRenditionPath(
     return null;
   }
   const segments = storagePath.split("/");
-  const pageMatch = PAGE_RENDITION_FILE_RE.exec(segments[7] ?? "");
+  const pageMatch = PAGE_RENDITION_FILE_RE.exec(segments[8] ?? "");
   if (
-    segments.length !== 8
+    segments.length !== 9
     || segments[0] !== "organizations"
     || !UUID_RE.test(segments[1] ?? "")
     || segments[2] !== "claims"
     || !UUID_RE.test(segments[3] ?? "")
     || segments[4] !== "documents"
     || !UUID_RE.test(segments[5] ?? "")
-    || segments[6] !== "pages"
+    || segments[6] !== "renditions"
+    || segments[7] !== PAGE_RENDITION_VERSION
     || !pageMatch
   ) {
     return null;

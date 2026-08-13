@@ -91,7 +91,7 @@ test("page rendition paths are canonical and page-bound", () => {
   });
   assert.equal(
     path,
-    `organizations/${ORGANIZATION_A}/claims/${CLAIM_A}/documents/${DOCUMENT_A}/pages/page-000017.jpg`,
+    `organizations/${ORGANIZATION_A}/claims/${CLAIM_A}/documents/${DOCUMENT_A}/renditions/page-jpeg-v1/page-000017.jpg`,
   );
   assert.deepEqual(parseCanonicalPageRenditionPath(path), {
     organizationId: ORGANIZATION_A,
@@ -103,6 +103,7 @@ test("page rendition paths are canonical and page-bound", () => {
     path.replace("page-000017.jpg", "page-000000.jpg"),
     path.replace("page-000017.jpg", "page-17.jpg"),
     path.replace("page-000017.jpg", "page-000017.png"),
+    path.replace("page-jpeg-v1", "page-jpeg-v2"),
     path.replace(`organizations/${ORGANIZATION_A}`, "organizations/../"),
     `${path}/extra`,
   ]) {
