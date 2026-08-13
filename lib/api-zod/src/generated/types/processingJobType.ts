@@ -34,4 +34,5 @@ export const ProcessingJobType = {
   retry: "retry",
   reprocess: "reprocess",
   extract: "extract",
+  rendition: "rendition",
 } as const;

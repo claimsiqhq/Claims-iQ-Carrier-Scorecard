@@ -140,9 +140,27 @@ export interface ClaimDocument {
   claimId: string
   type: string
   fileUrl?: string
+  pageCount?: number
   extractedText?: string
   metadata?: Record<string, unknown>
   createdAt?: string
+}
+
+export interface DocumentRenditionManifest {
+  documentId: string
+  version: string
+  format: "jpeg"
+  status: "missing" | "preparing" | "ready" | "degraded" | "failed"
+  pageCount: number | null
+  availablePages: number[]
+  failedPages: Array<{ page_number: number; reason: string }>
+  error: string | null
+  job: {
+    id: string
+    status: string
+    stage: string
+    progress: number
+  } | null
 }
 
 export interface ScorecardQuestion {

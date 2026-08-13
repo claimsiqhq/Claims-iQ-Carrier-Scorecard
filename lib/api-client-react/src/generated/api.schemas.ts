@@ -379,6 +379,7 @@ export const ProcessingJobType = {
   retry: "retry",
   reprocess: "reprocess",
   extract: "extract",
+  rendition: "rendition",
 } as const;
 
 export type ProcessingJobStatus =
@@ -533,6 +534,8 @@ export interface ClaimDocument {
   claimId: string;
   type: string;
   fileUrl?: string;
+  /** @minimum 1 */
+  pageCount?: number;
   extractedText?: string;
   metadata?: DocumentMetadata;
   createdAt?: string;
@@ -1172,6 +1175,58 @@ export interface SignedUrl {
   expiresIn: number;
 }
 
+export type DocumentRenditionManifestFormat =
+  (typeof DocumentRenditionManifestFormat)[keyof typeof DocumentRenditionManifestFormat];
+
+export const DocumentRenditionManifestFormat = {
+  jpeg: "jpeg",
+} as const;
+
+export type DocumentRenditionManifestStatus =
+  (typeof DocumentRenditionManifestStatus)[keyof typeof DocumentRenditionManifestStatus];
+
+export const DocumentRenditionManifestStatus = {
+  missing: "missing",
+  preparing: "preparing",
+  ready: "ready",
+  degraded: "degraded",
+  failed: "failed",
+} as const;
+
+export type DocumentRenditionManifestFailedPagesItem = {
+  /** @minimum 1 */
+  page_number: number;
+  reason: string;
+};
+
+export type DocumentRenditionManifestJob = {
+  id: string;
+  status: ProcessingJobStatus;
+  stage: ProcessingJobStage;
+  /**
+   * @minimum 0
+   * @maximum 100
+   */
+  progress: number;
+} | null;
+
+export interface DocumentRenditionManifest {
+  documentId: string;
+  version: string;
+  format: DocumentRenditionManifestFormat;
+  status: DocumentRenditionManifestStatus;
+  /**
+   * @minimum 1
+   * @nullable
+   */
+  pageCount: number | null;
+  availablePages: number[];
+  failedPages: DocumentRenditionManifestFailedPagesItem[];
+  /** @nullable */
+  error: string | null;
+  job: DocumentRenditionManifestJob;
+}
+
 export interface CarrierOption {
   id: string;
   key: string;
@@ -1678,6 +1733,11 @@ export type GoneResponse = Error;
  * Uploaded content exceeds the route limit.
  */
 export type PayloadTooLargeResponse = Error;
+
+/**
+ * The source document type cannot support the requested operation.
+ */
+export type UnsupportedMediaTypeResponse = Error;
 
 /**
  * Request rate limit exceeded.

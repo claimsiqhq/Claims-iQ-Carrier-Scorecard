@@ -24,16 +24,9 @@ an equivalent request returns the existing durable processing job and sets
 
  * OpenAPI spec version: 1.0.0
  */
-import type { DocumentMetadata } from "./documentMetadata";
+import type { Error } from "./error";
 
-export interface ClaimDocument {
-  id: string;
-  claimId: string;
-  type: string;
-  fileUrl?: string;
-  /** @minimum 1 */
-  pageCount?: number;
-  extractedText?: string;
-  metadata?: DocumentMetadata;
-  createdAt?: string;
-}
+/**
+ * The source document type cannot support the requested operation.
+ */
+export type UnsupportedMediaTypeResponse = Error;

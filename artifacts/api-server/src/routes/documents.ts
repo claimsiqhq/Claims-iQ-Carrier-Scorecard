@@ -265,6 +265,10 @@ router.delete(
       }
 
       if (storageReference) {
+        await storage.deletePageRenditions({
+          claimId: storageReference.claimId,
+          documentId: storageReference.documentId,
+        });
         await storage.deleteDocument(storageReference);
       }
       res.json({ success: true, message: "Document deleted" });

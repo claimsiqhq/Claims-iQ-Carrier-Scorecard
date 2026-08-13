@@ -26,10 +26,15 @@ import {
   resolveDetectedCarrierEntity,
 } from "./carrierRulesetService";
 import { parseClaimFromText } from "./ingest";
-import { extractPdfTextWithVisionPages } from "./finalReportIngestion";
+import {
+  extractPdfTextWithVisionPages,
+  renderPdfPageRenditions,
+  type PageRenditionSummary,
+} from "./finalReportIngestion";
 import { runAndSaveAudit } from "./auditRunner";
 import {
   createTenantStorageCapability,
+  PAGE_RENDITION_VERSION,
   type TenantStorageCapability,
 } from "../lib/supabaseStorage";
 import logger from "../lib/logger";
@@ -125,6 +130,7 @@ async function processExtractionJob(
       : "application/pdf";
   let extractedText: string;
   let extractionDocument: Record<string, unknown> | undefined;
+  let renditionDocument: PageRenditionSummary | undefined;
   let degraded = false;
 
   if (
@@ -135,9 +141,18 @@ async function processExtractionJob(
       pdfBuffer: fileBuffer,
       fileName,
       requestId: job.id,
+      onPageRendered: async (page) => {
+        await storage.uploadPageRendition({
+          claimId: job.claimId!,
+          documentId: document.id,
+          pageNumber: page.pageNumber,
+          body: page.jpegBuffer,
+        });
+      },
     });
     extractedText = vision.text;
     extractionDocument = vision.extractionDocument as unknown as Record<string, unknown>;
+    renditionDocument = vision.renditionDocument;
     degraded =
       vision.extractionDocument.failedPages.length > 0
       || vision.extractionDocument.filteredPages.length > 0;
@@ -162,6 +177,20 @@ async function processExtractionJob(
         contentType,
         storagePath: document.fileUrl,
         extractionDocument,
+        pageRenditions: renditionDocument
+          ? {
+              version: renditionDocument.version,
+              format: renditionDocument.format,
+              status:
+                renditionDocument.failed_pages.length > 0
+                  ? "degraded"
+                  : "ready",
+              pageCount: renditionDocument.page_count,
+              renderedPages: renditionDocument.rendered_pages,
+              failedPages: renditionDocument.failed_pages,
+              completedAt: new Date().toISOString(),
+            }
+          : null,
       },
       pageCount:
         extractionDocument && typeof extractionDocument.page_count === "number"
@@ -265,6 +294,20 @@ async function processExtractionJob(
         storagePath: document.fileUrl,
         parsedData,
         extractionDocument,
+        pageRenditions: renditionDocument
+          ? {
+              version: renditionDocument.version,
+              format: renditionDocument.format,
+              status:
+                renditionDocument.failed_pages.length > 0
+                  ? "degraded"
+                  : "ready",
+              pageCount: renditionDocument.page_count,
+              renderedPages: renditionDocument.rendered_pages,
+              failedPages: renditionDocument.failed_pages,
+              completedAt: new Date().toISOString(),
+            }
+          : null,
       },
     })
     .where(
@@ -289,6 +332,150 @@ async function processExtractionJob(
     );
   }
   return { degraded };
+}
+
+async function processRenditionJob(
+  job: ClaimedJob,
+  jobDatabase: WorkspaceDatabase,
+  storage: TenantStorageCapability,
+): Promise<{ degraded: boolean }> {
+  if (!job.claimId || !job.documentId) {
+    throw new ProcessingFailure(
+      "rendition_source_missing",
+      "Page rendition job is missing its claim or document reference",
+    );
+  }
+  const document = await loadJobDocument(job);
+  const metadata = (document.metadata as Record<string, unknown> | null) ?? {};
+  const fileName =
+    typeof metadata.fileName === "string" ? metadata.fileName : "claim.pdf";
+  const contentType =
+    typeof metadata.contentType === "string"
+      ? metadata.contentType
+      : "application/pdf";
+  if (
+    contentType.toLowerCase() !== "application/pdf"
+    && !fileName.toLowerCase().endsWith(".pdf")
+  ) {
+    throw new ProcessingFailure(
+      "rendition_source_unsupported",
+      "Only PDF documents can produce page renditions",
+    );
+  }
+
+  await updateJobStage(jobDatabase, job, "scanning", 10);
+  await db
+    .update(documents)
+    .set({
+      metadata: {
+        ...metadata,
+        pageRenditions: {
+          version: PAGE_RENDITION_VERSION,
+          format: "jpeg",
+          status: "preparing",
+          pageCount: document.pageCount ?? null,
+          renderedPages: [],
+          failedPages: [],
+          startedAt: new Date().toISOString(),
+        },
+      },
+    })
+    .where(
+      and(
+        eq(documents.id, document.id),
+        eq(documents.organizationId, job.organizationId),
+      ),
+    );
+
+  try {
+    const fileBuffer = await storage.downloadDocument({
+      claimId: job.claimId,
+      documentId: document.id,
+      storagePath: document.fileUrl!,
+    });
+    if (fileBuffer.length > MAX_SOURCE_SIZE) {
+      throw new ProcessingFailure(
+        "source_too_large",
+        `Source document exceeds the ${MAX_SOURCE_SIZE / 1024 / 1024}MB processing limit`,
+      );
+    }
+    await updateJobStage(jobDatabase, job, "extracting", 20);
+    const rendition = await renderPdfPageRenditions({
+      pdfBuffer: fileBuffer,
+      fileName,
+      requestId: job.id,
+      onPageRendered: async (page) => {
+        await storage.uploadPageRendition({
+          claimId: job.claimId!,
+          documentId: document.id,
+          pageNumber: page.pageNumber,
+          body: page.jpegBuffer,
+        });
+      },
+      onProgress: async (completedPages, totalPages) => {
+        const progress = Math.min(
+          90,
+          20 + Math.round((completedPages / Math.max(1, totalPages)) * 70),
+        );
+        await updateJobStage(jobDatabase, job, "extracting", progress);
+      },
+    });
+    const status =
+      rendition.failed_pages.length > 0 ? "degraded" : "ready";
+    await db
+      .update(documents)
+      .set({
+        pageCount: rendition.page_count,
+        metadata: {
+          ...metadata,
+          pageRenditions: {
+            version: rendition.version,
+            format: rendition.format,
+            status,
+            pageCount: rendition.page_count,
+            renderedPages: rendition.rendered_pages,
+            failedPages: rendition.failed_pages,
+            completedAt: new Date().toISOString(),
+          },
+        },
+      })
+      .where(
+        and(
+          eq(documents.id, document.id),
+          eq(documents.organizationId, job.organizationId),
+        ),
+      );
+    return { degraded: rendition.failed_pages.length > 0 };
+  } catch (error) {
+    await db
+      .update(documents)
+      .set({
+        metadata: {
+          ...metadata,
+          pageRenditions: {
+            version: PAGE_RENDITION_VERSION,
+            format: "jpeg",
+            status: "failed",
+            pageCount: document.pageCount ?? null,
+            renderedPages: [],
+            failedPages: [],
+            error:
+              error instanceof Error
+                ? error.message
+                : "Page rendition generation failed",
+            completedAt: new Date().toISOString(),
+          },
+        },
+      })
+      .where(
+        and(
+          eq(documents.id, document.id),
+          eq(documents.organizationId, job.organizationId),
+        ),
+      )
+      .catch(() => undefined);
+    throw error;
+  }
 }
 
 async function processAuditOnlyJob(
@@ -333,7 +520,7 @@ async function processClaimedJob(
   heartbeatTimer.unref();
 
   try {
-    if (job.claimId) {
+    if (job.claimId && job.type !== "rendition") {
       await db
         .update(claims)
         .set({
@@ -351,9 +538,12 @@ async function processClaimedJob(
         );
     }
 
-    const outcome = job.type === "audit"
-      ? await processAuditOnlyJob(job, jobDatabase, storage)
-      : await processExtractionJob(job, jobDatabase, storage);
+    const outcome =
+      job.type === "audit"
+        ? await processAuditOnlyJob(job, jobDatabase, storage)
+        : job.type === "rendition"
+          ? await processRenditionJob(job, jobDatabase, storage)
+          : await processExtractionJob(job, jobDatabase, storage);
     if (heartbeatError) throw heartbeatError;
     await completeJob(
       jobDatabase,
@@ -399,6 +589,7 @@ async function markClaimFailedWhenAttemptsExhausted(
 ): Promise<void> {
   if (
     !job.claimId ||
+    job.type === "rendition" ||
     job.attemptCount < job.maxAttempts ||
     error instanceof JobLeaseLostError
   ) {

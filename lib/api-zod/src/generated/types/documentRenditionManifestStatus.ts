@@ -24,16 +24,14 @@ an equivalent request returns the existing durable processing job and sets
 
  * OpenAPI spec version: 1.0.0
  */
-import type { DocumentMetadata } from "./documentMetadata";
 
-export interface ClaimDocument {
-  id: string;
-  claimId: string;
-  type: string;
-  fileUrl?: string;
-  /** @minimum 1 */
-  pageCount?: number;
-  extractedText?: string;
-  metadata?: DocumentMetadata;
-  createdAt?: string;
-}
+export type DocumentRenditionManifestStatus =
+  (typeof DocumentRenditionManifestStatus)[keyof typeof DocumentRenditionManifestStatus];
+
+export const DocumentRenditionManifestStatus = {
+  missing: "missing",
+  preparing: "preparing",
+  ready: "ready",
+  degraded: "degraded",
+  failed: "failed",
+} as const;

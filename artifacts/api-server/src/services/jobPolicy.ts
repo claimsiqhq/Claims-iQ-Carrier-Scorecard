@@ -1,6 +1,12 @@
 import { createHash } from "node:crypto";
 
-export type DurableJobType = "ingest" | "audit" | "retry" | "reprocess" | "extract";
+export type DurableJobType =
+  | "ingest"
+  | "audit"
+  | "retry"
+  | "reprocess"
+  | "extract"
+  | "rendition";
 export type DurableJobState =
   | "queued"
   | "running"

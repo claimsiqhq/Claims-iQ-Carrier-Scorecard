@@ -992,6 +992,7 @@ export const GetClaimDetailResponse = zod.object({
       claimId: zod.string().uuid(),
       type: zod.string(),
       fileUrl: zod.string().optional(),
+      pageCount: zod.number().min(1).optional(),
       extractedText: zod.string().optional(),
       metadata: zod.record(zod.string(), zod.unknown()).optional(),
       createdAt: zod.string().datetime({}).optional(),
@@ -1584,7 +1585,7 @@ export const GetClaimProcessingStatusResponse = zod.object({
       claimId: zod.string().uuid().nullish(),
       documentId: zod.string().uuid().nullish(),
       type: zod
-        .enum(["ingest", "audit", "retry", "reprocess", "extract"])
+        .enum(["ingest", "audit", "retry", "reprocess", "extract", "rendition"])
         .optional(),
       status: zod.enum([
         "queued",
@@ -1742,7 +1743,14 @@ export const ListClaimProcessingJobsResponse = zod.object({
       id: zod.string().uuid(),
       claimId: zod.string().uuid().nullable(),
       documentId: zod.string().uuid().nullable(),
-      type: zod.enum(["ingest", "audit", "retry", "reprocess", "extract"]),
+      type: zod.enum([
+        "ingest",
+        "audit",
+        "retry",
+        "reprocess",
+        "extract",
+        "rendition",
+      ]),
       status: zod.enum([
         "queued",
         "running",
@@ -1806,7 +1814,14 @@ export const GetProcessingJobResponse = zod.object({
     id: zod.string().uuid(),
     claimId: zod.string().uuid().nullable(),
     documentId: zod.string().uuid().nullable(),
-    type: zod.enum(["ingest", "audit", "retry", "reprocess", "extract"]),
+    type: zod.enum([
+      "ingest",
+      "audit",
+      "retry",
+      "reprocess",
+      "extract",
+      "rendition",
+    ]),
     status: zod.enum([
       "queued",
       "running",
@@ -1886,7 +1901,14 @@ export const CancelProcessingJobResponse = zod.object({
     id: zod.string().uuid(),
     claimId: zod.string().uuid().nullable(),
     documentId: zod.string().uuid().nullable(),
-    type: zod.enum(["ingest", "audit", "retry", "reprocess", "extract"]),
+    type: zod.enum([
+      "ingest",
+      "audit",
+      "retry",
+      "reprocess",
+      "extract",
+      "rendition",
+    ]),
     status: zod.enum([
       "queued",
       "running",
@@ -2015,6 +2037,126 @@ export const GetDocumentSignedUrlParams = zod.object({
 export const GetDocumentSignedUrlResponse = zod.object({
   url: zod.string().url(),
   expiresIn: zod.number().min(1).describe("Lifetime in seconds."),
+});
+
+/**
+ * Requires `claims:read`; cross-tenant document IDs return `404`.
+ * @summary Get page-rendition viewer status
+ */
+export const GetDocumentRenditionsParams = zod.object({
+  documentId: zod.coerce.string().uuid().describe("Document identifier."),
+});
+
+export const getDocumentRenditionsResponseJobOneProgressMin = 0;
+export const getDocumentRenditionsResponseJobOneProgressMax = 100;
+
+export const GetDocumentRenditionsResponse = zod.object({
+  documentId: zod.string().uuid(),
+  version: zod.string(),
+  format: zod.enum(["jpeg"]),
+  status: zod.enum(["missing", "preparing", "ready", "degraded", "failed"]),
+  pageCount: zod.number().min(1).nullable(),
+  availablePages: zod.array(zod.number().min(1)),
+  failedPages: zod.array(
+    zod.object({
+      page_number: zod.number().min(1),
+      reason: zod.string(),
+    }),
+  ),
+  error: zod.string().nullable(),
+  job: zod
+    .object({
+      id: zod.string().uuid(),
+      status: zod.enum([
+        "queued",
+        "running",
+        "succeeded",
+        "degraded",
+        "failed",
+        "cancelled",
+      ]),
+      stage: zod.enum([
+        "uploaded",
+        "scanning",
+        "extracting",
+        "auditing",
+        "degraded",
+        "completed",
+        "failed",
+        "cancelled",
+      ]),
+      progress: zod
+        .number()
+        .min(getDocumentRenditionsResponseJobOneProgressMin)
+        .max(getDocumentRenditionsResponseJobOneProgressMax),
+    })
+    .nullable(),
+});
+
+/**
+ * Requires `claims:read`. Returns the existing rendition set, an active
+source-processing job, or an idempotently queued rendition job.
+
+ * @summary Prepare secure JPEG pages for in-page review
+ */
+export const PrepareDocumentRenditionsParams = zod.object({
+  documentId: zod.coerce.string().uuid().describe("Document identifier."),
+});
+
+export const prepareDocumentRenditionsResponseJobOneProgressMin = 0;
+export const prepareDocumentRenditionsResponseJobOneProgressMax = 100;
+
+export const PrepareDocumentRenditionsResponse = zod.object({
+  documentId: zod.string().uuid(),
+  version: zod.string(),
+  format: zod.enum(["jpeg"]),
+  status: zod.enum(["missing", "preparing", "ready", "degraded", "failed"]),
+  pageCount: zod.number().min(1).nullable(),
+  availablePages: zod.array(zod.number().min(1)),
+  failedPages: zod.array(
+    zod.object({
+      page_number: zod.number().min(1),
+      reason: zod.string(),
+    }),
+  ),
+  error: zod.string().nullable(),
+  job: zod
+    .object({
+      id: zod.string().uuid(),
+      status: zod.enum([
+        "queued",
+        "running",
+        "succeeded",
+        "degraded",
+        "failed",
+        "cancelled",
+      ]),
+      stage: zod.enum([
+        "uploaded",
+        "scanning",
+        "extracting",
+        "auditing",
+        "degraded",
+        "completed",
+        "failed",
+        "cancelled",
+      ]),
+      progress: zod
+        .number()
+        .min(prepareDocumentRenditionsResponseJobOneProgressMin)
+        .max(prepareDocumentRenditionsResponseJobOneProgressMax),
+    })
+    .nullable(),
+});
+
+/**
+ * Requires `claims:read`; the signed page URL expires after 120 seconds.
+ * @summary Redirect to an authorized rendered document page
+ */
+
+export const ViewDocumentRenditionPageParams = zod.object({
+  documentId: zod.coerce.string().uuid().describe("Document identifier."),
+  pageNumber: zod.coerce.number().min(1),
 });
 
 /**

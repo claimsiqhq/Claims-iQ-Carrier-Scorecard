@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { SignJWT } from "jose";
 import {
   buildCanonicalDocumentPath,
+  buildCanonicalPageRenditionPath,
   createTenantStorageCapability,
   deleteFile,
   downloadFile,
@@ -15,6 +16,7 @@ import {
   MAX_SIGNED_URL_SECONDS,
   mintTenantStorageJwt,
   parseCanonicalDocumentPath,
+  parseCanonicalPageRenditionPath,
   sanitizeStorageFilename,
   verifyTenantStorageJwt,
 } from "./supabaseStorage";
@@ -80,6 +82,34 @@ test("canonical storage paths sanitize traversal and encoded filenames", () => {
   }
 });
 
+test("page rendition paths are canonical and page-bound", () => {
+  const path = buildCanonicalPageRenditionPath({
+    organizationId: ORGANIZATION_A,
+    claimId: CLAIM_A,
+    documentId: DOCUMENT_A,
+    pageNumber: 17,
+  });
+  assert.equal(
+    path,
+    `organizations/${ORGANIZATION_A}/claims/${CLAIM_A}/documents/${DOCUMENT_A}/pages/page-000017.jpg`,
+  );
+  assert.deepEqual(parseCanonicalPageRenditionPath(path), {
+    organizationId: ORGANIZATION_A,
+    claimId: CLAIM_A,
+    documentId: DOCUMENT_A,
+    pageNumber: 17,
+  });
+  for (const adversarialPath of [
+    path.replace("page-000017.jpg", "page-000000.jpg"),
+    path.replace("page-000017.jpg", "page-17.jpg"),
+    path.replace("page-000017.jpg", "page-000017.png"),
+    path.replace(`organizations/${ORGANIZATION_A}`, "organizations/../"),
+    `${path}/extra`,
+  ]) {
+    assert.equal(parseCanonicalPageRenditionPath(adversarialPath), null);
+  }
+});
+
 test("storage capability binds organization, claim, and document IDs", () => {
   const storage = createTenantStorageCapability({
     organizationId: ORGANIZATION_A,
@@ -120,6 +150,44 @@ test("storage capability binds organization, claim, and document IDs", () => {
       claimId: CLAIM_A,
       documentId: DOCUMENT_B,
       storagePath: canonicalPath,
+    }),
+    false,
+  );
+});
+
+test("page rendition capability rejects cross-tenant and cross-document tuples", () => {
+  const storage = createTenantStorageCapability({
+    organizationId: ORGANIZATION_A,
+    userId: "user-a",
+    sessionId: "session-a",
+  });
+  const reference = storage.pageRenditionReference({
+    claimId: CLAIM_A,
+    documentId: DOCUMENT_A,
+    pageNumber: 3,
+  });
+  assert.equal(storage.ownsPageRendition(reference), true);
+  assert.equal(
+    storage.ownsPageRendition({
+      ...reference,
+      claimId: CLAIM_B,
+    }),
+    false,
+  );
+  assert.equal(
+    storage.ownsPageRendition({
+      ...reference,
+      documentId: DOCUMENT_B,
+    }),
+    false,
+  );
+  assert.equal(
+    storage.ownsPageRendition({
+      ...reference,
+      storagePath: reference.storagePath.replace(
+        ORGANIZATION_A,
+        ORGANIZATION_B,
+      ),
     }),
     false,
   );

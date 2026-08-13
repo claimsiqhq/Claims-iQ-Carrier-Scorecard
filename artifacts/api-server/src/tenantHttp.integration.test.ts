@@ -873,6 +873,19 @@ test(
               run: () => agent.get(`/api/documents/${a.document}/signed-url`),
             },
             {
+              name: "document rendition status",
+              run: () => agent.get(`/api/documents/${a.document}/renditions`),
+            },
+            {
+              name: "document rendition prepare",
+              run: () => agent.post(`/api/documents/${a.document}/renditions`),
+            },
+            {
+              name: "document rendition page",
+              run: () =>
+                agent.get(`/api/documents/${a.document}/renditions/1`),
+            },
+            {
               name: "document extract",
               run: () =>
                 agent.post(
@@ -1167,6 +1180,13 @@ test(
               "document",
               () =>
                 agent.get(`/api/documents/${IDS.allstate.document}/signed-url`),
+            ],
+            [
+              "document rendition",
+              () =>
+                agent.get(
+                  `/api/documents/${IDS.allstate.document}/renditions`,
+                ),
             ],
             [
               "job",

@@ -61,6 +61,8 @@ interface PersistedExtraction {
   extractedText: string;
   extractionMethod: "gemini_vision_pages" | "plain_text";
   extractionMeta?: Record<string, unknown>;
+  pageCount?: number;
+  pageRenditions?: PageRenditionSummary;
 }
 
 export interface FinalReportIngestionCapability {
@@ -69,6 +71,10 @@ export interface FinalReportIngestionCapability {
     contentType: string;
     body: Buffer;
   }): Promise<string>;
+  storePageRendition(input: {
+    pageNumber: number;
+    body: Buffer;
+  }): Promise<void>;
   persistReport(input: PersistedExtraction): Promise<string>;
 }
 
@@ -124,6 +130,17 @@ export function createFinalReportIngestionCapability(input: {
         body: source.body,
       });
     },
+    async storePageRendition(page: {
+      pageNumber: number;
+      body: Buffer;
+    }) {
+      await input.storage.uploadPageRendition({
+        claimId: input.claimId,
+        documentId: input.documentId,
+        pageNumber: page.pageNumber,
+        body: page.body,
+      });
+    },
     async persistReport(report: PersistedExtraction) {
       if (
         report.storagePath
@@ -146,6 +163,20 @@ export function createFinalReportIngestionCapability(input: {
         storagePath: report.storagePath ?? null,
         extractionMethod: report.extractionMethod,
         extractionMeta: report.extractionMeta ?? {},
+        pageRenditions: report.pageRenditions
+          ? {
+              version: report.pageRenditions.version,
+              format: report.pageRenditions.format,
+              status:
+                report.pageRenditions.failed_pages.length > 0
+                  ? "degraded"
+                  : "ready",
+              pageCount: report.pageRenditions.page_count,
+              renderedPages: report.pageRenditions.rendered_pages,
+              failedPages: report.pageRenditions.failed_pages,
+              completedAt: new Date().toISOString(),
+            }
+          : null,
       };
       const [saved] = await database
         .insert(documents)
@@ -159,6 +190,7 @@ export function createFinalReportIngestionCapability(input: {
               ? "inbound_report"
               : "final_report",
           fileUrl: report.storagePath ?? null,
+          pageCount: report.pageCount ?? null,
           extractedText: report.extractedText,
           metadata,
         })
@@ -183,14 +215,31 @@ const pageExtractionSchema = z
   })
   .strict();
 
-const TARGET_RENDER_WIDTH = 1400;
+const TARGET_RENDER_WIDTH = 1800;
+const PAGE_RENDITION_JPEG_QUALITY = 86;
 
 type RenderedPage = {
   pageNumber: number;
   width: number;
   height: number;
   pngBuffer: Buffer;
+  jpegBuffer: Buffer;
 };
+
+export interface PageRenditionSummary {
+  version: "page-jpeg-v1";
+  format: "jpeg";
+  page_count: number;
+  rendered_pages: number[];
+  failed_pages: Array<{ page_number: number; reason: string }>;
+}
+
+type PageRenderedCallback = (page: {
+  pageNumber: number;
+  width: number;
+  height: number;
+  jpegBuffer: Buffer;
+}) => Promise<void>;
 
 async function renderSinglePdfPage(
   pdf: any,
@@ -214,9 +263,13 @@ async function renderSinglePdfPage(
   }).promise;
 
   const pngBuffer = canvas.toBuffer("image/png");
+  const jpegBuffer = canvas.toBuffer(
+    "image/jpeg",
+    PAGE_RENDITION_JPEG_QUALITY,
+  );
   page.cleanup();
 
-  return { pageNumber, width, height, pngBuffer };
+  return { pageNumber, width, height, pngBuffer, jpegBuffer };
 }
 
 const DEFAULT_SYSTEM_PROMPT = [
@@ -335,8 +388,10 @@ export async function extractPdfTextWithVisionPages(params: {
   pdfBuffer: Buffer;
   fileName: string;
   requestId: string;
+  onPageRendered?: PageRenderedCallback;
 }): Promise<{
   text: string;
+  renditionDocument: PageRenditionSummary;
   extractionDocument: {
     version: "final_report_extraction_v1";
     source: "gemini_vision_page_by_page";
@@ -378,8 +433,10 @@ async function _extractPdfTextWithVisionPagesInner(params: {
   pdfBuffer: Buffer;
   fileName: string;
   requestId: string;
+  onPageRendered?: PageRenderedCallback;
 }): Promise<{
   text: string;
+  renditionDocument: PageRenditionSummary;
   extractionDocument: {
     version: "final_report_extraction_v1";
     source: "gemini_vision_page_by_page";
@@ -435,6 +492,11 @@ async function _extractPdfTextWithVisionPagesInner(params: {
   }> = [];
   const filteredPages: Array<{ page_number: number; reason: string }> = [];
   const failedPages: Array<{ page_number: number; reason: string }> = [];
+  const renderedRenditionPages: number[] = [];
+  const failedRenditionPages: Array<{
+    page_number: number;
+    reason: string;
+  }> = [];
 
   const CONCURRENCY = 5;
 
@@ -450,6 +512,9 @@ async function _extractPdfTextWithVisionPagesInner(params: {
         "Page render failed, skipping",
       );
       failedPages.push({ page_number: pageNumber, reason });
+      if (params.onPageRendered) {
+        failedRenditionPages.push({ page_number: pageNumber, reason });
+      }
       return {
         page_number: pageNumber,
         width: 0,
@@ -468,6 +533,35 @@ async function _extractPdfTextWithVisionPagesInner(params: {
         { page_number: pageNumber, total_pages: totalPages },
         "PDF page rendered to PNG",
       );
+    }
+
+    if (params.onPageRendered) {
+      try {
+        await params.onPageRendered({
+          pageNumber: page.pageNumber,
+          width: page.width,
+          height: page.height,
+          jpegBuffer: page.jpegBuffer,
+        });
+        renderedRenditionPages.push(page.pageNumber);
+      } catch (renditionError) {
+        const reason =
+          renditionError instanceof Error
+            ? renditionError.message
+            : "Page rendition upload failed";
+        failedRenditionPages.push({
+          page_number: page.pageNumber,
+          reason,
+        });
+        logger.warn(
+          {
+            requestId: params.requestId,
+            page_number: page.pageNumber,
+            error: reason,
+          },
+          "Page rendition persistence failed",
+        );
+      }
     }
 
     try {
@@ -617,6 +711,15 @@ async function _extractPdfTextWithVisionPagesInner(params: {
 
   return {
     text,
+    renditionDocument: {
+      version: "page-jpeg-v1",
+      format: "jpeg",
+      page_count: totalPages,
+      rendered_pages: renderedRenditionPages.sort((a, b) => a - b),
+      failed_pages: failedRenditionPages.sort(
+        (a, b) => a.page_number - b.page_number,
+      ),
+    },
     extractionDocument: {
       version: "final_report_extraction_v1",
       source: "gemini_vision_page_by_page",
@@ -628,6 +731,107 @@ async function _extractPdfTextWithVisionPagesInner(params: {
       failedPages,
     },
   };
+}
+
+export async function renderPdfPageRenditions(params: {
+  pdfBuffer: Buffer;
+  fileName: string;
+  requestId: string;
+  onPageRendered: PageRenderedCallback;
+  onProgress?: (completedPages: number, totalPages: number) => Promise<void>;
+}): Promise<PageRenditionSummary> {
+  await acquireExtractionSlot();
+  try {
+    const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+    const { createCanvas } = await import("@napi-rs/canvas");
+    const loadingTask = pdfjs.getDocument({
+      data: new Uint8Array(params.pdfBuffer),
+      useSystemFonts: true,
+      disableFontFace: true,
+    });
+    const pdf = await loadingTask.promise;
+    const totalPages = pdf.numPages;
+    if (totalPages > env.GEMINI_VISION_MAX_PDF_PAGES) {
+      await loadingTask.destroy();
+      throw new Error(
+        `PDF has ${totalPages} pages; configured limit is ${env.GEMINI_VISION_MAX_PDF_PAGES}.`,
+      );
+    }
+
+    const renderedPages: number[] = [];
+    const failedPages: Array<{ page_number: number; reason: string }> = [];
+    let completedPages = 0;
+    try {
+      const CONCURRENCY = 3;
+      for (
+        let batchStart = 1;
+        batchStart <= totalPages;
+        batchStart += CONCURRENCY
+      ) {
+        const batchEnd = Math.min(
+          batchStart + CONCURRENCY - 1,
+          totalPages,
+        );
+        const batchPages = Array.from(
+          { length: batchEnd - batchStart + 1 },
+          (_, index) => batchStart + index,
+        );
+        await Promise.all(
+          batchPages.map(async (pageNumber) => {
+            try {
+              const page = await renderSinglePdfPage(
+                pdf,
+                pageNumber,
+                createCanvas,
+              );
+              await params.onPageRendered({
+                pageNumber: page.pageNumber,
+                width: page.width,
+                height: page.height,
+                jpegBuffer: page.jpegBuffer,
+              });
+              renderedPages.push(pageNumber);
+            } catch (error) {
+              failedPages.push({
+                page_number: pageNumber,
+                reason:
+                  error instanceof Error
+                    ? error.message
+                    : "Page rendition failed",
+              });
+            } finally {
+              completedPages += 1;
+              await params.onProgress?.(completedPages, totalPages);
+            }
+          }),
+        );
+      }
+    } finally {
+      await loadingTask.destroy();
+    }
+
+    logger.info(
+      {
+        requestId: params.requestId,
+        file_name: params.fileName,
+        total_pages: totalPages,
+        rendered_pages: renderedPages.length,
+        failed_pages: failedPages.length,
+      },
+      "PDF page renditions generated",
+    );
+    return {
+      version: "page-jpeg-v1",
+      format: "jpeg",
+      page_count: totalPages,
+      rendered_pages: renderedPages.sort((a, b) => a - b),
+      failed_pages: failedPages.sort(
+        (a, b) => a.page_number - b.page_number,
+      ),
+    };
+  } finally {
+    releaseExtractionSlot();
+  }
 }
 
 async function persistDocumentRecord(
@@ -756,6 +960,12 @@ export async function extractAndPersistFinalReport(
     pdfBuffer: file.buffer,
     fileName,
     requestId: input.requestId,
+    onPageRendered: async (page) => {
+      await capability.storePageRendition({
+        pageNumber: page.pageNumber,
+        body: page.jpegBuffer,
+      });
+    },
   });
 
   const documentId = await persistDocumentRecord(capability, {
@@ -767,6 +977,8 @@ export async function extractAndPersistFinalReport(
     storagePath,
     extractedText: vision.text,
     extractionMethod: "gemini_vision_pages",
+    pageCount: vision.extractionDocument.page_count,
+    pageRenditions: vision.renditionDocument,
     extractionMeta: {
       model: env.GEMINI_MODEL,
       extractionDocument: vision.extractionDocument,

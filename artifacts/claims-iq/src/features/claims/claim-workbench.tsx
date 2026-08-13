@@ -1,5 +1,13 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react"
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
+import type { ImperativePanelHandle } from "react-resizable-panels"
 import { Link, useLocation } from "wouter"
 import {
   Archive,
@@ -45,6 +53,18 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+} from "@/components/ui/resizable"
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet"
 import { api, apiErrorMessage, queryKeys } from "@/lib/api"
 import { useAuth } from "@/lib/auth-context"
 import type {
@@ -61,6 +81,7 @@ import type {
   ValidationCheck,
   VisionAnalysis,
 } from "@/lib/types"
+import { DocumentViewer } from "./document-viewer"
 
 type WorkbenchTab = "summary" | "findings" | "estimate" | "files" | "timeline"
 
@@ -92,6 +113,10 @@ export default function ClaimWorkbench({ claimId }: { claimId: string }) {
   const [tab, setTab] = useState<WorkbenchTab>("summary")
   const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null)
   const [selectedEvidencePage, setSelectedEvidencePage] = useState<number | null>(null)
+  const [mobileViewerOpen, setMobileViewerOpen] = useState(false)
+  const [viewerCollapsed, setViewerCollapsed] = useState(false)
+  const [viewerFocused, setViewerFocused] = useState(false)
+  const viewerPanelRef = useRef<ImperativePanelHandle>(null)
   const [auditRunning, setAuditRunning] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
   const [deleteOpen, setDeleteOpen] = useState(false)
@@ -132,6 +157,16 @@ export default function ClaimWorkbench({ claimId }: { claimId: string }) {
       setSelectedDocumentId(claimQuery.data.documents[0].id)
     }
   }, [claimQuery.data?.documents, selectedDocumentId])
+
+  useEffect(() => {
+    const media = window.matchMedia("(min-width: 1280px)")
+    const closeMobileViewer = () => {
+      if (media.matches) setMobileViewerOpen(false)
+    }
+    closeMobileViewer()
+    media.addEventListener("change", closeMobileViewer)
+    return () => media.removeEventListener("change", closeMobileViewer)
+  }, [])
 
   const findings = useMemo(
     () => collectFindings(claimQuery.data?.audit),
@@ -202,7 +237,32 @@ export default function ClaimWorkbench({ claimId }: { claimId: string }) {
   const openEvidence = (location?: string) => {
     const match = location?.match(/\bpage\s+(\d+)\b/i)
     setSelectedEvidencePage(match ? Number.parseInt(match[1], 10) : null)
-    setTab("files")
+    if (
+      typeof window !== "undefined"
+      && window.matchMedia("(min-width: 1280px)").matches
+    ) {
+      viewerPanelRef.current?.expand()
+      setViewerCollapsed(false)
+    } else {
+      setMobileViewerOpen(true)
+    }
+  }
+  const collapseViewer = () => {
+    viewerPanelRef.current?.collapse()
+    setViewerCollapsed(true)
+    setViewerFocused(false)
+  }
+  const showViewer = () => {
+    viewerPanelRef.current?.expand()
+    viewerPanelRef.current?.resize(38)
+    setViewerCollapsed(false)
+    setViewerFocused(false)
+  }
+  const toggleViewerFocus = () => {
+    viewerPanelRef.current?.expand()
+    viewerPanelRef.current?.resize(viewerFocused ? 38 : 62)
+    setViewerCollapsed(false)
+    setViewerFocused((current) => !current)
   }
 
   const refreshAll = async () => {
@@ -442,6 +502,16 @@ export default function ClaimWorkbench({ claimId }: { claimId: string }) {
                 </Link>
               </Button>
             )}
+            {selectedDocument && (
+              <Button
+                variant="outline"
+                className="border-white/20 bg-transparent text-white hover:bg-white/10 xl:hidden"
+                onClick={() => setMobileViewerOpen(true)}
+              >
+                <Page aria-hidden="true" />
+                Source
+              </Button>
+            )}
             {audit && (
               <Button
                 variant="outline"
@@ -510,13 +580,35 @@ export default function ClaimWorkbench({ claimId }: { claimId: string }) {
           </div>
         )}
 
-        <div className="grid min-w-0 gap-4 xl:grid-cols-[14rem_minmax(0,1fr)_18rem]">
+        <div className="grid min-w-0 gap-4 xl:grid-cols-[14rem_minmax(0,1fr)]">
           <ClaimLedger
             data={data}
             className="hidden xl:block"
             onDelete={canDelete && !isArchived ? () => setDeleteOpen(true) : undefined}
           />
 
+          <WorkbenchSplit
+            panelRef={viewerPanelRef}
+            collapsed={viewerCollapsed}
+            onCollapsedChange={setViewerCollapsed}
+            onShowViewer={showViewer}
+            viewer={
+              <DocumentViewer
+                document={selectedDocument}
+                documents={documents}
+                selectedId={selectedDocument?.id}
+                targetPage={selectedEvidencePage}
+                onSelect={(documentId) => {
+                  setSelectedDocumentId(documentId)
+                  setSelectedEvidencePage(null)
+                }}
+                onCollapse={collapseViewer}
+                onToggleFocus={toggleViewerFocus}
+                focused={viewerFocused}
+                className="h-full rounded-none"
+              />
+            }
+          >
           <section className="min-w-0">
             <Tabs value={tab} onValueChange={(value) => setTab(value as WorkbenchTab)}>
               <TabsList className="grid h-auto w-full grid-cols-5 border border-[var(--ciq-border)] bg-[var(--ciq-surface)] p-1">
@@ -660,20 +752,34 @@ export default function ClaimWorkbench({ claimId }: { claimId: string }) {
               </TabsContent>
             </Tabs>
           </section>
+          </WorkbenchSplit>
+        </div>
+      </PageBody>
 
-          <SourcePane
+      <Sheet open={mobileViewerOpen} onOpenChange={setMobileViewerOpen}>
+        <SheetContent
+          side="right"
+          className="w-screen max-w-none border-0 bg-[var(--ciq-canvas)] p-0 sm:max-w-[96vw] xl:hidden"
+        >
+          <SheetHeader className="sr-only">
+            <SheetTitle>Source document viewer</SheetTitle>
+            <SheetDescription>
+              Review the claim source document without leaving the workbench.
+            </SheetDescription>
+          </SheetHeader>
+          <DocumentViewer
             document={selectedDocument}
             documents={documents}
             selectedId={selectedDocument?.id}
+            targetPage={selectedEvidencePage}
             onSelect={(documentId) => {
               setSelectedDocumentId(documentId)
               setSelectedEvidencePage(null)
             }}
-            selectedPage={selectedEvidencePage}
-            className="hidden xl:block"
+            className="h-dvh rounded-none border-0"
           />
-        </div>
-      </PageBody>
+        </SheetContent>
+      </Sheet>
 
       <Dialog open={reprocessOpen} onOpenChange={(open) => !reprocessing && setReprocessOpen(open)}>
         <DialogContent>
@@ -803,6 +909,78 @@ export default function ClaimWorkbench({ claimId }: { claimId: string }) {
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  )
+}
+
+function WorkbenchSplit({
+  children,
+  viewer,
+  panelRef,
+  collapsed,
+  onCollapsedChange,
+  onShowViewer,
+}: {
+  children: ReactNode
+  viewer: ReactNode
+  panelRef: RefObject<ImperativePanelHandle | null>
+  collapsed: boolean
+  onCollapsedChange: (collapsed: boolean) => void
+  onShowViewer: () => void
+}) {
+  const [wide, setWide] = useState(() =>
+    typeof window !== "undefined"
+      ? window.matchMedia("(min-width: 1280px)").matches
+      : false,
+  )
+
+  useEffect(() => {
+    const media = window.matchMedia("(min-width: 1280px)")
+    const update = () => setWide(media.matches)
+    update()
+    media.addEventListener("change", update)
+    return () => media.removeEventListener("change", update)
+  }, [])
+
+  if (!wide) return <>{children}</>
+
+  return (
+    <ResizablePanelGroup
+      direction="horizontal"
+      className="h-[calc(100dvh-7.5rem)] min-h-[38rem]"
+      autoSaveId="claim-workbench-document-layout"
+    >
+      <ResizablePanel defaultSize={62} minSize={35}>
+        <div className="relative h-full min-w-0 overflow-y-auto pr-3">
+          {collapsed && (
+            <button
+              type="button"
+              className="sticky top-2 z-20 ml-auto mr-2 flex h-9 items-center gap-2 rounded-md border border-[var(--ciq-border-strong)] bg-[var(--ciq-surface)] px-3 text-xs font-bold text-[var(--ciq-brand)] shadow-[var(--ciq-shadow-sm)]"
+              onClick={onShowViewer}
+            >
+              <Page className="h-4 w-4" aria-hidden="true" />
+              Show source
+            </button>
+          )}
+          {children}
+        </div>
+      </ResizablePanel>
+      <ResizableHandle
+        withHandle
+        className="mx-1 bg-transparent after:w-2 hover:after:bg-[var(--ciq-info-soft)]"
+      />
+      <ResizablePanel
+        ref={panelRef}
+        defaultSize={38}
+        minSize={30}
+        maxSize={65}
+        collapsible
+        collapsedSize={0}
+        onCollapse={() => onCollapsedChange(true)}
+        onExpand={() => onCollapsedChange(false)}
+      >
+        <div className="h-full min-w-0 pl-2">{collapsed ? null : viewer}</div>
+      </ResizablePanel>
+    </ResizablePanelGroup>
   )
 }
 
@@ -1701,64 +1879,6 @@ function FilesLedger({
         </div>
       )}
     </section>
-  )
-}
-
-function SourcePane({
-  document,
-  documents,
-  selectedId,
-  onSelect,
-  selectedPage,
-  className,
-}: {
-  document: ClaimDetail["documents"][number] | undefined
-  documents: ClaimDetail["documents"]
-  selectedId?: string
-  onSelect: (id: string) => void
-  selectedPage?: number | null
-  className?: string
-}) {
-  const displayedText = selectedPage
-    ? extractPageText(document?.extractedText, selectedPage)
-    : document?.extractedText
-  return (
-    <aside className={`ciq-panel ciq-panel--flush sticky top-0 h-[calc(100dvh-7.5rem)] ${className || ""}`}>
-      <div className="ciq-panel__header">
-        <div className="min-w-0">
-          <h2>Evidence source</h2>
-          <p className="truncate">
-            {document ? documentName(document) : "No document"}
-            {selectedPage ? ` · Page ${selectedPage}` : ""}
-          </p>
-        </div>
-      </div>
-      {documents.length > 1 && (
-        <div className="border-b border-[var(--ciq-border)] p-3">
-          <label htmlFor="source-document" className="ciq-label">
-            Document
-          </label>
-          <select
-            id="source-document"
-            className="ciq-control mt-1"
-            value={selectedId}
-            onChange={(event) => onSelect(event.target.value)}
-          >
-            {documents.map((item) => (
-              <option key={item.id} value={item.id}>
-                {documentName(item)}
-              </option>
-            ))}
-          </select>
-        </div>
-      )}
-      <div className="h-[calc(100%-7rem)] overflow-auto bg-[var(--ciq-canvas)] p-3">
-        <pre className="min-h-full whitespace-pre-wrap rounded-md border border-[var(--ciq-border)] bg-[var(--ciq-surface)] p-3 font-[var(--ciq-font-mono)] text-[0.64rem] leading-5 text-[var(--ciq-ink)]">
-          {displayedText ||
-            "Extracted source text is unavailable. No page coordinates are generated by the client."}
-        </pre>
-      </div>
-    </aside>
   )
 }
 

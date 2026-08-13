@@ -10,6 +10,7 @@ import type {
   ClaimsQueueData,
   ClaimAssignee,
   DashboardData,
+  DocumentRenditionManifest,
   IngestResponse,
   FindingDisposition,
   HumanReviewStatus,
@@ -154,6 +155,8 @@ export const queryKeys = {
   claim: (id: string) => scopedQueryKey("claim", id),
   claimActivity: (id: string) => scopedQueryKey("claim", id, "activity"),
   claimJobs: (id: string) => scopedQueryKey("claim", id, "jobs"),
+  documentRenditions: (id: string) =>
+    scopedQueryKey("document", id, "renditions"),
   savedViews: (resourceType = "claims") =>
     scopedQueryKey("saved-views", resourceType),
   get carriers() {
@@ -355,6 +358,23 @@ export const api = {
     if (carrierEntityId) body.append("carrierEntityId", carrierEntityId)
     return apiRequest<IngestResponse>("/ingest", { method: "POST", body })
   },
+  getDocumentRenditions: (documentId: string) =>
+    apiRequest<DocumentRenditionManifest>(
+      `/documents/${encodeURIComponent(documentId)}/renditions`,
+    ),
+  prepareDocumentRenditions: (documentId: string) =>
+    apiRequest<DocumentRenditionManifest>(
+      `/documents/${encodeURIComponent(documentId)}/renditions`,
+      { method: "POST" },
+    ),
+  documentPageUrl: (documentId: string, pageNumber: number, version?: string) =>
+    endpoint(
+      `/documents/${encodeURIComponent(documentId)}/renditions/${pageNumber}${
+        version ? `?v=${encodeURIComponent(version)}` : ""
+      }`,
+    ),
+  documentDownloadUrl: (documentId: string) =>
+    endpoint(`/documents/${encodeURIComponent(documentId)}/download`),
   getEmailPreview: (id: string) =>
     apiRequest<{ html: string }>(`/claims/${encodeURIComponent(id)}/email`),
   sendEmail: (id: string, to: string) =>

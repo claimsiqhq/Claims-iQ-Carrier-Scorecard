@@ -701,6 +701,7 @@ router.get(
         claimId: d.claimId ?? "",
         type: d.type ?? "",
         fileUrl: d.fileUrl ?? undefined,
+        pageCount: d.pageCount ?? undefined,
         extractedText: d.extractedText ?? undefined,
         metadata: d.metadata ?? undefined,
         createdAt: d.createdAt?.toISOString() ?? undefined,

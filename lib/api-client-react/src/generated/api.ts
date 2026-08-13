@@ -69,6 +69,7 @@ import type {
   CreateSavedViewRequest,
   CreatedDocument,
   Dashboard,
+  DocumentRenditionManifest,
   EmailPreview,
   EnqueueJobResponse,
   FindingReview,
@@ -120,6 +121,7 @@ import type {
   SwitchOrganizationRequest,
   TooManyRequestsResponse,
   UnauthorizedResponse,
+  UnsupportedMediaTypeResponse,
   UpdateAssignmentRequest,
   UpdateCarrierEntityRequest,
   UpdateFindingRequest,
@@ -4820,6 +4822,359 @@ export function useGetDocumentSignedUrl<
   },
 ): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetDocumentSignedUrlQueryOptions(documentId, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Requires `claims:read`; cross-tenant document IDs return `404`.
+ * @summary Get page-rendition viewer status
+ */
+export const getGetDocumentRenditionsUrl = (documentId: string) => {
+  return `/api/documents/${documentId}/renditions`;
+};
+
+export const getDocumentRenditions = async (
+  documentId: string,
+  options?: RequestInit,
+): Promise<DocumentRenditionManifest> => {
+  return customFetch<DocumentRenditionManifest>(
+    getGetDocumentRenditionsUrl(documentId),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetDocumentRenditionsQueryKey = (documentId: string) => {
+  return [`/api/documents/${documentId}/renditions`] as const;
+};
+
+export const getGetDocumentRenditionsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getDocumentRenditions>>,
+  TError = ErrorType<
+    | BadRequestResponse
+    | UnauthorizedResponse
+    | ForbiddenResponse
+    | NotFoundResponse
+    | InternalServerErrorResponse
+  >,
+>(
+  documentId: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getDocumentRenditions>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetDocumentRenditionsQueryKey(documentId);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getDocumentRenditions>>
+  > = ({ signal }) =>
+    getDocumentRenditions(documentId, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!documentId,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getDocumentRenditions>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetDocumentRenditionsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getDocumentRenditions>>
+>;
+export type GetDocumentRenditionsQueryError = ErrorType<
+  | BadRequestResponse
+  | UnauthorizedResponse
+  | ForbiddenResponse
+  | NotFoundResponse
+  | InternalServerErrorResponse
+>;
+
+/**
+ * @summary Get page-rendition viewer status
+ */
+
+export function useGetDocumentRenditions<
+  TData = Awaited<ReturnType<typeof getDocumentRenditions>>,
+  TError = ErrorType<
+    | BadRequestResponse
+    | UnauthorizedResponse
+    | ForbiddenResponse
+    | NotFoundResponse
+    | InternalServerErrorResponse
+  >,
+>(
+  documentId: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getDocumentRenditions>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetDocumentRenditionsQueryOptions(
+    documentId,
+    options,
+  );
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Requires `claims:read`. Returns the existing rendition set, an active
+source-processing job, or an idempotently queued rendition job.
+
+ * @summary Prepare secure JPEG pages for in-page review
+ */
+export const getPrepareDocumentRenditionsUrl = (documentId: string) => {
+  return `/api/documents/${documentId}/renditions`;
+};
+
+export const prepareDocumentRenditions = async (
+  documentId: string,
+  options?: RequestInit,
+): Promise<DocumentRenditionManifest> => {
+  return customFetch<DocumentRenditionManifest>(
+    getPrepareDocumentRenditionsUrl(documentId),
+    {
+      ...options,
+      method: "POST",
+    },
+  );
+};
+
+export const getPrepareDocumentRenditionsMutationOptions = <
+  TError = ErrorType<
+    | BadRequestResponse
+    | UnauthorizedResponse
+    | ForbiddenResponse
+    | NotFoundResponse
+    | UnsupportedMediaTypeResponse
+    | InternalServerErrorResponse
+  >,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof prepareDocumentRenditions>>,
+    TError,
+    { documentId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof prepareDocumentRenditions>>,
+  TError,
+  { documentId: string },
+  TContext
+> => {
+  const mutationKey = ["prepareDocumentRenditions"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof prepareDocumentRenditions>>,
+    { documentId: string }
+  > = (props) => {
+    const { documentId } = props ?? {};
+
+    return prepareDocumentRenditions(documentId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PrepareDocumentRenditionsMutationResult = NonNullable<
+  Awaited<ReturnType<typeof prepareDocumentRenditions>>
+>;
+
+export type PrepareDocumentRenditionsMutationError = ErrorType<
+  | BadRequestResponse
+  | UnauthorizedResponse
+  | ForbiddenResponse
+  | NotFoundResponse
+  | UnsupportedMediaTypeResponse
+  | InternalServerErrorResponse
+>;
+
+/**
+ * @summary Prepare secure JPEG pages for in-page review
+ */
+export const usePrepareDocumentRenditions = <
+  TError = ErrorType<
+    | BadRequestResponse
+    | UnauthorizedResponse
+    | ForbiddenResponse
+    | NotFoundResponse
+    | UnsupportedMediaTypeResponse
+    | InternalServerErrorResponse
+  >,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof prepareDocumentRenditions>>,
+    TError,
+    { documentId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof prepareDocumentRenditions>>,
+  TError,
+  { documentId: string },
+  TContext
+> => {
+  return useMutation(getPrepareDocumentRenditionsMutationOptions(options));
+};
+
+/**
+ * Requires `claims:read`; the signed page URL expires after 120 seconds.
+ * @summary Redirect to an authorized rendered document page
+ */
+export const getViewDocumentRenditionPageUrl = (
+  documentId: string,
+  pageNumber: number,
+) => {
+  return `/api/documents/${documentId}/renditions/${pageNumber}`;
+};
+
+export const viewDocumentRenditionPage = async (
+  documentId: string,
+  pageNumber: number,
+  options?: RequestInit,
+): Promise<unknown> => {
+  return customFetch<unknown>(
+    getViewDocumentRenditionPageUrl(documentId, pageNumber),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getViewDocumentRenditionPageQueryKey = (
+  documentId: string,
+  pageNumber: number,
+) => {
+  return [`/api/documents/${documentId}/renditions/${pageNumber}`] as const;
+};
+
+export const getViewDocumentRenditionPageQueryOptions = <
+  TData = Awaited<ReturnType<typeof viewDocumentRenditionPage>>,
+  TError = ErrorType<
+    | void
+    | BadRequestResponse
+    | UnauthorizedResponse
+    | ForbiddenResponse
+    | NotFoundResponse
+  >,
+>(
+  documentId: string,
+  pageNumber: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof viewDocumentRenditionPage>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ??
+    getViewDocumentRenditionPageQueryKey(documentId, pageNumber);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof viewDocumentRenditionPage>>
+  > = ({ signal }) =>
+    viewDocumentRenditionPage(documentId, pageNumber, {
+      signal,
+      ...requestOptions,
+    });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!(documentId && pageNumber),
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof viewDocumentRenditionPage>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ViewDocumentRenditionPageQueryResult = NonNullable<
+  Awaited<ReturnType<typeof viewDocumentRenditionPage>>
+>;
+export type ViewDocumentRenditionPageQueryError = ErrorType<
+  | void
+  | BadRequestResponse
+  | UnauthorizedResponse
+  | ForbiddenResponse
+  | NotFoundResponse
+>;
+
+/**
+ * @summary Redirect to an authorized rendered document page
+ */
+
+export function useViewDocumentRenditionPage<
+  TData = Awaited<ReturnType<typeof viewDocumentRenditionPage>>,
+  TError = ErrorType<
+    | void
+    | BadRequestResponse
+    | UnauthorizedResponse
+    | ForbiddenResponse
+    | NotFoundResponse
+  >,
+>(
+  documentId: string,
+  pageNumber: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof viewDocumentRenditionPage>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getViewDocumentRenditionPageQueryOptions(
+    documentId,
+    pageNumber,
+    options,
+  );
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

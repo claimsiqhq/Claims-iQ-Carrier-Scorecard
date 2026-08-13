@@ -67,6 +67,7 @@ export const processingJobTypeEnum = pgEnum("processing_job_type", [
   "retry",
   "reprocess",
   "extract",
+  "rendition",
 ]);
 
 export const processingJobStateEnum = pgEnum("processing_job_state", [

@@ -118,6 +118,7 @@ const claimDetail = {
       claimId: claim.id,
       type: "pdf",
       fileUrl: "claim-package.pdf",
+      pageCount: 1,
       extractedText: "=== Page 1 ===\nSynthetic estimate support text.",
       metadata: { fileName: "claim-package.pdf", pageCount: 1 },
       createdAt: "2026-08-01T12:00:00.000Z",
@@ -218,6 +219,37 @@ async function mockAuthenticatedApi(page: Page) {
     }
     if (url.pathname === `/api/claims/${claim.id}/activity`) {
       await fulfillJson(route, { activity: [] })
+      return
+    }
+    if (
+      url.pathname
+      === `/api/documents/${claimDetail.documents[0].id}/renditions`
+    ) {
+      await fulfillJson(route, {
+        documentId: claimDetail.documents[0].id,
+        version: "page-jpeg-v1",
+        format: "jpeg",
+        status: "ready",
+        pageCount: 1,
+        availablePages: [1],
+        failedPages: [],
+        error: null,
+        job: null,
+      })
+      return
+    }
+    if (
+      url.pathname
+      === `/api/documents/${claimDetail.documents[0].id}/renditions/1`
+    ) {
+      await route.fulfill({
+        status: 200,
+        contentType: "image/png",
+        body: Buffer.from(
+          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Zr4sAAAAASUVORK5CYII=",
+          "base64",
+        ),
+      })
       return
     }
     if (url.pathname === `/api/claims/${claim.id}/review-status` && method === "PATCH") {
@@ -339,6 +371,71 @@ test("operational queue is responsive, keyboard reachable, and axe-clean", async
     fullPage: true,
     animations: "disabled",
   })
+})
+
+test("claim workbench keeps citations beside a resizable page viewer", async ({
+  page,
+}, testInfo) => {
+  await page.setViewportSize({ width: 1600, height: 1000 })
+  await mockAuthenticatedApi(page)
+  await page.goto(`/claims/${claim.id}`)
+
+  await expect(
+    page.getByRole("heading", { name: "claim-package.pdf" }),
+  ).toBeVisible()
+  await expect(
+    page.getByAltText("Page 1 of claim-package.pdf"),
+  ).toBeVisible()
+
+  const viewer = page.locator(".ciq-document-viewer:visible")
+  const initialWidth = (await viewer.boundingBox())?.width ?? 0
+  await page.getByRole("button", { name: "Maximize viewer" }).click()
+  await expect(page.getByRole("button", { name: "Restore viewer size" })).toBeVisible()
+  const focusedWidth = (await viewer.boundingBox())?.width ?? 0
+  expect(focusedWidth).toBeGreaterThan(initialWidth + 100)
+
+  await page.getByRole("tab", { name: "Findings" }).click()
+  await page.getByRole("button", { name: "View extracted source" }).click()
+  await expect(page.getByRole("tab", { name: "Findings" })).toHaveAttribute(
+    "data-state",
+    "active",
+  )
+  await expect(page.getByRole("textbox", { name: "Page number" })).toHaveValue("1")
+
+  const accessibility = await new AxeBuilder({ page })
+    .include(".ciq-document-viewer")
+    .analyze()
+  expect(
+    accessibility.violations.filter((violation) =>
+      ["serious", "critical"].includes(violation.impact || ""),
+    ),
+  ).toEqual([])
+
+  await page.getByRole("button", { name: "Collapse document viewer" }).click()
+  await expect(page.getByRole("button", { name: "Show source" })).toBeVisible()
+  await expect(page.getByRole("button", { name: "Zoom in" })).toHaveCount(0)
+
+  await page.screenshot({
+    path: testInfo.outputPath("claim-document-viewer.png"),
+    fullPage: true,
+    animations: "disabled",
+  })
+})
+
+test("mobile claim review opens the page viewer without navigation", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 375, height: 812 })
+  await mockAuthenticatedApi(page)
+  await page.goto(`/claims/${claim.id}`)
+
+  await page.getByRole("button", { name: "Source", exact: true }).click()
+  await expect(page.getByRole("heading", { name: "Source document viewer" })).toBeVisible()
+  await expect(page.getByAltText("Page 1 of claim-package.pdf")).toBeVisible()
+  await expect(page).toHaveURL(new RegExp(`/claims/${claim.id}$`))
+
+  await page.getByRole("button", { name: "Close" }).click()
+  await expect(page.getByRole("heading", { name: "Source document viewer" })).toHaveCount(0)
 })
 
 test("tenant users cannot enumerate platform carrier rulesets", async ({ page }) => {

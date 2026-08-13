@@ -24,16 +24,9 @@ an equivalent request returns the existing durable processing job and sets
 
  * OpenAPI spec version: 1.0.0
  */
-import type { DocumentMetadata } from "./documentMetadata";
 
-export interface ClaimDocument {
-  id: string;
-  claimId: string;
-  type: string;
-  fileUrl?: string;
+export type DocumentRenditionManifestFailedPagesItem = {
   /** @minimum 1 */
-  pageCount?: number;
-  extractedText?: string;
-  metadata?: DocumentMetadata;
-  createdAt?: string;
-}
+  page_number: number;
+  reason: string;
+};

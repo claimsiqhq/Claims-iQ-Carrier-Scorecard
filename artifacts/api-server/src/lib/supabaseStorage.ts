@@ -9,10 +9,14 @@ import {
 
 export const BUCKET_NAME = "claim-documents";
 export const MAX_SIGNED_URL_SECONDS = 300;
+export const PAGE_RENDITION_VERSION = "page-jpeg-v1";
+export const PAGE_RENDITION_CONTENT_TYPE = "image/jpeg";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const SAFE_FILE_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$/;
+const PAGE_RENDITION_FILE_RE = /^page-(\d{6})\.jpg$/;
+const MAX_PAGE_NUMBER = 999_999;
 const STORAGE_ISSUER = "claims-iq-api";
 const STORAGE_AUDIENCE = "authenticated";
 const capabilityMarker = Symbol("tenant-storage-capability");
@@ -35,6 +39,20 @@ export interface ParsedDocumentStoragePath {
   claimId: string;
   documentId: string;
   fileName: string;
+}
+
+export interface CanonicalPageRenditionReference {
+  claimId: string;
+  documentId: string;
+  pageNumber: number;
+  storagePath: string;
+}
+
+export interface ParsedPageRenditionStoragePath {
+  organizationId: string;
+  claimId: string;
+  documentId: string;
+  pageNumber: number;
 }
 
 interface SigningConfiguration {
@@ -183,6 +201,45 @@ export function buildCanonicalDocumentPath(input: {
   return `organizations/${organizationId}/claims/${claimId}/documents/${documentId}/${fileName}`;
 }
 
+function normalizePageNumber(pageNumber: number): number {
+  if (
+    !Number.isInteger(pageNumber)
+    || pageNumber < 1
+    || pageNumber > MAX_PAGE_NUMBER
+  ) {
+    throw new Error("pageNumber must be a positive bounded integer");
+  }
+  return pageNumber;
+}
+
+function renditionFileName(pageNumber: number): string {
+  return `page-${normalizePageNumber(pageNumber).toString().padStart(6, "0")}.jpg`;
+}
+
+export function buildCanonicalPageRenditionPath(input: {
+  organizationId: string;
+  claimId: string;
+  documentId: string;
+  pageNumber: number;
+}): string {
+  const organizationId = normalizeUuid(
+    input.organizationId,
+    "organizationId",
+  );
+  const claimId = normalizeUuid(input.claimId, "claimId");
+  const documentId = normalizeUuid(input.documentId, "documentId");
+  return [
+    "organizations",
+    organizationId,
+    "claims",
+    claimId,
+    "documents",
+    documentId,
+    "pages",
+    renditionFileName(input.pageNumber),
+  ].join("/");
+}
+
 export function parseCanonicalDocumentPath(
   storagePath: string,
 ): ParsedDocumentStoragePath | null {
@@ -214,6 +271,42 @@ export function parseCanonicalDocumentPath(
     claimId: segments[3]!,
     documentId: segments[5]!,
     fileName: segments[6]!,
+  };
+}
+
+export function parseCanonicalPageRenditionPath(
+  storagePath: string,
+): ParsedPageRenditionStoragePath | null {
+  if (
+    !storagePath
+    || storagePath.length > 1024
+    || /[\u0000-\u001f\u007f\\]/.test(storagePath)
+    || /%[0-9A-Fa-f]{2}/.test(storagePath)
+  ) {
+    return null;
+  }
+  const segments = storagePath.split("/");
+  const pageMatch = PAGE_RENDITION_FILE_RE.exec(segments[7] ?? "");
+  if (
+    segments.length !== 8
+    || segments[0] !== "organizations"
+    || !UUID_RE.test(segments[1] ?? "")
+    || segments[2] !== "claims"
+    || !UUID_RE.test(segments[3] ?? "")
+    || segments[4] !== "documents"
+    || !UUID_RE.test(segments[5] ?? "")
+    || segments[6] !== "pages"
+    || !pageMatch
+  ) {
+    return null;
+  }
+  const pageNumber = Number.parseInt(pageMatch[1]!, 10);
+  if (pageNumber < 1 || pageNumber > MAX_PAGE_NUMBER) return null;
+  return {
+    organizationId: segments[1]!,
+    claimId: segments[3]!,
+    documentId: segments[5]!,
+    pageNumber,
   };
 }
 
@@ -340,6 +433,24 @@ export class TenantStorageCapability {
     }
   }
 
+  ownsPageRendition(
+    reference: CanonicalPageRenditionReference,
+  ): boolean {
+    const parsed = parseCanonicalPageRenditionPath(reference.storagePath);
+    if (!parsed) return false;
+    try {
+      return (
+        parsed.organizationId === this.organizationId
+        && parsed.claimId === normalizeUuid(reference.claimId, "claimId")
+        && parsed.documentId
+          === normalizeUuid(reference.documentId, "documentId")
+        && parsed.pageNumber === normalizePageNumber(reference.pageNumber)
+      );
+    } catch {
+      return false;
+    }
+  }
+
   assertReference(
     reference: CanonicalDocumentReference,
   ): ParsedDocumentStoragePath {
@@ -350,6 +461,39 @@ export class TenantStorageCapability {
       );
     }
     return parsed;
+  }
+
+  assertPageRendition(
+    reference: CanonicalPageRenditionReference,
+  ): ParsedPageRenditionStoragePath {
+    const parsed = parseCanonicalPageRenditionPath(reference.storagePath);
+    if (!parsed || !this.ownsPageRendition(reference)) {
+      throw new Error(
+        "Page rendition path does not match the scoped organization/claim/document/page tuple",
+      );
+    }
+    return parsed;
+  }
+
+  pageRenditionReference(input: {
+    claimId: string;
+    documentId: string;
+    pageNumber: number;
+  }): CanonicalPageRenditionReference {
+    const claimId = normalizeUuid(input.claimId, "claimId");
+    const documentId = normalizeUuid(input.documentId, "documentId");
+    const pageNumber = normalizePageNumber(input.pageNumber);
+    return {
+      claimId,
+      documentId,
+      pageNumber,
+      storagePath: buildCanonicalPageRenditionPath({
+        organizationId: this.organizationId,
+        claimId,
+        documentId,
+        pageNumber,
+      }),
+    };
   }
 
   private async bucket() {
@@ -393,6 +537,25 @@ export class TenantStorageCapability {
     return storagePath;
   }
 
+  async uploadPageRendition(input: {
+    claimId: string;
+    documentId: string;
+    pageNumber: number;
+    body: Buffer;
+  }): Promise<CanonicalPageRenditionReference> {
+    const reference = this.pageRenditionReference(input);
+    const bucket = await this.bucket();
+    const { error } = await bucket.upload(reference.storagePath, input.body, {
+      contentType: PAGE_RENDITION_CONTENT_TYPE,
+      cacheControl: "31536000",
+      upsert: true,
+    });
+    if (error) {
+      throw new Error(`Supabase page rendition upload failed: ${error.message}`);
+    }
+    return reference;
+  }
+
   async downloadDocument(
     reference: CanonicalDocumentReference,
   ): Promise<Buffer> {
@@ -434,6 +597,33 @@ export class TenantStorageCapability {
     return data.signedUrl;
   }
 
+  async createSignedPageRenditionUrl(
+    reference: CanonicalPageRenditionReference,
+    expiresInSeconds = 120,
+  ): Promise<string> {
+    this.assertPageRendition(reference);
+    if (
+      !Number.isInteger(expiresInSeconds)
+      || expiresInSeconds < 1
+      || expiresInSeconds > MAX_SIGNED_URL_SECONDS
+    ) {
+      throw new Error(
+        `Signed URL expiry must be between 1 and ${MAX_SIGNED_URL_SECONDS} seconds`,
+      );
+    }
+    const bucket = await this.bucket();
+    const { data, error } = await bucket.createSignedUrl(
+      reference.storagePath,
+      expiresInSeconds,
+    );
+    if (error || !data?.signedUrl) {
+      throw new Error(
+        `Failed to create page rendition URL: ${error?.message ?? "No URL"}`,
+      );
+    }
+    return data.signedUrl;
+  }
+
   async documentExists(
     reference: CanonicalDocumentReference,
   ): Promise<boolean> {
@@ -451,6 +641,71 @@ export class TenantStorageCapability {
       throw new Error(`Supabase object lookup failed: ${error.message}`);
     }
     return data.some((entry) => entry.name === parsed.fileName);
+  }
+
+  async pageRenditionExists(
+    reference: CanonicalPageRenditionReference,
+  ): Promise<boolean> {
+    const parsed = this.assertPageRendition(reference);
+    const folder = reference.storagePath.slice(
+      0,
+      -(renditionFileName(parsed.pageNumber).length + 1),
+    );
+    const bucket = await this.bucket();
+    const { data, error } = await bucket.list(folder, {
+      limit: 2,
+      search: renditionFileName(parsed.pageNumber),
+    });
+    if (error) {
+      throw new Error(`Supabase page rendition lookup failed: ${error.message}`);
+    }
+    return data.some(
+      (entry) => entry.name === renditionFileName(parsed.pageNumber),
+    );
+  }
+
+  async deletePageRenditions(input: {
+    claimId: string;
+    documentId: string;
+  }): Promise<void> {
+    const firstPage = this.pageRenditionReference({
+      ...input,
+      pageNumber: 1,
+    });
+    const folder = firstPage.storagePath.slice(
+      0,
+      -(renditionFileName(1).length + 1),
+    );
+    const bucket = await this.bucket();
+    const paths: string[] = [];
+    const limit = 100;
+    for (let offset = 0; ; offset += limit) {
+      const { data, error } = await bucket.list(folder, { limit, offset });
+      if (error) {
+        throw new Error(`Supabase page rendition list failed: ${error.message}`);
+      }
+      for (const entry of data) {
+        const storagePath = `${folder}/${entry.name}`;
+        const parsed = parseCanonicalPageRenditionPath(storagePath);
+        if (
+          parsed
+          && parsed.organizationId === this.organizationId
+          && parsed.claimId === firstPage.claimId
+          && parsed.documentId === firstPage.documentId
+        ) {
+          paths.push(storagePath);
+        }
+      }
+      if (data.length < limit) break;
+    }
+    for (let index = 0; index < paths.length; index += limit) {
+      const { error } = await bucket.remove(paths.slice(index, index + limit));
+      if (error) {
+        throw new Error(
+          `Supabase page rendition cleanup failed: ${error.message}`,
+        );
+      }
+    }
   }
 
   async deleteDocument(

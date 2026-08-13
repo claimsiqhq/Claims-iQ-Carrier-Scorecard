@@ -1425,6 +1425,97 @@ paths:
         "500":
           $ref: "#/components/responses/InternalServerError"
 
+  /documents/{documentId}/renditions:
+    get:
+      operationId: getDocumentRenditions
+      tags: [Documents]
+      summary: Get page-rendition viewer status
+      description: Requires `claims:read`; cross-tenant document IDs return `404`.
+      parameters:
+        - $ref: "#/components/parameters/DocumentIdPath"
+      responses:
+        "200":
+          description: Current viewer preparation status and available pages.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocumentRenditionManifest"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    post:
+      operationId: prepareDocumentRenditions
+      tags: [Documents, Jobs]
+      summary: Prepare secure JPEG pages for in-page review
+      description: |
+        Requires `claims:read`. Returns the existing rendition set, an active
+        source-processing job, or an idempotently queued rendition job.
+      parameters:
+        - $ref: "#/components/parameters/DocumentIdPath"
+      responses:
+        "200":
+          description: Existing renditions or preparation job returned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocumentRenditionManifest"
+        "202":
+          description: Rendition preparation queued.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocumentRenditionManifest"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /documents/{documentId}/renditions/{pageNumber}:
+    get:
+      operationId: viewDocumentRenditionPage
+      tags: [Documents]
+      summary: Redirect to an authorized rendered document page
+      description: Requires `claims:read`; the signed page URL expires after 120 seconds.
+      parameters:
+        - $ref: "#/components/parameters/DocumentIdPath"
+        - name: pageNumber
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        "302":
+          description: Redirect to the private JPEG page rendition.
+          headers:
+            Location:
+              schema:
+                type: string
+                format: uri
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   /claims/{id}/download:
     get:
       operationId: downloadClaimAuditCsv
@@ -2467,6 +2558,12 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
+    UnsupportedMediaType:
+      description: The source document type cannot support the requested operation.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
     TooManyRequests:
       description: Request rate limit exceeded.
       headers:
@@ -2900,7 +2997,7 @@ components:
 
     ProcessingJobType:
       type: string
-      enum: [ingest, audit, retry, reprocess, extract]
+      enum: [ingest, audit, retry, reprocess, extract, rendition]
 
     ProcessingJobStatus:
       type: string
@@ -3109,6 +3206,9 @@ components:
           type: string
         fileUrl:
           type: string
+        pageCount:
+          type: integer
+          minimum: 1
         extractedText:
           type: string
         metadata:
@@ -4378,6 +4478,66 @@ components:
           type: integer
           minimum: 1
           description: Lifetime in seconds.
+      additionalProperties: false
+
+    DocumentRenditionManifest:
+      type: object
+      required:
+        [documentId, version, format, status, pageCount, availablePages, failedPages, error, job]
+      properties:
+        documentId:
+          type: string
+          format: uuid
+        version:
+          type: string
+        format:
+          type: string
+          enum: [jpeg]
+        status:
+          type: string
+          enum: [missing, preparing, ready, degraded, failed]
+        pageCount:
+          type: integer
+          minimum: 1
+          nullable: true
+        availablePages:
+          type: array
+          items:
+            type: integer
+            minimum: 1
+        failedPages:
+          type: array
+          items:
+            type: object
+            required: [page_number, reason]
+            properties:
+              page_number:
+                type: integer
+                minimum: 1
+              reason:
+                type: string
+            additionalProperties: false
+        error:
+          type: string
+          nullable: true
+        job:
+          nullable: true
+          allOf:
+            - type: object
+              required: [id, status, stage, progress]
+              properties:
+                id:
+                  type: string
+                  format: uuid
+                status:
+                  $ref: "#/components/schemas/ProcessingJobStatus"
+                stage:
+                  $ref: "#/components/schemas/ProcessingJobStage"
+                progress:
+                  type: integer
+                  minimum: 0
+                  maximum: 100
+              additionalProperties: false
       additionalProperties: false
 
     CarrierOption:
