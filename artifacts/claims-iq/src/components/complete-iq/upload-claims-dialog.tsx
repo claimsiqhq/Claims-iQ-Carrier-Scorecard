@@ -6,7 +6,7 @@ import {
   useState,
   type ReactNode,
 } from "react"
-import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { useQueryClient } from "@tanstack/react-query"
 import {
   Check,
   FileText,
@@ -17,7 +17,6 @@ import {
   X,
 } from "lucide-react"
 import { Link } from "wouter"
-import { StatusPill } from "@/components/complete-iq/status"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -30,12 +29,7 @@ import {
 } from "@/components/ui/dialog"
 import { api, apiErrorMessage, queryKeys } from "@/lib/api"
 import { useAuth } from "@/lib/auth-context"
-import {
-  carrierEntitiesForOrganization,
-  defaultCarrierEntityId,
-} from "@/lib/carrier-entities"
 import { intakeRecoveryKey } from "@/lib/tenant-state"
-import type { CarrierOption } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 const MAX_FILE_SIZE = 100 * 1024 * 1024
@@ -92,10 +86,12 @@ function readRecoveryQueue(recoveryKey: string | null): UploadItem[] {
 
 export function UploadClaimsDialog({
   trigger,
+  open: openProp,
   initialOpen = false,
   onOpenChange,
 }: {
   trigger?: ReactNode
+  open?: boolean
   initialOpen?: boolean
   onOpenChange?: (open: boolean) => void
 }) {
@@ -108,36 +104,18 @@ export function UploadClaimsDialog({
   const inputRef = useRef<HTMLInputElement>(null)
   const resumedRef = useRef(new Set<string>())
   const cancelledRef = useRef(new Set<string>())
-  const [open, setOpen] = useState(initialOpen)
+  const isControlled = openProp !== undefined
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(initialOpen)
+  const open = isControlled ? openProp : uncontrolledOpen
   const [dragging, setDragging] = useState(false)
-  const [carrierEntityId, setCarrierEntityId] = useState("")
   const [queue, setQueue] = useState<UploadItem[]>(() => readRecoveryQueue(recoveryKey))
   const [processingBatch, setProcessingBatch] = useState(false)
   const [preflightMessage, setPreflightMessage] = useState<string | null>(null)
-
-  const carriers = useQuery({
-    queryKey: [...queryKeys.carriers, "options"],
-    queryFn: api.getCarrierOptions,
-    staleTime: 5 * 60_000,
-  })
-  const carrierEntities = useMemo(
-    () => carrierEntitiesForOrganization(carriers.data, organization?.id),
-    [carriers.data, organization?.id],
-  )
+  const tenantName = organization?.name || "this tenant"
 
   useEffect(() => {
-    setOpen(initialOpen)
-  }, [initialOpen])
-
-  useEffect(() => {
-    if (carrierEntities.length === 0) {
-      if (carrierEntityId) setCarrierEntityId("")
-      return
-    }
-    if (!carrierEntities.some((option) => option.id === carrierEntityId)) {
-      setCarrierEntityId(defaultCarrierEntityId(carrierEntities))
-    }
-  }, [carrierEntities, carrierEntityId])
+    if (!isControlled) setUncontrolledOpen(initialOpen)
+  }, [initialOpen, isControlled])
 
   useEffect(() => {
     const resumable = queue.filter(
@@ -183,7 +161,7 @@ export function UploadClaimsDialog({
   }, [queue, recoveryKey])
 
   const setDialogOpen = (next: boolean) => {
-    setOpen(next)
+    if (!isControlled) setUncontrolledOpen(next)
     onOpenChange?.(next)
   }
 
@@ -259,7 +237,7 @@ export function UploadClaimsDialog({
       if (!item.file) return
       updateItem(item.id, { stage: "uploading", error: undefined })
       try {
-        const result = await api.ingest(item.file, carrierEntityId || undefined)
+        const result = await api.ingest(item.file)
         const claimId = result.claim?.id || result.job.claimId
         if (!claimId) throw new Error("The server queued this file without a claim identifier.")
         updateItem(item.id, {
@@ -277,7 +255,7 @@ export function UploadClaimsDialog({
         })
       }
     },
-    [carrierEntityId, updateItem, waitForCompletion],
+    [updateItem, waitForCompletion],
   )
 
   const addFiles = useCallback((files: File[]) => {
@@ -429,33 +407,10 @@ export function UploadClaimsDialog({
             </p>
           )}
 
-          <div className="ciq-field">
-            <label htmlFor="intake-carrier">Carrier entity</label>
-            <select
-              id="intake-carrier"
-              className="ciq-control"
-              value={carrierEntityId}
-              onChange={(event) => setCarrierEntityId(event.target.value)}
-              disabled={activeCount > 0 || carrierEntities.length <= 1 || carriers.isLoading}
-            >
-              {carriers.isLoading && <option value="">Loading tenant entities…</option>}
-              {!carriers.isLoading && carrierEntities.length === 0 && (
-                <option value="">Assigned from the tenant session</option>
-              )}
-              {carrierEntities.map((option: CarrierOption) => (
-                <option key={option.id} value={option.id}>
-                  {option.displayName}
-                </option>
-              ))}
-            </select>
-            <span className="text-xs text-[var(--ciq-ink-muted)]">
-              {carrierEntities.length > 1
-                ? `Preselected to this tenant's primary entity. Every option is a ${organization?.name || "tenant"} entity audited under this tenant's ruleset.`
-                : carrierEntities.length === 1
-                  ? "Locked to the active entity returned for this tenant."
-                  : "The server will use the entity assigned to this tenant session."}
-            </span>
-          </div>
+          <p className="rounded-md border border-[var(--ciq-border)] bg-[var(--ciq-surface-subtle)] px-3 py-2 text-xs leading-5 text-[var(--ciq-ink-muted)]">
+            This intake uses the {tenantName} assigned prompt and ruleset.
+            Writing-company labels are applied after extraction when the source names one.
+          </p>
 
           {hasQueue && (
             <section aria-labelledby="intake-queue-heading">
@@ -559,7 +514,7 @@ export function UploadClaimsDialog({
             </Button>
             <Button
               onClick={() => void startBatch()}
-              disabled={!queuedCount || processingBatch || carriers.isLoading}
+              disabled={!queuedCount || processingBatch}
             >
               {processingBatch ? (
                 <>

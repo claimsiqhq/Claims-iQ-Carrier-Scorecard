@@ -5,11 +5,16 @@ import type { ReactNode } from "react"
 import { describe, expect, it, vi } from "vitest"
 import { AppShell } from "./app-shell"
 
-const authState = vi.hoisted(() => ({ platformAdminInTenant: false }))
+const authState = vi.hoisted(() => ({
+  platformAdminInTenant: false,
+  canCreateClaims: false,
+}))
 
 vi.mock("@/lib/api", () => ({
   queryKeys: {
     organizations: ["test", "organizations"],
+    dashboard: ["test", "dashboard"],
+    claims: ["test", "claims"],
   },
   api: {
     getOrganizations: vi.fn().mockImplementation(() =>
@@ -55,7 +60,7 @@ vi.mock("@/lib/auth-context", () => ({
     isPlatformAdmin: authState.platformAdminInTenant,
     isTenantAdmin: false,
     canManageSettings: authState.platformAdminInTenant,
-    canCreateClaims: false,
+    canCreateClaims: authState.canCreateClaims,
     logout: vi.fn(),
     switchTenant: vi.fn(),
   }),
@@ -83,6 +88,20 @@ describe("AppShell tenant navigation", () => {
     expect(screen.queryByRole("menuitem", { name: /switch to/i })).not.toBeInTheDocument()
     expect(screen.queryByText("Platform administration")).not.toBeInTheDocument()
     expect(screen.queryByText("New intake")).not.toBeInTheDocument()
+  })
+
+  it("shows a single New intake control when the user can create claims", () => {
+    authState.canCreateClaims = true
+    try {
+      renderShell(
+        <AppShell>
+          <p>Tenant workspace</p>
+        </AppShell>,
+      )
+      expect(screen.getAllByRole("button", { name: "New intake" })).toHaveLength(1)
+    } finally {
+      authState.canCreateClaims = false
+    }
   })
 
   it("shows settings and other tenants for a platform administrator", async () => {

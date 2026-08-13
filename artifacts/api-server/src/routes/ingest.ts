@@ -659,7 +659,7 @@ router.post(
       }
       const selectedCarrierEntity = await resolveRequestedCarrierEntity(
         req.organization!.organizationId,
-        carrierEntityId,
+        carrierEntityId || claim.carrierEntityId,
       );
 
       const queued = await enqueueExistingClaimJob({

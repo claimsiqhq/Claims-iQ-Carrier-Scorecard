@@ -27,6 +27,6 @@ an equivalent request returns the existing durable processing job and sets
 
 export interface IngestRequest {
   file: Blob;
-  /** Optional only when the authenticated session-bound tenant has exactly one active carrier entity. */
+  /** When omitted, the session tenant's primary active carrier entity is used. Writing-company labels may be applied after extraction. */
   carrierEntityId?: string;
 }

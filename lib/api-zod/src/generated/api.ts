@@ -708,7 +708,7 @@ export const CreateClaimBody = zod.object({
     .uuid()
     .nullish()
     .describe(
-      "Optional only when the authenticated session-bound tenant has exactly one active carrier entity.",
+      "When omitted, the session tenant's primary active carrier entity is used.",
     ),
   dateOfLoss: zod.string().nullish(),
 });
@@ -1502,8 +1502,8 @@ export const DeleteSavedViewResponse = zod.object({
 /**
  * Stores a file, creates a processing claim and document, and enqueues an
 `ingest` job. Requires `claims:create`. The idempotency identity includes
-the authenticated session-bound tenant, file SHA-256, requested
-`carrierEntityId`, and optional caller key. Equivalent requests return
+the authenticated session-bound tenant, file SHA-256, resolved
+`carrierEntityId` (primary when omitted), and optional caller key. Equivalent requests return
 the existing job with `duplicate: true`.
 
  * @summary Upload and enqueue a claim file
@@ -1528,7 +1528,7 @@ export const IngestClaimFileBody = zod.object({
     .uuid()
     .optional()
     .describe(
-      "Optional only when the authenticated session-bound tenant has exactly one active carrier entity.",
+      "When omitted, the session tenant's primary active carrier entity is used. Writing-company labels may be applied after extraction.",
     ),
 });
 
@@ -1651,7 +1651,8 @@ export const RetryClaimProcessingHeader = zod.object({
 
 /**
  * Requires `audits:run`. Enqueues or reuses a `reprocess` job for the latest
-claim-file document. The idempotency identity includes the tenant-owned
+claim-file document. When `carrierEntityId` is omitted, the claim's existing
+entity is kept. The idempotency identity includes the tenant-owned
 `carrierEntityId` and either `X-Idempotency-Key` or the current
 successful audit identity.
 Archived claims return `409`.
@@ -1681,7 +1682,7 @@ export const ReprocessClaimBody = zod.object({
     .uuid()
     .optional()
     .describe(
-      "Optional only when the authenticated session-bound tenant has exactly one active carrier entity.",
+      "When omitted, the claim's existing carrier entity is kept. The tenant's assigned prompt and ruleset are used.",
     ),
 });
 

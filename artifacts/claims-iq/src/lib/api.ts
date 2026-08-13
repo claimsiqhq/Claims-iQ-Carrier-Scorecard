@@ -272,12 +272,12 @@ export const api = {
     apiRequest<{ job: ProcessingJob; duplicate?: boolean }>(`/claims/${encodeURIComponent(id)}/retry`, {
       method: "POST",
     }),
-  reprocessClaim: (id: string, carrierEntityId: string) =>
+  reprocessClaim: (id: string, carrierEntityId?: string) =>
     apiRequest<{ job: ProcessingJob; duplicate?: boolean }>(
       `/claims/${encodeURIComponent(id)}/reprocess`,
       {
         method: "POST",
-        body: JSON.stringify({ carrierEntityId }),
+        body: JSON.stringify(carrierEntityId ? { carrierEntityId } : {}),
       },
     ),
   getProcessingStatus: (id: string) =>

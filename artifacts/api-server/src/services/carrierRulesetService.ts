@@ -29,7 +29,6 @@ export class CarrierRulesetUnavailableError extends Error {
 
 export class CarrierEntitySelectionError extends Error {
   readonly code:
-    | "carrier_entity_required"
     | "carrier_entity_unavailable"
     | "foreign_carrier_entity";
   readonly status = 400;
@@ -220,17 +219,13 @@ export function selectRequestedCarrierEntity(
     }
     return selected;
   }
-  if (allowed.length === 1) return allowed[0]!;
   if (allowed.length === 0) {
     throw new CarrierEntitySelectionError(
       "carrier_entity_unavailable",
       "No active carrier entity is configured for this organization.",
     );
   }
-  throw new CarrierEntitySelectionError(
-    "carrier_entity_required",
-    "carrierEntityId is required when the organization has multiple active carrier entities.",
-  );
+  return allowed.find((entity) => entity.isPrimary) ?? allowed[0]!;
 }
 
 export function resolveDetectedCarrierEntity(input: {

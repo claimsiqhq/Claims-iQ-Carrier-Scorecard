@@ -6,10 +6,10 @@ import { Button } from "@/components/ui/button"
 import { UploadClaimsDialog } from "./upload-claims-dialog"
 
 const mocks = vi.hoisted(() => ({
-  getCarrierOptions: vi.fn(),
+  ingest: vi.fn(),
   organization: {
-    id: "org-allstate",
-    name: "Allstate",
+    id: "org-andover",
+    name: "Andover",
     role: "reviewer",
     permissions: ["claims:create"],
   },
@@ -22,7 +22,7 @@ vi.mock("@/lib/api", () => ({
     claims: ["test", "claims"],
   },
   api: {
-    getCarrierOptions: mocks.getCarrierOptions,
+    ingest: mocks.ingest,
   },
   apiErrorMessage: (error: unknown, fallback = "Request failed") =>
     error instanceof Error ? error.message : fallback,
@@ -30,7 +30,7 @@ vi.mock("@/lib/api", () => ({
 
 vi.mock("@/lib/auth-context", () => ({
   useAuth: () => ({
-    user: { id: "user-allstate" },
+    user: { id: "user-andover" },
     organization: mocks.organization,
   }),
 }))
@@ -48,8 +48,8 @@ function renderDialog() {
 
 describe("UploadClaimsDialog", () => {
   beforeEach(() => {
-    mocks.getCarrierOptions.mockReset()
-    mocks.getCarrierOptions.mockResolvedValue([])
+    mocks.ingest.mockReset()
+    mocks.organization.name = "Andover"
   })
 
   it("rejects non-PDF input during client preflight", async () => {
@@ -81,86 +81,18 @@ describe("UploadClaimsDialog", () => {
     })
   })
 
-  it("filters carrier entities to the authenticated organization", async () => {
-    mocks.getCarrierOptions.mockResolvedValue([
-      {
-        id: "10000000-0000-4000-8000-000000000001",
-        key: "allstate-property",
-        entityKey: "allstate-property",
-        carrierKey: "allstate",
-        displayName: "Allstate Property",
-        organizationId: "org-allstate",
-        isPrimary: true,
-        active: true,
-        logoUrl: null,
-      },
-      {
-        id: "20000000-0000-4000-8000-000000000001",
-        key: "andover",
-        entityKey: "andover",
-        carrierKey: "andover",
-        displayName: "Andover",
-        organizationId: "org-andover",
-        isPrimary: true,
-        active: true,
-        logoUrl: null,
-      },
-    ])
+  it("does not offer a carrier or prompt picker for a multi-entity tenant", async () => {
     const user = userEvent.setup()
     renderDialog()
     await user.click(screen.getByRole("button", { name: "Add files" }))
 
-    const selector = await screen.findByLabelText("Carrier entity")
-    await waitFor(() => {
-      expect(selector).toHaveValue("10000000-0000-4000-8000-000000000001")
-    })
-
-    expect(selector).toBeDisabled()
-    expect(screen.getByRole("option", { name: "Allstate Property" })).toBeInTheDocument()
+    expect(screen.queryByLabelText("Carrier entity")).not.toBeInTheDocument()
     expect(screen.queryByRole("option", { name: "Andover" })).not.toBeInTheDocument()
-  })
-
-  it("preselects the primary entity so multi-entity tenants are never forced to choose", async () => {
-    mocks.getCarrierOptions.mockResolvedValue([
-      {
-        id: "10000000-0000-4000-8000-000000000002",
-        key: "allstate-indemnity",
-        entityKey: "allstate-indemnity",
-        carrierKey: "allstate",
-        displayName: "Allstate Indemnity",
-        organizationId: "org-allstate",
-        isPrimary: false,
-        active: true,
-        logoUrl: null,
-      },
-      {
-        id: "10000000-0000-4000-8000-000000000001",
-        key: "allstate-property",
-        entityKey: "allstate-property",
-        carrierKey: "allstate",
-        displayName: "Allstate Property",
-        organizationId: "org-allstate",
-        isPrimary: true,
-        active: true,
-        logoUrl: null,
-      },
-    ])
-    const user = userEvent.setup()
-    renderDialog()
-    await user.click(screen.getByRole("button", { name: "Add files" }))
-
-    const selector = await screen.findByLabelText("Carrier entity")
-    // The primary entity is preselected even when it is not listed first.
-    await waitFor(() => {
-      expect(selector).toHaveValue("10000000-0000-4000-8000-000000000001")
-    })
-    expect(screen.queryByRole("option", { name: /select a carrier/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole("option", { name: "Bay State Insurance Company" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("option", { name: "Cambridge Mutual" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("option", { name: "Merrimack Mutual" })).not.toBeInTheDocument()
     expect(
-      screen.getByText(/audited under this tenant's ruleset/i),
+      screen.getByText(/This intake uses the Andover assigned prompt and ruleset/),
     ).toBeInTheDocument()
-
-    await waitFor(() => expect(selector).toBeEnabled())
-    await user.selectOptions(selector, "10000000-0000-4000-8000-000000000002")
-    expect(selector).toHaveValue("10000000-0000-4000-8000-000000000002")
   })
 })

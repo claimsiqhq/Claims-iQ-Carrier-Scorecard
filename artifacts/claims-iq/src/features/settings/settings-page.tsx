@@ -46,7 +46,7 @@ type SettingsSection =
   | "history"
 
 const sections = [
-  { id: "prompts" as const, label: "Prompt Models", icon: FileCode2 },
+  { id: "prompts" as const, label: "Assigned prompt", icon: FileCode2 },
   { id: "users" as const, label: "Users & Roles", icon: Users },
   { id: "integrations" as const, label: "Integrations", icon: Link2 },
   { id: "notifications" as const, label: "Notifications", icon: Bell },
@@ -140,10 +140,10 @@ export default function SettingsPage() {
     try {
       await api.savePrompts(draft)
       setDirty(false)
-      setMessage("Prompt settings saved.")
+      setMessage("Assigned prompt saved.")
       await queryClient.invalidateQueries({ queryKey: queryKeys.prompts })
     } catch (saveError) {
-      setError(apiErrorMessage(saveError, "Prompt settings could not be saved."))
+      setError(apiErrorMessage(saveError, "The assigned prompt could not be saved."))
     } finally {
       setSaving(false)
     }
@@ -160,11 +160,11 @@ export default function SettingsPage() {
         user_prompt_template: defaults.user_prompt_template,
       })
       setDirty(false)
-      setMessage("Prompt settings reset to server defaults.")
+      setMessage("Assigned prompt reset to server defaults.")
       setResetOpen(false)
       await queryClient.invalidateQueries({ queryKey: queryKeys.prompts })
     } catch (resetError) {
-      setError(apiErrorMessage(resetError, "Prompt settings could not be reset."))
+      setError(apiErrorMessage(resetError, "The assigned prompt could not be reset."))
     } finally {
       setResetting(false)
     }
@@ -240,7 +240,7 @@ export default function SettingsPage() {
         compact
         eyebrow="Tenant administration"
         title="Settings"
-        description="Govern prompts, members, integrations, notifications, security, retention, and immutable change history for this organization."
+        description="Govern the assigned prompt, members, integrations, notifications, security, retention, and immutable change history for this organization."
         meta={
           <>
             <StatusPill value="admin" label="Administrator scope" />
@@ -267,7 +267,7 @@ export default function SettingsPage() {
                 disabled={!dirty || saving}
               >
                 <Save aria-hidden="true" />
-                {saving ? "Saving…" : "Save prompts"}
+                {saving ? "Saving…" : "Save assigned prompt"}
               </Button>
             </>
           ) : ["notifications", "retention"].includes(section) ? (
@@ -332,7 +332,7 @@ export default function SettingsPage() {
               ) : (
                 <PageState
                   kind="unavailable"
-                  title="Prompt settings returned no editable values"
+                  title="Assigned prompt returned no editable values"
                 />
               )
             ) : (
@@ -365,10 +365,10 @@ export default function SettingsPage() {
       <AlertDialog open={resetOpen} onOpenChange={setResetOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Reset prompt settings?</AlertDialogTitle>
+            <AlertDialogTitle>Reset assigned prompt?</AlertDialogTitle>
             <AlertDialogDescription>
               This replaces both editable prompt fields with the server defaults. Any unsaved edits
-              will be lost.
+              will be lost. Every intake in this tenant will use the restored prompt.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -405,9 +405,11 @@ function PromptSettingsPanel({
             <KeyRound className="h-4 w-4" aria-hidden="true" />
           </span>
           <div>
-            <h2 className="text-sm font-semibold">Current prompt contract</h2>
+            <h2 className="text-sm font-semibold">Assigned prompt for this tenant</h2>
             <p className="mt-1 text-xs leading-5 text-[var(--ciq-ink-muted)]">
-              Tenant-scoped prompt text is snapshotted into every immutable audit run. Active model:{" "}
+              This tenant has exactly one prompt. Every intake in this workspace uses it.
+              Writing companies are labels, not prompt choices. The text is snapshotted into
+              every immutable audit run. Active model:{" "}
               <span className="ciq-mono font-semibold">
                 {draft.model_identifier || "server-managed"}
               </span>

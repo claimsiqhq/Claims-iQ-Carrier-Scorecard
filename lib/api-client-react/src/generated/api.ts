@@ -3221,8 +3221,8 @@ export const useDeleteSavedView = <
 /**
  * Stores a file, creates a processing claim and document, and enqueues an
 `ingest` job. Requires `claims:create`. The idempotency identity includes
-the authenticated session-bound tenant, file SHA-256, requested
-`carrierEntityId`, and optional caller key. Equivalent requests return
+the authenticated session-bound tenant, file SHA-256, resolved
+`carrierEntityId` (primary when omitted), and optional caller key. Equivalent requests return
 the existing job with `duplicate: true`.
 
  * @summary Upload and enqueue a claim file
@@ -3558,7 +3558,8 @@ export const useRetryClaimProcessing = <
 
 /**
  * Requires `audits:run`. Enqueues or reuses a `reprocess` job for the latest
-claim-file document. The idempotency identity includes the tenant-owned
+claim-file document. When `carrierEntityId` is omitted, the claim's existing
+entity is kept. The idempotency identity includes the tenant-owned
 `carrierEntityId` and either `X-Idempotency-Key` or the current
 successful audit identity.
 Archived claims return `409`.

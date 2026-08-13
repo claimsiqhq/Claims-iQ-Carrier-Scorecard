@@ -48,6 +48,7 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet"
 import { TenantSwitcher } from "@/components/complete-iq/tenant-switcher"
+import { IntakeDialogProvider, useIntakeDialog } from "@/components/complete-iq/intake-dialog-context"
 import { useAuth } from "@/lib/auth-context"
 import { ChangePasswordDialog } from "@/features/account/change-password-dialog"
 import { cn } from "@/lib/utils"
@@ -220,6 +221,7 @@ export function UtilityBar() {
     canCreateClaims,
     logout,
   } = useAuth()
+  const { openIntake } = useIntakeDialog()
   const [commandOpen, setCommandOpen] = useState(false)
   const [passwordOpen, setPasswordOpen] = useState(false)
   const initials = `${user?.firstName?.[0] ?? ""}${user?.lastName?.[0] ?? ""}` || "U"
@@ -274,11 +276,11 @@ export function UtilityBar() {
           {canCreateClaims && !location.startsWith("/claims/") && (
             <Button
               size="sm"
-              className="hidden sm:inline-flex"
-              onClick={() => setLocation("/claims?upload=1")}
+              aria-label="New intake"
+              onClick={openIntake}
             >
               <Plus aria-hidden="true" />
-              New intake
+              <span className="ciq-utility-bar__intake-label">New intake</span>
             </Button>
           )}
           <DropdownMenu>
@@ -351,7 +353,10 @@ export function UtilityBar() {
             <CommandGroup heading="Actions">
               <CommandItem
                 value="new intake upload claim"
-                onSelect={() => navigateFromCommand("/claims?upload=1")}
+                onSelect={() => {
+                  setCommandOpen(false)
+                  openIntake()
+                }}
               >
                 <Plus aria-hidden="true" />
                 <span>Start new intake</span>
@@ -380,6 +385,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, [])
 
   return (
+    <IntakeDialogProvider>
     <div className="ciq-app-shell">
       <a className="ciq-skip-link" href="#main-content">
         Skip to main content
@@ -411,6 +417,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       </div>
       <MobileNav />
     </div>
+    </IntakeDialogProvider>
   )
 }
 

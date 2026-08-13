@@ -516,7 +516,7 @@ export interface CreateClaimRequest {
   /** @minLength 1 */
   insuredName: string;
   /**
-   * Optional only when the authenticated session-bound tenant has exactly one active carrier entity.
+   * When omitted, the session tenant's primary active carrier entity is used.
    * @nullable
    */
   carrierEntityId?: string | null;
@@ -1124,7 +1124,7 @@ export interface ProcessingStatus {
 
 export interface IngestRequest {
   file: Blob;
-  /** Optional only when the authenticated session-bound tenant has exactly one active carrier entity. */
+  /** When omitted, the session tenant's primary active carrier entity is used. Writing-company labels may be applied after extraction. */
   carrierEntityId?: string;
 }
 
@@ -1147,7 +1147,7 @@ export interface IngestResponse {
 }
 
 export interface ReprocessClaimRequest {
-  /** Optional only when the authenticated session-bound tenant has exactly one active carrier entity. */
+  /** When omitted, the claim's existing carrier entity is kept. The tenant's assigned prompt and ruleset are used. */
   carrierEntityId?: string;
 }
 

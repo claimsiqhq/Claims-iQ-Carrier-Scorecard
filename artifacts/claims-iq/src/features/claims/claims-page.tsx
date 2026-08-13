@@ -13,10 +13,9 @@ import {
   Save,
   Search,
   Trash2,
-  UploadCloud,
   UserRoundCheck,
 } from "lucide-react"
-import { UploadClaimsDialog } from "@/components/complete-iq/upload-claims-dialog"
+import { useIntakeDialog } from "@/components/complete-iq/intake-dialog-context"
 import {
   ArchiveClaimsDialog,
   type ArchiveClaimTarget,
@@ -91,6 +90,7 @@ function nextAction(claim: ClaimSummary, canRetry = true) {
 export default function ClaimsPage() {
   const queryClient = useQueryClient()
   const { user, organization } = useAuth()
+  const { openIntake } = useIntakeDialog()
   const [, setLocation] = useLocation()
   const dashboard = useQuery({ queryKey: queryKeys.dashboard, queryFn: api.getDashboard })
   const canAssign = Boolean(organization?.permissions.includes("claims:assign"))
@@ -360,8 +360,6 @@ export default function ClaimsPage() {
     )
   }
 
-  const uploadRequested = new URLSearchParams(window.location.search).get("upload") === "1"
-
   return (
     <div className="ciq-page">
       <PageHeader
@@ -381,22 +379,6 @@ export default function ClaimsPage() {
               tone="warning"
             />
           </>
-        }
-        actions={
-          canCreate ? (
-            <UploadClaimsDialog
-              initialOpen={uploadRequested}
-              onOpenChange={(open) => {
-                if (!open && uploadRequested) setLocation("/claims", { replace: true })
-              }}
-              trigger={
-                <Button className="border-white/15 bg-white text-[var(--ciq-aubergine)] hover:bg-[#f7f3ed]">
-                  <UploadCloud aria-hidden="true" />
-                  New intake
-                </Button>
-              }
-            />
-          ) : undefined
         }
       />
 
@@ -945,8 +927,20 @@ export default function ClaimsPage() {
                     ? "Adjust the current filters or return to the full queue."
                     : "Start an intake, or choose Archived in the Workflow filter to review retained records."
                 }
-                actionLabel={organizationHasClaims ? "Clear filters" : undefined}
-                onAction={organizationHasClaims ? () => applyPreset("all") : undefined}
+                actionLabel={
+                  organizationHasClaims
+                    ? "Clear filters"
+                    : canCreate
+                      ? "Start intake"
+                      : undefined
+                }
+                onAction={
+                  organizationHasClaims
+                    ? () => applyPreset("all")
+                    : canCreate
+                      ? openIntake
+                      : undefined
+                }
               />
             </div>
           )}

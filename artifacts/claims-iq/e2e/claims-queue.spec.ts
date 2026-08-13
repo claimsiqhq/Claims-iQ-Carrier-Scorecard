@@ -301,6 +301,7 @@ test("operational queue is responsive, keyboard reachable, and axe-clean", async
   await page.goto("/claims")
 
   await expect(page.getByRole("heading", { name: "Claims", exact: true })).toBeVisible()
+  await expect(page.getByRole("button", { name: "New intake" })).toHaveCount(1)
   await expect(page.getByText("CIQ-2026-001").filter({ visible: true }).first()).toBeVisible()
   await expect(page.getByText("Synthetic Test Record").filter({ visible: true }).first()).toBeVisible()
 
@@ -415,6 +416,10 @@ test("batch intake reaches a recoverable ready state", async ({ page }) => {
   await page.goto("/claims?upload=1")
 
   await expect(page.getByRole("dialog")).toContainText("Add source packages to the ledger")
+  await expect(page.getByLabel("Carrier entity")).toHaveCount(0)
+  await expect(page.getByRole("dialog")).toContainText(
+    "This intake uses the Complete iQ QA assigned prompt and ruleset",
+  )
   await page.getByLabel("Choose claim PDF files").setInputFiles({
     name: "synthetic-claim.pdf",
     mimeType: "application/pdf",
@@ -425,8 +430,7 @@ test("batch intake reaches a recoverable ready state", async ({ page }) => {
   await expect(page.getByText("Ready for review")).toBeVisible()
   await expect(page.getByRole("link", { name: "Review" })).toBeVisible()
   expect(ingestBodies).toHaveLength(1)
-  expect(ingestBodies[0]).toContain('name="carrierEntityId"')
-  expect(ingestBodies[0]).toContain(carrierEntityId)
+  expect(ingestBodies[0]).not.toContain('name="carrierEntityId"')
   expect(ingestBodies[0]).not.toContain('name="carrier"')
   expect(ingestBodies[0]).not.toContain('name="carrierKey"')
 })
@@ -486,12 +490,12 @@ test("reviewer can follow evidence, approve, and complete a rerun", async ({ pag
   await expect(page.getByText("Synthetic estimate support text.").first()).toBeVisible()
 
   await page.getByRole("button", { name: "Reprocess" }).click()
-  await expect(page.getByLabel("Carrier entity")).toHaveValue(carrierEntityId)
-  await expect(page.getByLabel("Carrier entity")).toBeDisabled()
+  await expect(page.getByLabel("Carrier entity")).toHaveCount(0)
+  await expect(page.getByText(/assigned prompt and ruleset/i)).toBeVisible()
   await page.getByRole("button", { name: "Reprocess claim" }).click()
   await expect(page.getByRole("dialog")).not.toBeVisible()
   await expect(page.getByText("AI: Succeeded")).toBeVisible()
-  expect(reprocessBodies).toEqual([{ carrierEntityId }])
+  expect(reprocessBodies).toEqual([{}])
 })
 
 test("sign-in lands in a tenant and switching needs no reason", async ({ page }) => {
@@ -829,14 +833,11 @@ test("platform cache and recovery state stay isolated across tenant A to B", asy
     .first()
     .click()
   await expect(page.getByText("TENANT-A-CLAIM").filter({ visible: true }).first()).toBeVisible()
-  await page
-    .locator(".ciq-context-band")
-    .getByRole("button", { name: "New intake" })
-    .click()
-  await expect(page.getByLabel("Carrier entity")).toHaveValue(tenantA.entity.id)
-  await expect(
-    page.getByRole("option", { name: tenantA.entity.displayName }),
-  ).toHaveCount(1)
+  await page.getByRole("button", { name: "New intake" }).click()
+  await expect(page.getByRole("dialog")).toContainText(
+    "This intake uses the Tenant A Insurance assigned prompt and ruleset",
+  )
+  await expect(page.getByLabel("Carrier entity")).toHaveCount(0)
   await page.keyboard.press("Escape")
 
   await page.evaluate(() => {
@@ -868,21 +869,15 @@ test("platform cache and recovery state stay isolated across tenant A to B", asy
   await expect(page.getByText("TENANT-A-CLAIM")).toHaveCount(0)
   await expect(page.getByText("Tenant A Confidential Insured")).toHaveCount(0)
 
-  await page
-    .locator(".ciq-context-band")
-    .getByRole("button", { name: "New intake" })
-    .click()
-  await expect(page.getByLabel("Carrier entity")).toHaveValue(tenantB.entity.id)
-  await expect(
-    page.getByRole("option", { name: tenantB.entity.displayName }),
-  ).toHaveCount(1)
-  await expect(
-    page.getByRole("option", { name: tenantA.entity.displayName }),
-  ).toHaveCount(0)
+  await page.getByRole("button", { name: "New intake" }).click()
+  await expect(page.getByRole("dialog")).toContainText(
+    "This intake uses the Tenant B Insurance assigned prompt and ruleset",
+  )
+  await expect(page.getByLabel("Carrier entity")).toHaveCount(0)
+  await expect(page.getByRole("dialog")).not.toContainText(tenantA.entity.displayName)
 
   const tenantBRequests = tenantDataRequests.slice(tenantBRequestStart)
   expect(tenantBRequests.some(({ path }) => path === "/api/claims/queue")).toBe(true)
-  expect(tenantBRequests.some(({ path }) => path === "/api/carriers")).toBe(true)
   expect(
     tenantBRequests.every(
       ({ tenantId, organizationHeader }) =>

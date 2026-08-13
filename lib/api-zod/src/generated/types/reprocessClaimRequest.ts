@@ -26,6 +26,6 @@ an equivalent request returns the existing durable processing job and sets
  */
 
 export interface ReprocessClaimRequest {
-  /** Optional only when the authenticated session-bound tenant has exactly one active carrier entity. */
+  /** When omitted, the claim's existing carrier entity is kept. The tenant's assigned prompt and ruleset are used. */
   carrierEntityId?: string;
 }

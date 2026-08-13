@@ -139,3 +139,22 @@ test("Andover and its configured subsidiaries map only within Andover", () => {
     assert.equal(resolved.organizationId, andoverOrganizationId);
   }
 });
+
+test("omitted entity id on a multi-entity tenant selects the primary", () => {
+  const selected = selectRequestedCarrierEntity(
+    andoverOrganizationId,
+    andoverEntities,
+  );
+  assert.equal(selected.entityKey, "andover");
+  assert.equal(selected.isPrimary, true);
+});
+
+test("Andover PDF rematch switches the primary entity to Cambridge Mutual", () => {
+  const resolved = resolveDetectedCarrierEntity({
+    organizationId: andoverOrganizationId,
+    entities: andoverEntities,
+    detectedCarrier: "Cambridge Mutual",
+  });
+  assert.equal(resolved.entityKey, "cambridge-mutual");
+  assert.equal(resolved.organizationId, andoverOrganizationId);
+});

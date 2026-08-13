@@ -1644,7 +1644,7 @@ textarea.ciq-control {
   .ciq-account-trigger__label,
   .ciq-account-trigger > svg,
   .ciq-command-trigger,
-  .ciq-utility-bar__actions > .hidden {
+  .ciq-utility-bar__intake-label {
     display: none;
   }
 

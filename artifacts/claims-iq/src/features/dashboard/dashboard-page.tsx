@@ -7,13 +7,11 @@ import {
   Clock3,
   CircleDollarSign,
   Files,
-  Plus,
   ShieldAlert,
   Trash2,
   TrendingUp,
-  UploadCloud,
 } from "lucide-react"
-import { UploadClaimsDialog } from "@/components/complete-iq/upload-claims-dialog"
+import { useIntakeDialog } from "@/components/complete-iq/intake-dialog-context"
 import {
   ArchiveClaimsDialog,
   type ArchiveClaimTarget,
@@ -42,6 +40,7 @@ function nextAction(claim: ClaimSummary) {
 
 export default function DashboardPage() {
   const { user, organization } = useAuth()
+  const { openIntake } = useIntakeDialog()
   const canCreate = Boolean(organization?.permissions.includes("claims:create"))
   const canDelete = Boolean(organization?.permissions.includes("claims:delete"))
   const [selectedIds, setSelectedIds] = useState<string[]>([])
@@ -130,18 +129,6 @@ export default function DashboardPage() {
               tone="verified"
             />
           </>
-        }
-        actions={
-          canCreate ? (
-            <UploadClaimsDialog
-              trigger={
-                <Button className="border-white/15 bg-white text-[var(--ciq-aubergine)] hover:bg-[#f7f3ed]">
-                  <Plus aria-hidden="true" />
-                  New claim intake
-                </Button>
-              }
-            />
-          ) : undefined
         }
       />
 
@@ -353,6 +340,8 @@ export default function DashboardPage() {
                   kind="empty"
                   title="No claims in the ledger"
                   description="Begin with a source PDF. The server will extract and automatically audit it."
+                  actionLabel={canCreate ? "Start intake" : undefined}
+                  onAction={canCreate ? openIntake : undefined}
                 />
               </div>
             )}
@@ -460,16 +449,6 @@ export default function DashboardPage() {
               </div>
             </div>
             <div className="grid gap-2 p-3">
-              {canCreate && (
-                <UploadClaimsDialog
-                  trigger={
-                    <Button variant="outline" className="justify-start">
-                      <UploadCloud aria-hidden="true" />
-                      Add claim package
-                    </Button>
-                  }
-                />
-              )}
               <Button variant="outline" className="justify-start" asChild>
                 <Link href="/claims">
                   <Files aria-hidden="true" />
