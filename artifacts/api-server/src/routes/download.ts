@@ -4,6 +4,7 @@ import { claims, audits, auditFindings } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
 import { requireAuth } from "../middlewares/requireAuth";
 import { requireOrganizationPermission } from "../middlewares/organizationContext";
+import { renderAuditPdfReport } from "../services/auditPdfReport";
 import logger from "../lib/logger";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -20,6 +21,133 @@ function escCsv(val: string | null | undefined): string {
 }
 
 const router: IRouter = Router();
+
+router.get(
+  "/claims/:id/download.pdf",
+  requireAuth,
+  requireOrganizationPermission("claims:read"),
+  async (req, res) => {
+    try {
+      const id = firstParam(req.params.id);
+      if (!UUID_RE.test(id)) {
+        res.status(400).json({ error: "Invalid claim ID format" });
+        return;
+      }
+      const organizationId = req.organization!.organizationId;
+      const [claim] = await db
+        .select()
+        .from(claims)
+        .where(
+          and(
+            eq(claims.id, id),
+            eq(claims.organizationId, organizationId),
+          ),
+        )
+        .limit(1);
+      if (!claim?.currentAuditId) {
+        res.status(404).json({ error: "No audit report found for this claim" });
+        return;
+      }
+      const [audit] = await db
+        .select()
+        .from(audits)
+        .where(
+          and(
+            eq(audits.id, claim.currentAuditId),
+            eq(audits.organizationId, organizationId),
+          ),
+        )
+        .limit(1);
+      if (!audit) {
+        res.status(404).json({ error: "No audit report found for this claim" });
+        return;
+      }
+      const findings = await db
+        .select()
+        .from(auditFindings)
+        .where(
+          and(
+            eq(auditFindings.auditId, audit.id),
+            eq(auditFindings.organizationId, organizationId),
+          ),
+        );
+      const raw = audit.rawResponse as Record<string, unknown> | null;
+      const overallAudit = raw?.overall_audit as
+        | Record<string, unknown>
+        | undefined;
+      const daCard = raw?.desk_adjuster_scorecard as
+        | Record<string, unknown>
+        | undefined;
+      const faCard = raw?.field_adjuster_scorecard as
+        | Record<string, unknown>
+        | undefined;
+      const isNewFormat = Boolean(overallAudit);
+      const buffer = renderAuditPdfReport({
+        claim: {
+          claimNumber: claim.claimNumber,
+          insuredName: claim.insuredName,
+          carrier: claim.carrier,
+          dateOfLoss: claim.dateOfLoss,
+          lossType: claim.lossType,
+          policyNumber: claim.policyNumber,
+          propertyAddress: claim.propertyAddress,
+          adjuster: claim.adjuster,
+        },
+        audit: {
+          overallScore: isNewFormat
+            ? Number(overallAudit?.overall_score_percent ?? 0)
+            : Number(audit.overallScore ?? 0),
+          deskAdjusterScore: isNewFormat
+            ? Number(daCard?.score_percent ?? 0)
+            : Number(audit.technicalScore ?? 0),
+          fieldAdjusterScore: isNewFormat
+            ? Number(faCard?.score_percent ?? 0)
+            : Number(audit.presentationScore ?? 0),
+          readiness: isNewFormat
+            ? String(overallAudit?.readiness ?? audit.approvalStatus ?? "")
+            : (audit.approvalStatus ?? ""),
+          technicalRisk: isNewFormat
+            ? String(overallAudit?.technical_risk ?? audit.riskLevel ?? "")
+            : (audit.riskLevel ?? ""),
+          executiveSummary: audit.executiveSummary,
+        },
+        findings: findings.map((finding) => {
+          const metadata = finding.metadata as
+            | Record<string, unknown>
+            | null;
+          return {
+            severity: finding.severity ?? "finding",
+            title: finding.title,
+            description: finding.description,
+            impact:
+              typeof metadata?.impact === "string"
+                ? metadata.impact
+                : null,
+            fix:
+              typeof metadata?.fix === "string"
+                ? metadata.fix
+                : null,
+          };
+        }),
+      });
+      const safeClaimNumber = (claim.claimNumber || "claim").replace(
+        /[^A-Za-z0-9._-]/g,
+        "_",
+      );
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${safeClaimNumber}_audit_report.pdf"`,
+      );
+      res.setHeader("Content-Length", buffer.length);
+      res.setHeader("Cache-Control", "private, no-store");
+      res.send(buffer);
+    } catch (error) {
+      logger.error({ error }, "Error generating audit PDF");
+      res.status(500).json({ error: "Failed to generate audit PDF" });
+    }
+  },
+);
 
 router.get("/claims/:id/download", requireAuth, requireOrganizationPermission("claims:read"), async (req, res) => {
   try {
