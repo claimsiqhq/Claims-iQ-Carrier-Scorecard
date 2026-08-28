@@ -117,7 +117,7 @@ router.get(
             | null;
           return {
             severity: finding.severity ?? "finding",
-            title: finding.title,
+            title: finding.title ?? "Audit finding",
             description: finding.description,
             impact:
               typeof metadata?.impact === "string"

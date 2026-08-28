@@ -2161,6 +2161,14 @@ export const ViewDocumentRenditionPageParams = zod.object({
 
 /**
  * Requires `claims:read`; returns `404` until the claim has a current audit.
+ * @summary Download the current audit as PDF
+ */
+export const DownloadClaimAuditPdfParams = zod.object({
+  id: zod.coerce.string().uuid().describe("Claim identifier."),
+});
+
+/**
+ * Requires `claims:read`; returns `404` until the claim has a current audit.
  * @summary Download the current audit as CSV
  */
 export const DownloadClaimAuditCsvParams = zod.object({

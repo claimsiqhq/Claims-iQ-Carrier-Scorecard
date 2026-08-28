@@ -5185,6 +5185,116 @@ export function useViewDocumentRenditionPage<
 
 /**
  * Requires `claims:read`; returns `404` until the claim has a current audit.
+ * @summary Download the current audit as PDF
+ */
+export const getDownloadClaimAuditPdfUrl = (id: string) => {
+  return `/api/claims/${id}/download.pdf`;
+};
+
+export const downloadClaimAuditPdf = async (
+  id: string,
+  options?: RequestInit,
+): Promise<Blob> => {
+  return customFetch<Blob>(getDownloadClaimAuditPdfUrl(id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getDownloadClaimAuditPdfQueryKey = (id: string) => {
+  return [`/api/claims/${id}/download.pdf`] as const;
+};
+
+export const getDownloadClaimAuditPdfQueryOptions = <
+  TData = Awaited<ReturnType<typeof downloadClaimAuditPdf>>,
+  TError = ErrorType<
+    | BadRequestResponse
+    | UnauthorizedResponse
+    | ForbiddenResponse
+    | NotFoundResponse
+    | TooManyRequestsResponse
+    | InternalServerErrorResponse
+  >,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof downloadClaimAuditPdf>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getDownloadClaimAuditPdfQueryKey(id);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof downloadClaimAuditPdf>>
+  > = ({ signal }) => downloadClaimAuditPdf(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof downloadClaimAuditPdf>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type DownloadClaimAuditPdfQueryResult = NonNullable<
+  Awaited<ReturnType<typeof downloadClaimAuditPdf>>
+>;
+export type DownloadClaimAuditPdfQueryError = ErrorType<
+  | BadRequestResponse
+  | UnauthorizedResponse
+  | ForbiddenResponse
+  | NotFoundResponse
+  | TooManyRequestsResponse
+  | InternalServerErrorResponse
+>;
+
+/**
+ * @summary Download the current audit as PDF
+ */
+
+export function useDownloadClaimAuditPdf<
+  TData = Awaited<ReturnType<typeof downloadClaimAuditPdf>>,
+  TError = ErrorType<
+    | BadRequestResponse
+    | UnauthorizedResponse
+    | ForbiddenResponse
+    | NotFoundResponse
+    | TooManyRequestsResponse
+    | InternalServerErrorResponse
+  >,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof downloadClaimAuditPdf>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getDownloadClaimAuditPdfQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Requires `claims:read`; returns `404` until the claim has a current audit.
  * @summary Download the current audit as CSV
  */
 export const getDownloadClaimAuditCsvUrl = (id: string) => {

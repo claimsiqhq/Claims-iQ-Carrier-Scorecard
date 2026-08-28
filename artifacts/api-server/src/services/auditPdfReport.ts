@@ -1,4 +1,4 @@
-import { PDFDocument, type SKRSContext2D } from "@napi-rs/canvas";
+import { PDFDocument } from "@napi-rs/canvas";
 
 const PAGE_WIDTH = 612;
 const PAGE_HEIGHT = 792;
@@ -59,7 +59,7 @@ export function renderAuditPdfReport(input: AuditPdfReportInput): Buffer {
     creator: "Complete iQ Carrier Audit",
     producer: "Complete iQ",
   });
-  let context!: SKRSContext2D;
+  let context!: ReturnType<PDFDocument["beginPage"]>;
   let y = MARGIN;
   let pageNumber = 0;
 

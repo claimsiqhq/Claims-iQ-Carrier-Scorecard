@@ -1520,6 +1520,44 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /claims/{id}/download.pdf:
+    get:
+      operationId: downloadClaimAuditPdf
+      tags: [Claims, Audits]
+      summary: Download the current audit as PDF
+      description: Requires `claims:read`; returns `404` until the claim has a current audit.
+      parameters:
+        - $ref: "#/components/parameters/ClaimId"
+      responses:
+        "200":
+          description: Generated Complete iQ carrier audit PDF.
+          headers:
+            Content-Disposition:
+              description: PDF attachment filename derived from the claim number.
+              schema:
+                type: string
+            Content-Length:
+              schema:
+                type: integer
+                format: int64
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
   /claims/{id}/download:
     get:
       operationId: downloadClaimAuditCsv

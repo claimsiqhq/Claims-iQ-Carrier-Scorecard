@@ -221,6 +221,18 @@ async function mockAuthenticatedApi(page: Page) {
       await fulfillJson(route, { activity: [] })
       return
     }
+    if (url.pathname === `/api/claims/${claim.id}/download.pdf`) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/pdf",
+        headers: {
+          "Content-Disposition":
+            'attachment; filename="CIQ-2026-001_audit_report.pdf"',
+        },
+        body: Buffer.from("%PDF-1.4 synthetic audit report"),
+      })
+      return
+    }
     if (
       url.pathname
       === `/api/documents/${claimDetail.documents[0].id}/renditions`
@@ -436,6 +448,21 @@ test("mobile claim review opens the page viewer without navigation", async ({
 
   await page.getByRole("button", { name: "Close" }).click()
   await expect(page.getByRole("heading", { name: "Source document viewer" })).toHaveCount(0)
+})
+
+test("completed audit PDF action downloads a PDF file", async ({ page }) => {
+  await mockAuthenticatedApi(page)
+  await page.goto(`/claims/${claim.id}`)
+
+  const link = page.getByRole("link", { name: "PDF", exact: true })
+  await expect(link).toHaveAttribute(
+    "href",
+    `/api/claims/${claim.id}/download.pdf`,
+  )
+  await expect(link).toHaveAttribute(
+    "download",
+    "CIQ-2026-001_audit_report.pdf",
+  )
 })
 
 test("tenant users cannot enumerate platform carrier rulesets", async ({ page }) => {

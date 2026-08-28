@@ -382,7 +382,8 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ to }),
     }),
-  reportUrl: (id: string) => endpoint(`/claims/${encodeURIComponent(id)}/download`),
+  reportUrl: (id: string) =>
+    endpoint(`/claims/${encodeURIComponent(id)}/download.pdf`),
 
   getCarrierOptions: () => apiRequest<CarrierOption[]>("/carriers"),
   getCarriers: () => apiRequest<CarrierProfile[]>("/platform/carriers"),

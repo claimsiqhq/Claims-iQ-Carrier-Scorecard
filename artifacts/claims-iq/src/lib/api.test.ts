@@ -68,4 +68,10 @@ describe("frontend API contract", () => {
       carrierEntityId: "10000000-0000-4000-8000-000000000001",
     })
   })
+
+  it("routes completed audit PDF downloads to the binary endpoint", () => {
+    expect(api.reportUrl("claim-1")).toMatch(
+      /\/claims\/claim-1\/download\.pdf$/,
+    )
+  })
 })

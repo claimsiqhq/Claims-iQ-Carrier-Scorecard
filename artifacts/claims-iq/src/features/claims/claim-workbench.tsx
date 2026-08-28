@@ -521,12 +521,17 @@ export default function ClaimWorkbench({ claimId }: { claimId: string }) {
             )}
             {audit && (
               <Button
+                asChild
                 variant="outline"
                 className="border-white/20 bg-transparent text-white hover:bg-white/10"
-                onClick={() => window.open(api.reportUrl(claimId), "_blank", "noopener,noreferrer")}
               >
-                <Download aria-hidden="true" />
-                PDF
+                <a
+                  href={api.reportUrl(claimId)}
+                  download={`${claim.claimNumber || "claim"}_audit_report.pdf`}
+                >
+                  <Download aria-hidden="true" />
+                  PDF
+                </a>
               </Button>
             )}
             <Button
