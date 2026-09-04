@@ -19,6 +19,7 @@ import { organizations } from "./organizations";
 export const carrierEntityKeys = {
   allstate: "allstate",
   andover: "andover",
+  assurant: "assurant",
   bayStateInsuranceCompany: "bay-state-insurance-company",
   cambridgeMutual: "cambridge-mutual",
   merrimackMutual: "merrimack-mutual",

@@ -127,6 +127,13 @@ const KNOWN_ENTITY_ALIASES: Readonly<Record<string, readonly string[]>> = {
     "andover companies",
     "the andover companies",
   ],
+  assurant: [
+    "assurant",
+    "assurant inc",
+    "assurant specialty property",
+    "american bankers insurance company of florida",
+    "american security insurance company",
+  ],
   "bay-state-insurance-company": [
     "bay state",
     "bay state insurance",

@@ -40,6 +40,11 @@ const fixtureAndStorageFiles = [
 const cutoverFile = "20260810232004_carrier_tenant_data_cutover.sql";
 const manifestFile = "testing/prepare_carrier_tenant_storage_manifest.sql";
 const validationFile = "testing/validate_carrier_tenant_cutover.sql";
+const postCutoverFiles = [
+  "20260812001000_frictionless_tenant_switching.sql",
+  "20260904160000_purge_allstate_wawanesa_tenants.sql",
+  "20260904161000_assurant_tenant_and_andover_realignment.sql",
+];
 
 const client = new Client({ connectionString: databaseUrl });
 
@@ -166,6 +171,16 @@ try {
   await apply(validationFile);
   process.stdout.write(
     "Verified successful carrier tenant cutover and SQL idempotency.\n",
+  );
+
+  for (const relativePath of postCutoverFiles) {
+    await apply(relativePath);
+  }
+  for (const relativePath of postCutoverFiles) {
+    await apply(relativePath);
+  }
+  process.stdout.write(
+    "Verified tenant purge, Assurant tenant creation, Andover realignment, and their SQL idempotency.\n",
   );
 
   await resetFixture();

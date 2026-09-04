@@ -299,9 +299,11 @@ class SupabaseMigrationStorageAdapter implements MigrationStorageAdapter {
   }
 }
 
-export function createSupabaseMigrationStorageAdapter(
+// Migration-only Supabase client. It authenticates with the dedicated
+// MIGRATION_SUPABASE_SERVICE_ROLE secret, never the runtime service-role name.
+export function createMigrationSupabaseClient(
   environment: Record<string, string | undefined> = process.env,
-): MigrationStorageAdapter {
+): SupabaseClient {
   const supabaseUrl = validateSupabaseUrl(
     requiredEnvironmentValue(environment, "SUPABASE_URL"),
   );
@@ -309,14 +311,21 @@ export function createSupabaseMigrationStorageAdapter(
     environment,
     "MIGRATION_SUPABASE_SERVICE_ROLE",
   );
-  const client = createClient(supabaseUrl, serviceRole, {
+  return createClient(supabaseUrl, serviceRole, {
     auth: {
       autoRefreshToken: false,
       detectSessionInUrl: false,
       persistSession: false,
     },
   });
-  return new SupabaseMigrationStorageAdapter(client);
+}
+
+export function createSupabaseMigrationStorageAdapter(
+  environment: Record<string, string | undefined> = process.env,
+): MigrationStorageAdapter {
+  return new SupabaseMigrationStorageAdapter(
+    createMigrationSupabaseClient(environment),
+  );
 }
 
 export function resolveCarrierMapping(carrier: string): {

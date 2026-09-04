@@ -11,6 +11,10 @@ import {
   isMigrationFilename,
   removeOuterTransaction,
 } from "./migrations/migrationFiles";
+import {
+  runTenantStoragePurge,
+  TENANT_PURGE_MIGRATION,
+} from "./migrations/tenantStoragePurge";
 
 const MIGRATION_LOCK = "complete_iq_schema_migrations";
 const CARRIER_TENANT_CUTOVER_MIGRATION =
@@ -97,6 +101,18 @@ async function migrate(): Promise<void> {
         logger.info(
           storageResult,
           "Carrier tenant storage copy verified before SQL cutover",
+        );
+      }
+
+      if (filename === TENANT_PURGE_MIGRATION) {
+        // Storage objects are removed before the SQL purge so a failed deploy
+        // retries cleanly: the purge is idempotent and an empty prefix is fine.
+        const purgeResult = await runTenantStoragePurge(
+          client as unknown as MigrationDatabaseClient,
+        );
+        logger.info(
+          purgeResult,
+          "Retired tenant storage purge verified before SQL purge",
         );
       }
 
